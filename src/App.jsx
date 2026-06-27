@@ -133,41 +133,11 @@ export default function App() {
 
   return (
     <div className="min-h-full" style={{ background: 'var(--s-bg)' }}>
+      {/* Banner — full width */}
+      <img src="/banner.png" alt="Shelfstation" className="w-full block" />
+
       {/* Centered column */}
-      <div className="max-w-2xl mx-auto">
-
-        {/* Header */}
-        <div className="flex items-center justify-between px-4 pt-5 pb-1">
-          <h1 className="text-lg font-medium tracking-widest" style={{ color: 'var(--s-accent)' }}>
-            shelf
-          </h1>
-          <div className="flex items-center gap-3">
-            {activeView === 'bookmarks' && (
-              <span className="text-xs" style={{ color: 'var(--s-border)' }}>
-                {search ? `${filteredCards.length} of ${cards.length}` : `${cards.length} item${cards.length !== 1 ? 's' : ''}`}
-              </span>
-            )}
-            <ThemePicker current={theme} onChange={(id) => { applyTheme(id); setTheme(id) }} />
-          </div>
-        </div>
-
-        {/* View switcher */}
-        <div className="flex items-center gap-3 px-4 pb-2" style={{ marginTop: 2 }}>
-          {['bookmarks', 'notes'].map(v => (
-            <button
-              key={v}
-              onClick={() => setActiveView(v)}
-              style={{
-                fontSize: 10, letterSpacing: '0.14em', fontFamily: 'inherit',
-                color: activeView === v ? 'var(--s-accent)' : 'var(--s-text-3)',
-                borderBottom: activeView === v ? '1px solid var(--s-accent)' : '1px solid transparent',
-                paddingBottom: 2, transition: 'color 0.15s, border-color 0.15s'
-              }}
-            >
-              {v.toUpperCase()}
-            </button>
-          ))}
-        </div>
+      <div className="max-w-2xl mx-auto pb-16">
 
         {activeView === 'bookmarks' && (
           <>
@@ -226,7 +196,7 @@ export default function App() {
 
       </div>
 
-      {/* FAB — fixed, not inside the column */}
+      {/* FAB — sits above the bottom bar */}
       {activeView === 'bookmarks' && activeCatId && (
         <motion.button
           whileHover={{ scale: 1.06 }}
@@ -234,7 +204,7 @@ export default function App() {
           onClick={() => setShowAddCard(true)}
           className="fixed right-6 w-14 h-14 rounded-full flex items-center justify-center text-2xl font-light z-40"
           style={{
-            bottom: 'calc(1.5rem + env(safe-area-inset-bottom))',
+            bottom: 'calc(3.5rem + env(safe-area-inset-bottom))',
             background: 'var(--s-accent)',
             color: 'var(--s-bg)',
             boxShadow: '0 0 24px var(--s-accent-glow), 0 4px 16px rgba(0,0,0,0.4)'
@@ -243,6 +213,35 @@ export default function App() {
           +
         </motion.button>
       )}
+
+      {/* Bottom tab bar */}
+      <div
+        className="fixed bottom-0 left-0 right-0 flex items-center justify-between px-6 z-30"
+        style={{
+          height: 'calc(2.75rem + env(safe-area-inset-bottom))',
+          paddingBottom: 'env(safe-area-inset-bottom)',
+          background: 'var(--s-bg)',
+          borderTop: '1px solid var(--s-border)',
+        }}
+      >
+        <div className="flex items-center gap-4">
+          {['bookmarks', 'notes'].map(v => (
+            <button
+              key={v}
+              onClick={() => setActiveView(v)}
+              style={{
+                fontSize: 10, letterSpacing: '0.14em', fontFamily: 'inherit',
+                color: activeView === v ? 'var(--s-accent)' : 'var(--s-text-3)',
+                borderBottom: activeView === v ? '1px solid var(--s-accent)' : '1px solid transparent',
+                paddingBottom: 2, transition: 'color 0.15s, border-color 0.15s'
+              }}
+            >
+              {v.toUpperCase()}
+            </button>
+          ))}
+        </div>
+        <ThemePicker current={theme} onChange={(id) => { applyTheme(id); setTheme(id) }} />
+      </div>
 
       <AnimatePresence>
         {showAddCard && (
