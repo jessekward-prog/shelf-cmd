@@ -139,7 +139,7 @@ export default function App() {
   return (
     <div className="min-h-full" style={{ background: 'var(--s-bg)' }}>
       {/* Banner — full width */}
-      <img src="/banner.png" alt="Shelfstation" className="w-full block" />
+      <img src="/banner.png" alt="Shelfstation" className="w-full block" style={{ borderBottom: '2px solid #6b0f0f' }} />
 
       {/* Centered column */}
       <div className="max-w-2xl mx-auto pb-16">
