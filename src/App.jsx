@@ -137,17 +137,10 @@ export default function App() {
       <img src="/banner.png" alt="Shelfstation" className="w-full block" />
 
       {/* Centered column */}
-      <div className="max-w-2xl mx-auto pb-16">
+      <div className="max-w-2xl mx-auto pb-32">
 
         {activeView === 'bookmarks' && (
           <>
-            <CategoryNav
-              categories={categories}
-              activeId={activeCatId}
-              onSelect={selectCategory}
-              onAdd={() => setShowAddCat(true)}
-            />
-
             {subcategories.length > 0 && (
               <SubcategoryTabs
                 subcategories={subcategories}
@@ -204,7 +197,7 @@ export default function App() {
           onClick={() => setShowAddCard(true)}
           className="fixed right-6 w-14 h-14 rounded-full flex items-center justify-center text-2xl font-light z-40"
           style={{
-            bottom: 'calc(3.5rem + env(safe-area-inset-bottom))',
+            bottom: 'calc(6rem + env(safe-area-inset-bottom))',
             background: 'var(--s-accent)',
             color: 'var(--s-bg)',
             boxShadow: '0 0 24px var(--s-accent-glow), 0 4px 16px rgba(0,0,0,0.4)'
@@ -214,33 +207,38 @@ export default function App() {
         </motion.button>
       )}
 
-      {/* Bottom tab bar */}
+      {/* Bottom bar */}
       <div
-        className="fixed bottom-0 left-0 right-0 flex items-center justify-between px-6 z-30"
-        style={{
-          height: 'calc(2.75rem + env(safe-area-inset-bottom))',
-          paddingBottom: 'env(safe-area-inset-bottom)',
-          background: 'var(--s-bg)',
-          borderTop: '1px solid var(--s-border)',
-        }}
+        className="fixed bottom-0 left-0 right-0 z-30 flex flex-col"
+        style={{ background: 'var(--s-bg)', borderTop: '1px solid var(--s-border)', paddingBottom: 'env(safe-area-inset-bottom)' }}
       >
-        <div className="flex items-center gap-4">
-          {['bookmarks', 'notes'].map(v => (
-            <button
-              key={v}
-              onClick={() => setActiveView(v)}
-              style={{
-                fontSize: 10, letterSpacing: '0.14em', fontFamily: 'inherit',
-                color: activeView === v ? 'var(--s-accent)' : 'var(--s-text-3)',
-                borderBottom: activeView === v ? '1px solid var(--s-accent)' : '1px solid transparent',
-                paddingBottom: 2, transition: 'color 0.15s, border-color 0.15s'
-              }}
-            >
-              {v.toUpperCase()}
-            </button>
-          ))}
+        {/* Category nav row */}
+        <CategoryNav
+          categories={categories}
+          activeId={activeCatId}
+          onSelect={selectCategory}
+          onAdd={() => setShowAddCat(true)}
+        />
+        {/* View + theme row */}
+        <div className="flex items-center justify-between px-6" style={{ height: '2.75rem' }}>
+          <div className="flex items-center gap-4">
+            {['bookmarks', 'notes'].map(v => (
+              <button
+                key={v}
+                onClick={() => setActiveView(v)}
+                style={{
+                  fontSize: 10, letterSpacing: '0.14em', fontFamily: 'inherit',
+                  color: activeView === v ? 'var(--s-accent)' : 'var(--s-text-3)',
+                  borderBottom: activeView === v ? '1px solid var(--s-accent)' : '1px solid transparent',
+                  paddingBottom: 2, transition: 'color 0.15s, border-color 0.15s'
+                }}
+              >
+                {v.toUpperCase()}
+              </button>
+            ))}
+          </div>
+          <ThemePicker current={theme} onChange={(id) => { applyTheme(id); setTheme(id) }} />
         </div>
-        <ThemePicker current={theme} onChange={(id) => { applyTheme(id); setTheme(id) }} />
       </div>
 
       <AnimatePresence>

@@ -56,12 +56,12 @@ export default function ThemePicker({ current, onChange }) {
           <>
             <div style={{ position: 'fixed', inset: 0, zIndex: 49 }} onClick={() => setOpen(false)} />
             <motion.div
-              initial={{ opacity: 0, y: -6, scale: 0.95 }}
+              initial={{ opacity: 0, y: 6, scale: 0.95 }}
               animate={{ opacity: 1, y: 0, scale: 1 }}
-              exit={{ opacity: 0, y: -4, scale: 0.95 }}
+              exit={{ opacity: 0, y: 4, scale: 0.95 }}
               transition={{ duration: 0.12 }}
               style={{
-                position: 'absolute', right: 0, top: 28, zIndex: 50,
+                position: 'absolute', right: 0, bottom: 28, zIndex: 50,
                 background: 'var(--s-surface)',
                 border: '1px solid var(--s-border)',
                 borderRadius: 10, padding: '10px 12px',
