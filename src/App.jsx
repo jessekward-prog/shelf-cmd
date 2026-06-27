@@ -142,10 +142,17 @@ export default function App() {
       <img src="/banner.png" alt="Shelfstation" className="w-full block" />
 
       {/* Centered column */}
-      <div className="max-w-2xl mx-auto pb-32">
+      <div className="max-w-2xl mx-auto pb-16">
 
         {activeView === 'bookmarks' && (
           <>
+            <CategoryNav
+              categories={categories}
+              activeId={activeCatId}
+              onSelect={selectCategory}
+              onAdd={() => setShowAddCat(true)}
+            />
+
             {subcategories.length > 0 && (
               <SubcategoryTabs
                 subcategories={subcategories}
@@ -202,7 +209,7 @@ export default function App() {
           onClick={() => setShowAddCard(true)}
           className="fixed right-6 w-14 h-14 rounded-full flex items-center justify-center text-2xl font-light z-40"
           style={{
-            bottom: 'calc(6rem + env(safe-area-inset-bottom))',
+            bottom: 'calc(3.5rem + env(safe-area-inset-bottom))',
             background: 'var(--s-accent)',
             color: 'var(--s-bg)',
             boxShadow: '0 0 24px var(--s-accent-glow), 0 4px 16px rgba(0,0,0,0.4)'
@@ -214,17 +221,9 @@ export default function App() {
 
       {/* Bottom bar */}
       <div
-        className="fixed bottom-0 left-0 right-0 z-30 flex flex-col"
+        className="fixed bottom-0 left-0 right-0 z-30"
         style={{ background: 'var(--s-bg)', borderTop: '1px solid var(--s-border)', paddingBottom: 'env(safe-area-inset-bottom)' }}
       >
-        {/* Category nav row */}
-        <CategoryNav
-          categories={categories}
-          activeId={activeCatId}
-          onSelect={selectCategory}
-          onAdd={() => setShowAddCat(true)}
-        />
-        {/* View + theme row */}
         <div className="flex items-center justify-between px-6" style={{ height: '2.75rem' }}>
           <div className="flex items-center gap-4">
             {['bookmarks', 'notes'].map(v => (
