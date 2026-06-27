@@ -57,8 +57,8 @@ function NumPad({ onDigit, onBack }) {
 export default function PinGate({ children }) {
   // Apply saved theme before first paint so login screen is already themed
   useEffect(() => {
-    applyTheme(getSavedTheme())
-    applyIntensity(getSavedIntensity())
+    applyTheme('cmd')
+    applyIntensity(getSavedIntensity(), 'cmd')
     applyFont(getSavedFont())
     applyOverlay(getSavedOverlay())
   }, [])

@@ -9,7 +9,7 @@ import AddCategoryModal from './components/AddCategoryModal.jsx'
 import ThemePicker from './components/ThemePicker.jsx'
 import NotesTab from './components/NotesTab.jsx'
 import * as api from './api.js'
-import { getSavedTheme, applyTheme } from './themes.js'
+import { getSavedTheme, applyTheme, getSavedIntensity, applyIntensity } from './themes.js'
 
 export default function App() {
   const [theme, setTheme] = useState(getSavedTheme)
@@ -48,6 +48,11 @@ export default function App() {
       loaded.filter(c => c.status === 'pending').forEach(c => startPolling(c.id))
     })
   }, [startPolling])
+
+  useEffect(() => {
+    applyTheme(theme)
+    applyIntensity(getSavedIntensity(), theme)
+  }, [])
 
   useEffect(() => {
     api.getCategories().then((cats) => {

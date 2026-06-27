@@ -35,7 +35,7 @@ function hexToRgb(hex) {
 }
 
 export function getSavedTheme() {
-  try { return localStorage.getItem(THEME_KEY) || 'phosphor' } catch { return 'phosphor' }
+  try { return localStorage.getItem(THEME_KEY) || 'cmd' } catch { return 'cmd' }
 }
 
 export function getSavedIntensity() {
