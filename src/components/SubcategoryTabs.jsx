@@ -4,6 +4,7 @@ import { motion, AnimatePresence, Reorder } from 'framer-motion'
 export default function SubcategoryTabs({ subcategories, activeId, onSelect, onAdd, onDelete, onReorder, onReorderEnd }) {
   const [hoverId, setHoverId] = useState(null)
   const [confirmId, setConfirmId] = useState(null)
+  const [reordering, setReordering] = useState(false)
 
   return (
     <div className="flex items-center gap-2 px-4 pb-4 overflow-x-auto no-scrollbar">
@@ -31,14 +32,16 @@ export default function SubcategoryTabs({ subcategories, activeId, onSelect, onA
             key={sub.id}
             value={sub}
             as="div"
+            dragListener={reordering}
             onDragEnd={onReorderEnd}
             whileDrag={{ scale: 1.05, zIndex: 10 }}
-            className="relative flex-shrink-0 cursor-grab active:cursor-grabbing"
-            onMouseEnter={() => setHoverId(sub.id)}
+            className="relative flex-shrink-0"
+            style={{ cursor: reordering ? 'grab' : 'auto' }}
+            onMouseEnter={() => { if (!reordering) setHoverId(sub.id) }}
             onMouseLeave={() => { setHoverId(null); setConfirmId(null) }}
           >
             <button
-              onClick={() => { setConfirmId(null); onSelect(sub.id) }}
+              onClick={() => { if (!reordering) { setConfirmId(null); onSelect(sub.id) } }}
               className="text-xs px-3 py-1 rounded whitespace-nowrap transition-colors"
               style={{
                 paddingRight: hoverId === sub.id ? '1.5rem' : undefined,
@@ -50,7 +53,7 @@ export default function SubcategoryTabs({ subcategories, activeId, onSelect, onA
             </button>
 
             <AnimatePresence>
-              {hoverId === sub.id && confirmId !== sub.id && (
+              {!reordering && hoverId === sub.id && confirmId !== sub.id && (
                 <motion.button
                   key="x"
                   initial={{ opacity: 0, scale: 0.7 }}
@@ -65,7 +68,7 @@ export default function SubcategoryTabs({ subcategories, activeId, onSelect, onA
                 </motion.button>
               )}
 
-              {confirmId === sub.id && (
+              {!reordering && confirmId === sub.id && (
                 <motion.button
                   key="confirm"
                   initial={{ opacity: 0, scale: 0.8 }}
@@ -89,6 +92,15 @@ export default function SubcategoryTabs({ subcategories, activeId, onSelect, onA
         style={{ color: 'var(--s-border)' }}
       >
         + tab
+      </button>
+
+      <button
+        onClick={() => setReordering(r => !r)}
+        className="text-xs px-2 py-1 rounded flex-shrink-0"
+        title={reordering ? 'Done reordering' : 'Reorder'}
+        style={{ color: reordering ? 'var(--s-accent)' : 'var(--s-border)' }}
+      >
+        ⇄
       </button>
     </div>
   )
