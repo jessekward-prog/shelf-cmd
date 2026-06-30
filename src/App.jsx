@@ -24,6 +24,8 @@ export default function App() {
   const [direction, setDirection] = useState(1)
   const [activeView, setActiveView] = useState('bookmarks')
   const pollTimers = useRef({})
+  const latestCats = useRef([])
+  const latestSubs = useRef([])
 
   const startPolling = useCallback((id) => {
     if (pollTimers.current[id]) return
@@ -130,6 +132,24 @@ export default function App() {
     if (activeSubcatId === id) setActiveSubcatId(null)
   }
 
+  const handleReorderCategories = (newOrder) => {
+    setCategories(newOrder)
+    latestCats.current = newOrder
+  }
+
+  const saveCategoryOrder = useCallback(() => {
+    api.reorderCategories(latestCats.current.map((c, i) => ({ id: c.id, sort_order: i })))
+  }, [])
+
+  const handleReorderSubcategories = (newOrder) => {
+    setSubcategories(newOrder)
+    latestSubs.current = newOrder
+  }
+
+  const saveSubcategoryOrder = useCallback(() => {
+    api.reorderSubcategories(latestSubs.current.map((s, i) => ({ id: s.id, sort_order: i })))
+  }, [])
+
   const pageVariants = {
     enter: (dir) => ({ x: dir > 0 ? 40 : -40, opacity: 0 }),
     center: { x: 0, opacity: 1 },
@@ -153,6 +173,8 @@ export default function App() {
               activeId={activeCatId}
               onSelect={selectCategory}
               onAdd={() => setShowAddCat(true)}
+              onReorder={handleReorderCategories}
+              onReorderEnd={saveCategoryOrder}
             />
 
             {subcategories.length > 0 && (
@@ -162,6 +184,8 @@ export default function App() {
                 onSelect={setActiveSubcatId}
                 onAdd={handleAddSubcategory}
                 onDelete={handleDeleteSubcategory}
+                onReorder={handleReorderSubcategories}
+                onReorderEnd={saveSubcategoryOrder}
               />
             )}
 

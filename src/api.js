@@ -18,6 +18,8 @@ export const deleteCategory = (id) => req('DELETE', `/categories/${id}`)
 export const getSubcategories = (catId) => req('GET', `/categories/${catId}/subcategories`)
 export const createSubcategory = (catId, name) => req('POST', `/categories/${catId}/subcategories`, { name })
 export const deleteSubcategory = (id) => req('DELETE', `/subcategories/${id}`)
+export const reorderCategories = (order) => req('PUT', '/categories/reorder', { order })
+export const reorderSubcategories = (order) => req('PUT', '/subcategories/reorder', { order })
 
 export const getCards = (catId, subcatId) =>
   req('GET', `/categories/${catId}/cards${subcatId ? `?subcategory_id=${subcatId}` : ''}`)

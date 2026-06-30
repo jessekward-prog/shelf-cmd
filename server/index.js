@@ -431,6 +431,14 @@ app.post('/api/categories', async (req, res) => {
   res.json(rows[0])
 })
 
+app.put('/api/categories/reorder', async (req, res) => {
+  const { order } = req.body
+  await Promise.all(order.map(({ id, sort_order }) =>
+    pool.query('UPDATE categories SET sort_order=$1 WHERE id=$2', [sort_order, id])
+  ))
+  res.json({ ok: true })
+})
+
 app.put('/api/categories/:id', async (req, res) => {
   const { name, icon } = req.body
   const { rows } = await pool.query(
@@ -462,6 +470,14 @@ app.post('/api/categories/:id/subcategories', async (req, res) => {
     [req.params.id, name]
   )
   res.json(rows[0])
+})
+
+app.put('/api/subcategories/reorder', async (req, res) => {
+  const { order } = req.body
+  await Promise.all(order.map(({ id, sort_order }) =>
+    pool.query('UPDATE subcategories SET sort_order=$1 WHERE id=$2', [sort_order, id])
+  ))
+  res.json({ ok: true })
 })
 
 app.delete('/api/subcategories/:id', async (req, res) => {
