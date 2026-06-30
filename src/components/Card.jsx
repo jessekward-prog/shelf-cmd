@@ -292,7 +292,7 @@ export default function Card({ card, onDelete, onUpdate }) {
 
       <div className="p-3">
         {card.title && (
-          <p className="text-sm font-medium leading-snug mb-1" style={{ color: 'var(--s-text-0)' }}>
+          <p className="text-sm font-medium leading-snug mb-1 line-clamp-2" style={{ color: 'var(--s-text-0)' }}>
             {card.title}
           </p>
         )}
@@ -319,10 +319,11 @@ export default function Card({ card, onDelete, onUpdate }) {
         {card.url && !hasMedia && (
           <a
             href={card.url} target="_blank" rel="noreferrer"
-            className="text-xs mt-1 block truncate hover:underline"
+            className="text-xs mt-1 inline-flex items-center gap-1 hover:underline"
             style={{ color: 'var(--s-border)' }}
           >
-            {card.url}
+            {(() => { try { return new URL(card.url).hostname.replace('www.', '') } catch { return card.url } })()}
+            <span style={{ fontSize: 9 }}>↗</span>
           </a>
         )}
 

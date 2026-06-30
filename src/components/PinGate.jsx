@@ -161,8 +161,8 @@ export default function PinGate({ children }) {
     }}>
       <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 16 }}>
         <img src="/logo.png" alt="ShelfStation" style={{ width: 120, height: 'auto', borderRadius: 8 }} />
-        <span style={{ color: 'var(--s-accent)', fontSize: 22, letterSpacing: '0.25em', fontFamily: 'inherit' }}>
-          shelf
+        <span style={{ color: 'var(--s-accent)', fontSize: 13, letterSpacing: '0.35em', fontFamily: 'inherit' }}>
+          SHELFSTATION
         </span>
       </div>
 

@@ -1,11 +1,11 @@
 {
-  "name": "shelf",
-  "short_name": "shelf",
-  "description": "Your personal shelf",
+  "name": "ShelfStation",
+  "short_name": "ShelfStation",
+  "description": "Personal bookmark and link station",
   "start_url": "/",
   "display": "standalone",
-  "background_color": "#0e0a00",
-  "theme_color": "#e8840a",
+  "background_color": "#000000",
+  "theme_color": "#000000",
   "orientation": "portrait-primary",
   "icons": [
     {

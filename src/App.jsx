@@ -191,7 +191,7 @@ export default function App() {
 
             {subcategories.length === 0 && activeCatId && (
               <div className="px-4 pb-3">
-                <button onClick={handleAddSubcategory} className="text-xs" style={{ color: '#3d2e00' }}>
+                <button onClick={handleAddSubcategory} className="text-xs" style={{ color: 'var(--s-text-3)' }}>
                   + add tab
                 </button>
               </div>
