@@ -138,8 +138,8 @@ export default function App() {
 
   return (
     <div className="min-h-full" style={{ background: 'var(--s-bg)' }}>
-      {/* Banner — full width */}
-      <div style={{ borderTop: '2px solid #6b0f0f', borderBottom: '2px solid #6b0f0f' }}>
+      {/* Banner */}
+      <div className="max-w-2xl mx-auto" style={{ borderTop: '2px solid #6b0f0f', borderBottom: '2px solid #6b0f0f' }}>
         <img src="/banner.png" alt="Shelfstation" className="w-full block" />
       </div>
 
