@@ -23,6 +23,7 @@ export default function App() {
   const [showAddCat, setShowAddCat] = useState(false)
   const [direction, setDirection] = useState(1)
   const [activeView, setActiveView] = useState('bookmarks')
+  const [nowPlaying, setNowPlaying] = useState(null)
   const pollTimers = useRef({})
   const latestCats = useRef([])
   const latestSubs = useRef([])
@@ -76,6 +77,10 @@ export default function App() {
     setSearch('')
     loadCards(activeCatId, activeSubcatId)
   }, [activeSubcatId])
+
+  useEffect(() => {
+    if (nowPlaying && !cards.some(c => c.id === nowPlaying.id)) setNowPlaying(null)
+  }, [cards])
 
   const filteredCards = search.trim()
     ? cards.filter((c) => {
@@ -166,8 +171,7 @@ export default function App() {
       {/* Centered column */}
       <div className="max-w-2xl mx-auto pb-16">
 
-        {activeView === 'bookmarks' && (
-          <>
+        <div style={{ display: activeView === 'bookmarks' ? 'block' : 'none' }}>
             <CategoryNav
               categories={categories}
               activeId={activeCatId}
@@ -215,13 +219,19 @@ export default function App() {
                     exit="exit"
                     transition={{ type: 'spring', damping: 28, stiffness: 260 }}
                   >
-                    <CardGrid cards={filteredCards} onDelete={handleDeleteCard} onUpdate={handleUpdateCard} search={search} />
+                    <CardGrid
+                      cards={filteredCards}
+                      onDelete={handleDeleteCard}
+                      onUpdate={handleUpdateCard}
+                      search={search}
+                      nowPlayingId={nowPlaying?.id}
+                      onPlay={(card) => setNowPlaying({ id: card.id, title: card.title })}
+                    />
                   </motion.div>
                 )}
               </AnimatePresence>
             </div>
-          </>
-        )}
+        </div>
 
         {activeView === 'notes' && <NotesTab />}
 
@@ -244,6 +254,42 @@ export default function App() {
           +
         </motion.button>
       )}
+
+      {/* Now-playing bar — lets you pause a video from any tab */}
+      <AnimatePresence>
+        {nowPlaying && (
+          <motion.div
+            initial={{ y: 20, opacity: 0 }}
+            animate={{ y: 0, opacity: 1 }}
+            exit={{ y: 20, opacity: 0 }}
+            className="fixed z-40 flex items-center gap-2 pl-3 pr-1.5 py-1.5 rounded-full"
+            style={{
+              left: '50%',
+              transform: 'translateX(-50%)',
+              bottom: 'calc(3.5rem + env(safe-area-inset-bottom) + 10px)',
+              maxWidth: 'calc(100vw - 2rem)',
+              background: 'var(--s-surface)',
+              border: '1px solid var(--s-border)',
+              boxShadow: '0 4px 16px rgba(0,0,0,0.4)'
+            }}
+          >
+            <span className="text-xs truncate" style={{ color: 'var(--s-text-2)', maxWidth: 200 }}>
+              {nowPlaying.title || 'playing'}
+            </span>
+            <button
+              onClick={() => setNowPlaying(null)}
+              className="flex items-center justify-center w-7 h-7 rounded-full flex-shrink-0"
+              style={{ background: 'var(--s-accent)' }}
+              aria-label="Pause"
+            >
+              <svg viewBox="0 0 24 24" className="w-3 h-3" fill="var(--s-bg)">
+                <rect x="6" y="5" width="4" height="14" />
+                <rect x="14" y="5" width="4" height="14" />
+              </svg>
+            </button>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* Bottom bar */}
       <div

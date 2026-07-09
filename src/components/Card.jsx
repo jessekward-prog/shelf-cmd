@@ -35,8 +35,7 @@ function PriceBadge({ price, currency }) {
   )
 }
 
-function MediaEmbed({ card, price, currency }) {
-  const [playing, setPlaying] = useState(false)
+function MediaEmbed({ card, price, currency, playing, onPlay }) {
   const embedUrl = card.metadata?.embed_url
   const aspect = card.metadata?.aspect
   const isAudio = aspect === 'audio'
@@ -112,7 +111,7 @@ function MediaEmbed({ card, price, currency }) {
   return (
     <div
       className="relative cursor-pointer"
-      onClick={() => setPlaying(true)}
+      onClick={onPlay}
       style={{ position: 'relative', paddingBottom }}
     >
       {card.thumbnail_url ? (
@@ -236,7 +235,7 @@ function SkeletonCard() {
   )
 }
 
-export default function Card({ card, onDelete, onUpdate }) {
+export default function Card({ card, onDelete, onUpdate, nowPlayingId, onPlay }) {
   if (card.status === 'pending') return <SkeletonCard />
   const [confirmDelete, setConfirmDelete] = useState(false)
   const [scraping, setScraping] = useState(false)
@@ -288,7 +287,15 @@ export default function Card({ card, onDelete, onUpdate }) {
       className="rounded-xl overflow-hidden relative"
       style={{ background: 'var(--s-surface)', border: '1px solid var(--s-border)' }}
     >
-      {hasMedia && <MediaEmbed card={card} price={card.metadata?.price} currency={card.metadata?.currency} />}
+      {hasMedia && (
+        <MediaEmbed
+          card={card}
+          price={card.metadata?.price}
+          currency={card.metadata?.currency}
+          playing={nowPlayingId === card.id}
+          onPlay={() => onPlay(card)}
+        />
+      )}
 
       <div className="p-3">
         {card.title && (
