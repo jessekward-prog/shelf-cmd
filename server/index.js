@@ -104,13 +104,18 @@ async function followRedirect(url) {
   }
 }
 
+function lmHeaders() {
+  const key = process.env.LM_STUDIO_API_KEY
+  return { 'Content-Type': 'application/json', ...(key && { Authorization: `Bearer ${key}` }) }
+}
+
 async function generateDescription(title, url) {
   const lmUrl = process.env.LM_STUDIO_URL || 'http://localhost:1234'
   const model = process.env.LM_STUDIO_MODEL || ''
   try {
     const res = await fetch(`${lmUrl}/v1/chat/completions`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: lmHeaders(),
       body: JSON.stringify({
         model: model || undefined,
         messages: [
@@ -363,7 +368,7 @@ app.post('/api/extract-image', async (req, res) => {
 
     const lmRes = await fetch(`${lmUrl}/v1/chat/completions`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: lmHeaders(),
       body: JSON.stringify({
         model: model || undefined,
         messages: [
@@ -632,7 +637,7 @@ async function scrapeAndUpdate(card, html) {
     try {
       const lmRes = await fetch(`${lmUrl}/v1/chat/completions`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: lmHeaders(),
         body: JSON.stringify({
           model: process.env.LM_STUDIO_MODEL || undefined,
           messages: [
@@ -709,7 +714,7 @@ async function lmComplete(messages, { maxTokens = 800, temperature = 0.4, timeou
   const lmUrl = process.env.LM_STUDIO_URL || 'http://localhost:1234'
   const res = await fetch(`${lmUrl}/v1/chat/completions`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: lmHeaders(),
     body: JSON.stringify({
       model: process.env.LM_STUDIO_MODEL || undefined,
       messages,
