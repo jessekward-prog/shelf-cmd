@@ -5,7 +5,7 @@ RUN npm ci
 COPY . .
 RUN npm run build
 
-FROM node:20-alpine
+FROM mcr.microsoft.com/playwright:v1.60.0-jammy
 WORKDIR /app
 COPY package*.json ./
 RUN npm ci --omit=dev
