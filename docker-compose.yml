@@ -1,0 +1,26 @@
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: shelf
+      POSTGRES_USER: shelf
+      POSTGRES_PASSWORD: shelf
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+
+  app:
+    build: .
+    ports:
+      - "3016:3016"
+    environment:
+      PORT: 3016
+      DATABASE_URL: postgresql://shelf:shelf@db:5432/shelf
+      TWITCH_PARENT: ${TWITCH_PARENT:-localhost}
+      LM_STUDIO_URL: ${LM_STUDIO_URL:-}
+      LM_STUDIO_MODEL: ${LM_STUDIO_MODEL:-}
+      LM_STUDIO_API_KEY: ${LM_STUDIO_API_KEY:-}
+    depends_on:
+      - db
+
+volumes:
+  pgdata:
