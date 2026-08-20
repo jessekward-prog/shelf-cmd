@@ -5,7 +5,9 @@ export default defineConfig({
   plugins: [react()],
   server: {
     proxy: {
-      '/api': 'http://localhost:3016'
+      '/api': process.env.VITE_PROXY || 'http://localhost:3016',
+      // Regex so the share-link prefix doesn't swallow /src during dev
+      '^/s/': process.env.VITE_PROXY || 'http://localhost:3016'
     }
   }
 })

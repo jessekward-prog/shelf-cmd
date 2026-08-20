@@ -3,8 +3,9 @@
 Your own self-hosted shelf for links. Save a URL and it detects the platform
 (YouTube, TikTok, Spotify, Instagram, and more), pulls a thumbnail or embed, and
 can optionally use a local LLM to write a description or turn a saved tutorial
-into a step-by-step plan. Organise cards into **shelves** and **tabs**, and
-**share a whole shelf** with someone else who runs their own copy.
+into a step-by-step plan. Organise cards into **shelves** and **tabs**, store
+**files** on each shelf's Drive, and **share a whole shelf** with someone else
+who runs their own copy.
 
 Everything lives in your own database on your own machine. Nothing is required
 in the cloud — sharing is opt-in and the rest works fully offline.
@@ -32,6 +33,18 @@ real domain.
 Tap the coloured dot (bottom bar on mobile, top-right on desktop) → **YOU** and
 set a username. It's the byline on cards you post, including on shelves you share
 into other people's instances, so do this before you share anything.
+
+## The Drive
+
+Every shelf has a **Drive** as well as its cards — flip the `Cards / Drive`
+switch at the top of any shelf. Drop files in and each becomes a card with a
+thumbnail (a real preview for images), the file size, and a short AI blurb
+describing what it is (when AI is enabled). Each file gets a **share link and a
+QR code**, so you can hand a file to anyone with a browser.
+
+Files are stored on your own box. With `docker compose` they live on a
+persistent `uploads` volume and survive rebuilds. Cap the size with
+`MAX_UPLOAD_MB` in `.env` if you want.
 
 ## Sharing a shelf
 

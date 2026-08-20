@@ -24,8 +24,14 @@ services:
       HUB_URL: ${HUB_URL:-}
       HUB_SYNC: ${HUB_SYNC:-}
       HUB_SYNC_MS: ${HUB_SYNC_MS:-}
+      # Drive uploads live on a persistent volume so files survive rebuilds.
+      UPLOADS_DIR: /app/uploads
+      MAX_UPLOAD_MB: ${MAX_UPLOAD_MB:-512}
+    volumes:
+      - uploads:/app/uploads
     depends_on:
       - db
 
 volumes:
   pgdata:
+  uploads:

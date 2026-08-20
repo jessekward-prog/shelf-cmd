@@ -10,12 +10,50 @@ import AddCardModal from './components/AddCardModal.jsx'
 import AddCategoryModal from './components/AddCategoryModal.jsx'
 import ThemePicker from './components/ThemePicker.jsx'
 import NotesTab from './components/NotesTab.jsx'
+import DrivePage from './components/DrivePage.jsx'
 import MembersBar from './components/MembersBar.jsx'
 import InviteModal from './components/InviteModal.jsx'
 import JoinModal from './components/JoinModal.jsx'
 import * as api from './api.js'
 import { hasAI, buildCard } from './ai.js'
 import { getSavedTheme, applyTheme, getSavedIntensity, applyIntensity } from './themes.js'
+
+// Aesthetic [ Cards | Drive ] switch, shown for the active shelf in every tab.
+function ModeToggle({ mode, onMode }) {
+  const opts = [
+    { id: 'cards', label: 'CARDS' },
+    { id: 'drive', label: 'DRIVE' },
+  ]
+  return (
+    <div className="inline-flex rounded-lg p-0.5" style={{ background: 'var(--s-surface)', border: '1px solid var(--s-border)' }}>
+      {opts.map(o => {
+        const active = mode === o.id
+        return (
+          <button
+            key={o.id}
+            onClick={() => onMode(o.id)}
+            className="relative px-3 py-1 rounded-md"
+            style={{
+              fontSize: 10, letterSpacing: '0.14em', fontFamily: 'inherit',
+              color: active ? 'var(--s-bg)' : 'var(--s-text-2)',
+              transition: 'color 0.15s'
+            }}
+          >
+            {active && (
+              <motion.span
+                layoutId="mode-pill"
+                className="absolute inset-0 rounded-md"
+                style={{ background: 'var(--s-accent)', boxShadow: '0 0 10px var(--s-accent-glow)' }}
+                transition={{ type: 'spring', damping: 26, stiffness: 320 }}
+              />
+            )}
+            <span className="relative">{o.label}</span>
+          </button>
+        )
+      })}
+    </div>
+  )
+}
 
 export default function App({ me }) {
   const [user, setUser] = useState(me)
@@ -34,6 +72,7 @@ export default function App({ me }) {
   const [membersKey, setMembersKey] = useState(0)
   const [direction, setDirection] = useState(1)
   const [activeView, setActiveView] = useState('bookmarks')
+  const [shelfMode, setShelfMode] = useState('cards') // 'cards' | 'drive', per shelf
   const [nowPlaying, setNowPlaying] = useState(null)
   const pollTimers = useRef({})
   const latestCats = useRef([])
@@ -83,6 +122,7 @@ export default function App({ me }) {
     if (!activeCatId) return
     setActiveSubcatId(null)
     setSearch('')
+    setShelfMode('cards')
     api.getSubcategories(activeCatId).then(setSubcategories).catch(() => setSubcategories([]))
     loadCards(activeCatId, null)
   }, [activeCatId])
@@ -248,7 +288,7 @@ export default function App({ me }) {
           search={search}
           onSearch={setSearch}
           onAdd={() => setShowAddCard(true)}
-          canAdd={activeView === 'bookmarks' && !!activeCatId}
+          canAdd={activeView === 'bookmarks' && shelfMode === 'cards' && !!activeCatId}
           theme={theme}
           onTheme={pickTheme}
           user={user}
@@ -310,13 +350,22 @@ export default function App({ me }) {
                       <span style={{ fontSize: 15, color: 'var(--s-text-2)' }}>{activeSub.name}</span>
                     </>
                   )}
-                  <span
-                    className="ml-auto"
-                    style={{ fontSize: 11, letterSpacing: '0.14em', color: 'var(--s-text-3)', fontVariantNumeric: 'tabular-nums' }}
-                  >
-                    {filteredCards.length} {filteredCards.length === 1 ? 'CARD' : 'CARDS'}
-                    {search && ` · MATCHING "${search.toUpperCase()}"`}
-                  </span>
+                  {shelfMode === 'cards' && (
+                    <span
+                      style={{ fontSize: 11, letterSpacing: '0.14em', color: 'var(--s-text-3)', fontVariantNumeric: 'tabular-nums' }}
+                    >
+                      {filteredCards.length} {filteredCards.length === 1 ? 'CARD' : 'CARDS'}
+                      {search && ` · MATCHING "${search.toUpperCase()}"`}
+                    </span>
+                  )}
+                  <div className="ml-auto"><ModeToggle mode={shelfMode} onMode={setShelfMode} /></div>
+                </div>
+              )}
+
+              {/* Mobile mode switch — the "aesthetic way to a drive page" in every tab */}
+              {activeCatId && (
+                <div className="lg:hidden flex justify-center pb-3">
+                  <ModeToggle mode={shelfMode} onMode={setShelfMode} />
                 </div>
               )}
 
@@ -330,7 +379,7 @@ export default function App({ me }) {
                 </div>
               )}
 
-              {cards.length > 0 && (
+              {shelfMode === 'cards' && cards.length > 0 && (
                 <div className="px-4 lg:hidden">
                   <SearchBar value={search} onChange={setSearch} />
                 </div>
@@ -338,7 +387,13 @@ export default function App({ me }) {
 
               <div className="relative" style={{ minHeight: '60vh' }}>
                 <AnimatePresence mode="wait" custom={direction}>
-                  {activeCatId && (
+                  {activeCatId && shelfMode === 'drive' ? (
+                    <motion.div key={'drive-' + activeCatId}
+                      initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}
+                      transition={{ duration: 0.2 }}>
+                      <DrivePage categoryId={activeCatId} subcategoryId={activeSubcatId} />
+                    </motion.div>
+                  ) : activeCatId && (
                     <motion.div
                       key={activeCatId + '-' + activeSubcatId}
                       custom={direction}
@@ -376,7 +431,7 @@ export default function App({ me }) {
       </div>
 
       {/* FAB — thumb-reachable on the phone; desktop uses the topbar button instead */}
-      {activeView === 'bookmarks' && activeCatId && (
+      {activeView === 'bookmarks' && shelfMode === 'cards' && activeCatId && (
         <motion.button
           whileHover={{ scale: 1.06 }}
           whileTap={{ scale: 0.94 }}

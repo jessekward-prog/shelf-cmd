@@ -108,6 +108,34 @@ CREATE TABLE IF NOT EXISTS outbox (
   created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
+-- ── Drive: files live on a shelf like cards do ──────────────────────────────
+-- Each shelf gets a drive. A file is stored on this box (bytes on disk, row
+-- here) and shown as a card with an AI blurb scanned at upload time. Phase 1 is
+-- local-only; collab files (hosted by the uploader, brokered by the hub) come
+-- later, which is why user_id and a hub id column are already carried.
+CREATE TABLE IF NOT EXISTS files (
+  id            SERIAL PRIMARY KEY,
+  category_id   INT NOT NULL REFERENCES categories(id) ON DELETE CASCADE,
+  subcategory_id INT REFERENCES subcategories(id) ON DELETE SET NULL,
+  user_id       INT REFERENCES users(id) ON DELETE SET NULL,
+  name          TEXT NOT NULL,          -- original filename
+  stored_name   TEXT NOT NULL,          -- name on disk under UPLOADS_DIR
+  mime_type     TEXT,
+  kind          TEXT NOT NULL DEFAULT 'other', -- image|video|audio|pdf|doc|archive|other
+  size          BIGINT NOT NULL DEFAULT 0,
+  has_thumb     BOOLEAN NOT NULL DEFAULT FALSE,
+  blurb         TEXT,                    -- AI one-liner describing the file
+  status        TEXT NOT NULL DEFAULT 'ready', -- pending while thumb+blurb build
+  hub_file_id   INT,                     -- phase 2: id on the hub for collab files
+  created_at    TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS file_share_tokens (
+  token      TEXT PRIMARY KEY,
+  file_id    INT NOT NULL REFERENCES files(id) ON DELETE CASCADE,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
 -- Seed starter categories only if table is empty
 INSERT INTO categories (name, icon, sort_order)
 SELECT * FROM (VALUES ('Cooking','🍳',0),('Tech','💻',1),('Music','🎵',2)) AS v(name,icon,sort_order)
