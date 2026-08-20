@@ -1,6 +1,8 @@
 import { useState, useEffect, useCallback } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { getSavedTheme, applyTheme, getSavedIntensity, applyIntensity, getSavedFont, applyFont, getSavedOverlay, applyOverlay } from '../themes.js'
+import * as api from '../api.js'
+import JoinGate from './JoinGate.jsx'
 
 const AUTH_KEY = 'shelf_authed'
 const PIN_LENGTH = 4
@@ -63,19 +65,35 @@ export default function PinGate({ children }) {
     applyOverlay(getSavedOverlay())
   }, [])
 
-  const [mode, setMode] = useState(null) // null | 'setup' | 'confirm' | 'enter'
+  const [mode, setMode] = useState(null) // null | 'setup' | 'confirm' | 'enter' | 'join'
   const [digits, setDigits] = useState('')
   const [firstPin, setFirstPin] = useState('')
   const [error, setError] = useState('')
-  const [authed, setAuthed] = useState(false)
+  const [me, setMe] = useState(null)
 
-  useEffect(() => {
-    if (sessionStorage.getItem(AUTH_KEY) === '1') { setAuthed(true); return }
+  const askForPin = useCallback(() => {
     fetch('/api/pin')
       .then(r => { if (!r.ok) throw new Error(r.status); return r.json() })
       .then(({ set }) => setMode(set ? 'enter' : 'setup'))
       .catch(() => setError('server unreachable — reload to retry'))
   }, [])
+
+  useEffect(() => {
+    if (!api.getToken()) return askForPin()
+    api.getMe()
+      .then(user => {
+        // Collaborators have no PIN — their token is the whole credential
+        if (!user.is_admin || sessionStorage.getItem(AUTH_KEY) === '1') setMe(user)
+        else askForPin()
+      })
+      .catch(() => { api.clearToken(); askForPin() })
+  }, [askForPin])
+
+  const finishPin = async ({ token }) => {
+    api.setToken(token)
+    sessionStorage.setItem(AUTH_KEY, '1')
+    setMe(await api.getMe())
+  }
 
   const handleDigit = useCallback((d) => {
     setError('')
@@ -109,10 +127,9 @@ export default function PinGate({ children }) {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ hash: hashPin(digits) })
-      }).then(() => {
-        sessionStorage.setItem(AUTH_KEY, '1')
-        setAuthed(true)
       })
+        .then(r => r.json())
+        .then(finishPin)
       return
     }
 
@@ -123,19 +140,22 @@ export default function PinGate({ children }) {
         body: JSON.stringify({ hash: hashPin(digits) })
       })
         .then(r => r.json())
-        .then(({ ok }) => {
-          if (ok) {
-            sessionStorage.setItem(AUTH_KEY, '1')
-            setAuthed(true)
-          } else {
-            setError('Wrong PIN')
-            setDigits('')
-          }
+        .then(result => {
+          if (result.ok) return finishPin(result)
+          setError('Wrong PIN')
+          setDigits('')
         })
     }
   }, [digits, mode, firstPin])
 
-  if (authed) return children
+  if (me) return children(me)
+
+  if (mode === 'join') return (
+    <JoinGate
+      onBack={() => { setError(''); askForPin() }}
+      onJoined={(user) => { api.setToken(user.token); setMe(user) }}
+    />
+  )
 
   if (!mode) return (
     <div style={{ minHeight: '100dvh', background: 'var(--s-bg)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
@@ -177,6 +197,16 @@ export default function PinGate({ children }) {
       </div>
 
       <NumPad onDigit={handleDigit} onBack={handleBack} />
+
+      <button
+        onClick={() => { setError(''); setDigits(''); setMode('join') }}
+        style={{
+          background: 'none', border: 'none', cursor: 'pointer', fontFamily: 'inherit',
+          color: 'var(--s-text-3)', fontSize: 11, letterSpacing: '0.14em'
+        }}
+      >
+        i have an invite code
+      </button>
 
       <AnimatePresence>
         {error && (

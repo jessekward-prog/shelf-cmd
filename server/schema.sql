@@ -45,6 +45,33 @@ CREATE TABLE IF NOT EXISTS settings (
   value TEXT NOT NULL
 );
 
+-- ── Collaborative shelves ────────────────────────────────────────────────────
+
+CREATE TABLE IF NOT EXISTS users (
+  id SERIAL PRIMARY KEY,
+  username TEXT NOT NULL,
+  token TEXT NOT NULL UNIQUE,
+  is_admin BOOLEAN NOT NULL DEFAULT FALSE,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+ALTER TABLE subcategories ADD COLUMN IF NOT EXISTS is_collab BOOLEAN NOT NULL DEFAULT FALSE;
+ALTER TABLE cards ADD COLUMN IF NOT EXISTS user_id INT REFERENCES users(id) ON DELETE SET NULL;
+
+CREATE TABLE IF NOT EXISTS shelf_members (
+  subcategory_id INT NOT NULL REFERENCES subcategories(id) ON DELETE CASCADE,
+  user_id INT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  joined_at TIMESTAMPTZ DEFAULT NOW(),
+  PRIMARY KEY (subcategory_id, user_id)
+);
+
+-- One standing invite code per shelf; re-shown rather than rotated.
+CREATE TABLE IF NOT EXISTS invites (
+  code TEXT PRIMARY KEY,
+  subcategory_id INT NOT NULL UNIQUE REFERENCES subcategories(id) ON DELETE CASCADE,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
 -- Seed starter categories only if table is empty
 INSERT INTO categories (name, icon, sort_order)
 SELECT * FROM (VALUES ('Cooking','🍳',0),('Tech','💻',1),('Music','🎵',2)) AS v(name,icon,sort_order)

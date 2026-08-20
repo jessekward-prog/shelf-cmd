@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { motion, Reorder } from 'framer-motion'
 
-export default function CategoryNav({ categories, activeId, onSelect, onAdd, onReorder, onReorderEnd }) {
+export default function CategoryNav({ categories, activeId, onSelect, onAdd, onReorder, onReorderEnd, readOnly }) {
   const [reordering, setReordering] = useState(false)
 
   return (
@@ -46,28 +46,32 @@ export default function CategoryNav({ categories, activeId, onSelect, onAdd, onR
         )
       })}
 
-      <motion.button
-        onClick={onAdd}
-        whileTap={{ scale: 0.93 }}
-        className="flex items-center gap-1 px-3 py-2 rounded-lg text-sm whitespace-nowrap ml-1 flex-shrink-0"
-        style={{ color: 'var(--s-border)', border: '1px dashed var(--s-border)' }}
-      >
-        <span className="text-base">+</span>
-        <span>new</span>
-      </motion.button>
+      {!readOnly && (
+        <motion.button
+          onClick={onAdd}
+          whileTap={{ scale: 0.93 }}
+          className="flex items-center gap-1 px-3 py-2 rounded-lg text-sm whitespace-nowrap ml-1 flex-shrink-0"
+          style={{ color: 'var(--s-border)', border: '1px dashed var(--s-border)' }}
+        >
+          <span className="text-base">+</span>
+          <span>new</span>
+        </motion.button>
+      )}
 
-      <motion.button
-        onClick={() => setReordering(r => !r)}
-        whileTap={{ scale: 0.93 }}
-        className="flex items-center justify-center px-3 py-2 rounded-lg text-sm whitespace-nowrap ml-1 flex-shrink-0"
-        title={reordering ? 'Done reordering' : 'Reorder'}
-        style={{
-          color: reordering ? 'var(--s-accent)' : 'var(--s-border)',
-          border: `1px ${reordering ? 'solid' : 'dashed'} ${reordering ? 'var(--s-accent)' : 'var(--s-border)'}`
-        }}
-      >
-        ⇄
-      </motion.button>
+      {!readOnly && (
+        <motion.button
+          onClick={() => setReordering(r => !r)}
+          whileTap={{ scale: 0.93 }}
+          className="flex items-center justify-center px-3 py-2 rounded-lg text-sm whitespace-nowrap ml-1 flex-shrink-0"
+          title={reordering ? 'Done reordering' : 'Reorder'}
+          style={{
+            color: reordering ? 'var(--s-accent)' : 'var(--s-border)',
+            border: `1px ${reordering ? 'solid' : 'dashed'} ${reordering ? 'var(--s-accent)' : 'var(--s-border)'}`
+          }}
+        >
+          ⇄
+        </motion.button>
+      )}
     </Reorder.Group>
   )
 }

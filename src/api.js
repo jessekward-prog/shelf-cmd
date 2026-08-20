@@ -1,9 +1,18 @@
 const base = '/api'
+const TOKEN_KEY = 'shelf_token'
+
+export const getToken = () => localStorage.getItem(TOKEN_KEY) || ''
+export const setToken = (t) => localStorage.setItem(TOKEN_KEY, t)
+export const clearToken = () => localStorage.removeItem(TOKEN_KEY)
 
 async function req(method, path, body) {
+  const token = getToken()
   const res = await fetch(base + path, {
     method,
-    headers: body ? { 'Content-Type': 'application/json' } : {},
+    headers: {
+      ...(body ? { 'Content-Type': 'application/json' } : {}),
+      ...(token ? { Authorization: `Bearer ${token}` } : {})
+    },
     body: body ? JSON.stringify(body) : undefined
   })
   if (!res.ok) throw new Error(`${method} ${path} → ${res.status}`)
@@ -34,3 +43,14 @@ export const generatePlan = (id) => req('POST', `/cards/${id}/plan`, {})
 export const getNotes    = ()           => req('GET',    '/notes')
 export const createNote  = (data)       => req('POST',   '/notes', data)
 export const deleteNote  = (id)         => req('DELETE', `/notes/${id}`)
+
+// ── Collaborative shelves ────────────────────────────────────────────────────
+
+export const getMe = () => req('GET', '/me')
+export const setUsername = (username) => req('PUT', '/me', { username })
+export const join = (code, username) => req('POST', '/join', { code, username })
+export const getInvite = (subcatId) => req('POST', `/subcategories/${subcatId}/invite`, {})
+export const getMembers = (subcatId) => req('GET', `/subcategories/${subcatId}/members`)
+export const getMyShelves = () => req('GET', '/my-shelves')
+export const getShelfCards = (subcatId) => req('GET', `/shelves/${subcatId}/cards`)
+export const prepare = (url) => req('POST', '/prepare', { url })

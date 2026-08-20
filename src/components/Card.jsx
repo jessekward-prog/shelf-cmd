@@ -235,7 +235,7 @@ function SkeletonCard() {
   )
 }
 
-export default function Card({ card, onDelete, onUpdate, nowPlayingId, onPlay }) {
+export default function Card({ card, onDelete, onUpdate, nowPlayingId, onPlay, canEdit = true }) {
   if (card.status === 'pending') return <SkeletonCard />
   const [confirmDelete, setConfirmDelete] = useState(false)
   const [scraping, setScraping] = useState(false)
@@ -298,6 +298,12 @@ export default function Card({ card, onDelete, onUpdate, nowPlayingId, onPlay })
       )}
 
       <div className="p-3">
+        {/* Resolved from user_id at read time, so a rename updates every card at once */}
+        {card.author && (
+          <p className="text-xs mb-1" style={{ color: 'var(--s-text-3)', letterSpacing: '0.08em' }}>
+            {card.author}
+          </p>
+        )}
         {card.title && (
           <p className="text-sm font-medium leading-snug mb-1 line-clamp-2" style={{ color: 'var(--s-text-0)' }}>
             {card.title}
@@ -334,7 +340,7 @@ export default function Card({ card, onDelete, onUpdate, nowPlayingId, onPlay })
           </a>
         )}
 
-        <NotesEditor card={card} onSave={handleSaveNotes} />
+        {canEdit && <NotesEditor card={card} onSave={handleSaveNotes} />}
 
         {/* Plan panel */}
         {plan && (
@@ -373,8 +379,8 @@ export default function Card({ card, onDelete, onUpdate, nowPlayingId, onPlay })
           </div>
         )}
 
-        {/* Card footer actions */}
-        <div className="flex items-center justify-between mt-3 pt-2" style={{ borderTop: '1px solid var(--s-surface-2)' }}>
+        {/* Card footer actions — hidden on other people's cards, which you can't change anyway */}
+        {canEdit && <div className="flex items-center justify-between mt-3 pt-2" style={{ borderTop: '1px solid var(--s-surface-2)' }}>
           <div className="flex items-center gap-2">
             <button
               onClick={handleScrape}
@@ -422,7 +428,7 @@ export default function Card({ card, onDelete, onUpdate, nowPlayingId, onPlay })
               </motion.button>
             )}
           </AnimatePresence>
-        </div>
+        </div>}
       </div>
     </motion.div>
   )

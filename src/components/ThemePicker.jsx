@@ -1,11 +1,13 @@
 import { useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { THEMES, FONTS, applyTheme, applyIntensity, applyFont, applyOverlay, getSavedIntensity, getSavedFont, getSavedOverlay } from '../themes.js'
+import * as api from '../api.js'
+import { getAI, saveAI, testAI } from '../ai.js'
 
 const CRT_THEMES   = THEMES.filter(t => t.group === 'crt')
 const CLEAN_THEMES = THEMES.filter(t => t.group === 'clean')
 
-export default function ThemePicker({ current, onChange }) {
+export default function ThemePicker({ current, onChange, user, onRenamed }) {
   const [open, setOpen] = useState(false)
   const [intensity, setIntensity] = useState(getSavedIntensity)
   const [currentFont, setCurrentFont] = useState(getSavedFont)
@@ -66,9 +68,14 @@ export default function ThemePicker({ current, onChange }) {
                 border: '1px solid var(--s-border)',
                 borderRadius: 10, padding: '10px 12px',
                 display: 'flex', flexDirection: 'column', gap: 4,
-                minWidth: 148
+                minWidth: 214, maxHeight: '70vh', overflowY: 'auto'
               }}
             >
+              {/* Who you are, and whose AI account pays for your collab posts */}
+              <Identity user={user} onRenamed={onRenamed} />
+
+              <div style={{ borderTop: '1px solid var(--s-surface-2)', margin: '6px 0 2px' }} />
+
               {/* CRT group */}
               <span style={{ fontSize: 10, color: 'var(--s-text-3)', letterSpacing: '0.12em', padding: '2px 8px 4px' }}>CRT</span>
               {CRT_THEMES.map(t => <ThemeRow key={t.id} t={t} current={current} onPick={pick} />)}
@@ -114,6 +121,113 @@ export default function ThemePicker({ current, onChange }) {
           </>
         )}
       </AnimatePresence>
+    </div>
+  )
+}
+
+const inputStyle = {
+  width: '100%', padding: '5px 7px', borderRadius: 4,
+  background: 'var(--s-bg)', border: '1px solid var(--s-border)',
+  color: 'var(--s-text-1)', fontFamily: 'inherit', fontSize: 11, outline: 'none'
+}
+
+const labelStyle = { fontSize: 10, color: 'var(--s-text-3)', letterSpacing: '0.12em' }
+
+function Identity({ user, onRenamed }) {
+  const [name, setName] = useState(user.username)
+  const [saved, setSaved] = useState(false)
+  const [ai, setAi] = useState(() => getAI())
+  const [aiOpen, setAiOpen] = useState(false)
+  const [testing, setTesting] = useState(null)
+
+  const commitName = async () => {
+    const next = name.trim()
+    if (!next || next === user.username) return
+    onRenamed(await api.setUsername(next))
+    setSaved(true)
+    setTimeout(() => setSaved(false), 1500)
+  }
+
+  const updateAi = (patch) => {
+    const next = { ...ai, ...patch }
+    setAi(next)
+    saveAI(next)
+  }
+
+  const runTest = async () => {
+    setTesting('testing…')
+    try {
+      await testAI()
+      setTesting('works')
+    } catch (err) {
+      setTesting(err.message)
+    }
+    setTimeout(() => setTesting(null), 3000)
+  }
+
+  return (
+    <div style={{ padding: '2px 8px 0', display: 'flex', flexDirection: 'column', gap: 6 }}>
+      <span style={{ ...labelStyle, padding: '2px 0' }}>YOU</span>
+
+      <input
+        value={name}
+        onChange={(e) => setName(e.target.value.slice(0, 32))}
+        onBlur={commitName}
+        onKeyDown={(e) => e.key === 'Enter' && e.currentTarget.blur()}
+        placeholder="username"
+        style={inputStyle}
+      />
+      {saved && <span style={{ fontSize: 9, color: 'var(--s-accent)' }}>name updated everywhere</span>}
+
+      <button
+        onClick={() => setAiOpen(v => !v)}
+        style={{
+          background: 'none', border: 'none', padding: 0, cursor: 'pointer',
+          fontFamily: 'inherit', textAlign: 'left',
+          ...labelStyle, color: ai.url ? 'var(--s-accent)' : 'var(--s-text-3)'
+        }}
+      >
+        {aiOpen ? '− ' : '+ '}YOUR AI {ai.url ? '· SET' : '· NOT SET'}
+      </button>
+
+      {aiOpen && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
+          <span style={{ fontSize: 9, color: 'var(--s-text-3)', lineHeight: 1.4 }}>
+            Any OpenAI-compatible endpoint. Used for your posts in shared tabs, and never sent to the shelf.
+          </span>
+          <input
+            value={ai.url || ''}
+            onChange={(e) => updateAi({ url: e.target.value })}
+            placeholder="https://api.openai.com"
+            style={inputStyle}
+          />
+          <input
+            type="password"
+            value={ai.key || ''}
+            onChange={(e) => updateAi({ key: e.target.value })}
+            placeholder="api key"
+            style={inputStyle}
+          />
+          <input
+            value={ai.model || ''}
+            onChange={(e) => updateAi({ model: e.target.value })}
+            placeholder="model (optional)"
+            style={inputStyle}
+          />
+          <button
+            onClick={runTest}
+            disabled={!ai.url}
+            style={{
+              alignSelf: 'flex-start', background: 'none', border: 'none', padding: 0,
+              cursor: ai.url ? 'pointer' : 'default', fontFamily: 'inherit',
+              ...labelStyle, color: ai.url ? 'var(--s-accent)' : 'var(--s-border)'
+            }}
+          >
+            TEST
+          </button>
+          {testing && <span style={{ fontSize: 9, color: 'var(--s-text-2)', lineHeight: 1.4 }}>{testing}</span>}
+        </div>
+      )}
     </div>
   )
 }

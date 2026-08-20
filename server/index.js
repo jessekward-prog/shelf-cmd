@@ -9,6 +9,7 @@ import { chromium as chromiumBase } from 'playwright'
 import { chromium } from 'playwright-extra'
 import StealthPlugin from 'puppeteer-extra-plugin-stealth'
 import { YoutubeTranscript } from 'youtube-transcript'
+import { randomBytes } from 'crypto'
 chromium.use(StealthPlugin())
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
@@ -21,9 +22,37 @@ app.use(express.json())
 
 const pool = new pg.Pool({ connectionString: process.env.DATABASE_URL })
 
+// ── Identity ─────────────────────────────────────────────────────────────────
+
+app.use(async (req, res, next) => {
+  const token = req.headers.authorization?.replace(/^Bearer /, '')
+  if (!token) return next()
+  try {
+    const { rows } = await pool.query('SELECT * FROM users WHERE token=$1', [token])
+    req.user = rows[0]
+  } catch {}
+  next()
+})
+
+const adminOnly = (req, res, next) =>
+  req.user?.is_admin ? next() : res.status(403).json({ error: 'admin only' })
+
+async function isMember(userId, subcatId) {
+  const { rows } = await pool.query(
+    'SELECT 1 FROM shelf_members WHERE user_id=$1 AND subcategory_id=$2',
+    [userId, subcatId]
+  )
+  return rows.length > 0
+}
+
 async function initDb() {
   const schema = await readFile(join(__dirname, 'schema.sql'), 'utf8')
   await pool.query(schema)
+  // The PIN holder is a real user row so their posts carry a name like everyone else's
+  await pool.query(
+    "INSERT INTO users (username, token, is_admin) SELECT 'admin', $1, TRUE WHERE NOT EXISTS (SELECT 1 FROM users WHERE is_admin)",
+    [randomBytes(24).toString('hex')]
+  )
 }
 
 async function fetchOEmbed(endpoint) {
@@ -109,6 +138,18 @@ function lmHeaders() {
   return { 'Content-Type': 'application/json', ...(key && { Authorization: `Bearer ${key}` }) }
 }
 
+// Reasoning models leak their scratchpad into `content`, or spend the whole budget thinking
+// and never answer. Treat anything that doesn't look like the 1-2 sentences we asked for as
+// no answer at all, so callers fall back to the page's own description.
+// ponytail: a marker/length heuristic, not a parser. Mirrored in src/ai.js for collab posts.
+const REASONING_TELLS = /^\s*(<think>|thinking process|let me think|okay,? (so )?(the user|i need)|first,? i)/i
+
+function usableDescription(text) {
+  const stripped = (text || '').replace(/<think>[\s\S]*?<\/think>/gi, '').trim()
+  if (!stripped || REASONING_TELLS.test(stripped) || stripped.length > 400) return null
+  return stripped
+}
+
 async function generateDescription(title, url) {
   const lmUrl = process.env.LM_STUDIO_URL || 'http://localhost:1234'
   const model = process.env.LM_STUDIO_MODEL || ''
@@ -119,16 +160,16 @@ async function generateDescription(title, url) {
       body: JSON.stringify({
         model: model || undefined,
         messages: [
-          { role: 'system', content: 'You write short, punchy card descriptions (1-2 sentences max). No fluff. Just what it is and why it\'s worth saving.' },
+          { role: 'system', content: 'You write short, punchy card descriptions (1-2 sentences max). No fluff. Just what it is and why it\'s worth saving. Answer directly with the description and nothing else.' },
           { role: 'user', content: `Write a card description for: "${title}"\nURL: ${url}` }
         ],
-        max_tokens: 80,
+        max_tokens: 200,
         temperature: 0.7
       })
     })
     if (!res.ok) return null
     const data = await res.json()
-    return data.choices?.[0]?.message?.content?.trim() || null
+    return usableDescription(data.choices?.[0]?.message?.content)
   } catch {
     return null
   }
@@ -330,7 +371,7 @@ async function resolvePlatform(rawUrl) {
 
 // ── AI image extraction from pasted HTML ─────────────────────────────────────
 
-app.post('/api/extract-image', async (req, res) => {
+app.post('/api/extract-image', adminOnly, async (req, res) => {
   try {
     const { html, page_url } = req.body
     if (!html) return res.json({ image_url: null })
@@ -403,6 +444,11 @@ app.get('/api/pin', async (req, res) => {
   res.json({ set: rows.length > 0 })
 })
 
+async function adminUser() {
+  const { rows } = await pool.query('SELECT * FROM users WHERE is_admin ORDER BY id LIMIT 1')
+  return rows[0]
+}
+
 app.post('/api/pin/set', async (req, res) => {
   const { hash } = req.body
   if (!hash) return res.status(400).json({ error: 'missing hash' })
@@ -410,24 +456,134 @@ app.post('/api/pin/set', async (req, res) => {
     "INSERT INTO settings (key, value) VALUES ('pin_hash', $1) ON CONFLICT (key) DO UPDATE SET value=$1",
     [hash]
   )
-  res.json({ ok: true })
+  const admin = await adminUser()
+  res.json({ ok: true, token: admin.token, username: admin.username })
 })
 
 app.post('/api/pin/verify', async (req, res) => {
   const { hash } = req.body
   const { rows } = await pool.query("SELECT value FROM settings WHERE key='pin_hash'")
   if (!rows.length) return res.json({ ok: false })
-  res.json({ ok: rows[0].value === hash })
+  if (rows[0].value !== hash) return res.json({ ok: false })
+  const admin = await adminUser()
+  res.json({ ok: true, token: admin.token, username: admin.username })
+})
+
+// ── Users, invites, membership ───────────────────────────────────────────────
+
+app.get('/api/me', (req, res) => {
+  if (!req.user) return res.status(401).json({ error: 'no session' })
+  const { id, username, is_admin } = req.user
+  res.json({ id, username, is_admin })
+})
+
+app.put('/api/me', async (req, res) => {
+  if (!req.user) return res.status(401).json({ error: 'no session' })
+  const username = req.body.username?.trim()
+  if (!username) return res.status(400).json({ error: 'username required' })
+  const { rows } = await pool.query(
+    'UPDATE users SET username=$1 WHERE id=$2 RETURNING id, username, is_admin',
+    [username.slice(0, 32), req.user.id]
+  )
+  res.json(rows[0])
+})
+
+// Sharing a tab is what makes it collaborative — no separate "make collab" step.
+app.post('/api/subcategories/:id/invite', adminOnly, async (req, res) => {
+  const subcatId = Number(req.params.id)
+  const { rows: existing } = await pool.query('SELECT code FROM invites WHERE subcategory_id=$1', [subcatId])
+  if (existing[0]) return res.json({ code: existing[0].code })
+
+  await pool.query('UPDATE subcategories SET is_collab=TRUE WHERE id=$1', [subcatId])
+  await pool.query(
+    'INSERT INTO shelf_members (subcategory_id, user_id) VALUES ($1,$2) ON CONFLICT DO NOTHING',
+    [subcatId, req.user.id]
+  )
+
+  // 6 digits is only 900k of space, so retry on the rare collision rather than trusting one draw
+  for (let i = 0; i < 20; i++) {
+    const code = String(Math.floor(100000 + Math.random() * 900000))
+    const { rows } = await pool.query(
+      'INSERT INTO invites (code, subcategory_id) VALUES ($1,$2) ON CONFLICT DO NOTHING RETURNING code',
+      [code, subcatId]
+    )
+    if (rows[0]) return res.json({ code: rows[0].code })
+  }
+  res.status(500).json({ error: 'could not allocate a code' })
+})
+
+app.post('/api/join', async (req, res) => {
+  const code = String(req.body.code || '').trim()
+  const username = req.body.username?.trim()
+  if (!username) return res.status(400).json({ error: 'username required' })
+
+  const { rows: inv } = await pool.query('SELECT subcategory_id FROM invites WHERE code=$1', [code])
+  if (!inv[0]) return res.status(404).json({ error: 'invalid code' })
+
+  // An existing collaborator redeeming a second code joins that shelf with the same identity
+  let user = req.user
+  if (!user) {
+    const { rows } = await pool.query(
+      'INSERT INTO users (username, token) VALUES ($1,$2) RETURNING *',
+      [username.slice(0, 32), randomBytes(24).toString('hex')]
+    )
+    user = rows[0]
+  }
+  await pool.query(
+    'INSERT INTO shelf_members (subcategory_id, user_id) VALUES ($1,$2) ON CONFLICT DO NOTHING',
+    [inv[0].subcategory_id, user.id]
+  )
+  res.json({ token: user.token, id: user.id, username: user.username, is_admin: user.is_admin })
+})
+
+app.get('/api/subcategories/:id/members', async (req, res) => {
+  const subcatId = Number(req.params.id)
+  if (!req.user?.is_admin && !(req.user && await isMember(req.user.id, subcatId))) {
+    return res.status(403).json({ error: 'not a member' })
+  }
+  const { rows } = await pool.query(
+    `SELECT u.id, u.username, u.is_admin FROM shelf_members m
+     JOIN users u ON u.id = m.user_id
+     WHERE m.subcategory_id=$1 ORDER BY u.is_admin DESC, m.joined_at`,
+    [subcatId]
+  )
+  res.json(rows)
+})
+
+// The collaborator's whole world: the collab tabs they were invited to.
+app.get('/api/my-shelves', async (req, res) => {
+  if (!req.user) return res.status(401).json({ error: 'no session' })
+  const { rows } = await pool.query(
+    `SELECT s.id, s.name, s.category_id FROM shelf_members m
+     JOIN subcategories s ON s.id = m.subcategory_id
+     WHERE m.user_id=$1 AND s.is_collab ORDER BY s.sort_order, s.id`,
+    [req.user.id]
+  )
+  res.json(rows)
+})
+
+app.get('/api/shelves/:id/cards', async (req, res) => {
+  const subcatId = Number(req.params.id)
+  if (!req.user?.is_admin && !(req.user && await isMember(req.user.id, subcatId))) {
+    return res.status(403).json({ error: 'not a member' })
+  }
+  const { rows } = await pool.query(
+    `SELECT c.*, u.username AS author FROM cards c
+     LEFT JOIN users u ON u.id = c.user_id
+     WHERE c.subcategory_id=$1 AND c.status='ready' ORDER BY c.created_at DESC`,
+    [subcatId]
+  )
+  res.json(rows)
 })
 
 // ── Categories ───────────────────────────────────────────────────────────────
 
-app.get('/api/categories', async (req, res) => {
+app.get('/api/categories', adminOnly, async (req, res) => {
   const { rows } = await pool.query('SELECT * FROM categories ORDER BY sort_order, id')
   res.json(rows)
 })
 
-app.post('/api/categories', async (req, res) => {
+app.post('/api/categories', adminOnly, async (req, res) => {
   const { name, icon } = req.body
   const { rows } = await pool.query(
     'INSERT INTO categories (name, icon) VALUES ($1, $2) RETURNING *',
@@ -436,7 +592,7 @@ app.post('/api/categories', async (req, res) => {
   res.json(rows[0])
 })
 
-app.put('/api/categories/reorder', async (req, res) => {
+app.put('/api/categories/reorder', adminOnly, async (req, res) => {
   const { order } = req.body
   await Promise.all(order.map(({ id, sort_order }) =>
     pool.query('UPDATE categories SET sort_order=$1 WHERE id=$2', [sort_order, id])
@@ -444,7 +600,7 @@ app.put('/api/categories/reorder', async (req, res) => {
   res.json({ ok: true })
 })
 
-app.put('/api/categories/:id', async (req, res) => {
+app.put('/api/categories/:id', adminOnly, async (req, res) => {
   const { name, icon } = req.body
   const { rows } = await pool.query(
     'UPDATE categories SET name=$1, icon=$2 WHERE id=$3 RETURNING *',
@@ -453,14 +609,14 @@ app.put('/api/categories/:id', async (req, res) => {
   res.json(rows[0])
 })
 
-app.delete('/api/categories/:id', async (req, res) => {
+app.delete('/api/categories/:id', adminOnly, async (req, res) => {
   await pool.query('DELETE FROM categories WHERE id=$1', [req.params.id])
   res.json({ ok: true })
 })
 
 // ── Subcategories ────────────────────────────────────────────────────────────
 
-app.get('/api/categories/:id/subcategories', async (req, res) => {
+app.get('/api/categories/:id/subcategories', adminOnly, async (req, res) => {
   const { rows } = await pool.query(
     'SELECT * FROM subcategories WHERE category_id=$1 ORDER BY sort_order, id',
     [req.params.id]
@@ -468,7 +624,7 @@ app.get('/api/categories/:id/subcategories', async (req, res) => {
   res.json(rows)
 })
 
-app.post('/api/categories/:id/subcategories', async (req, res) => {
+app.post('/api/categories/:id/subcategories', adminOnly, async (req, res) => {
   const { name } = req.body
   const { rows } = await pool.query(
     'INSERT INTO subcategories (category_id, name) VALUES ($1, $2) RETURNING *',
@@ -477,7 +633,7 @@ app.post('/api/categories/:id/subcategories', async (req, res) => {
   res.json(rows[0])
 })
 
-app.put('/api/subcategories/reorder', async (req, res) => {
+app.put('/api/subcategories/reorder', adminOnly, async (req, res) => {
   const { order } = req.body
   await Promise.all(order.map(({ id, sort_order }) =>
     pool.query('UPDATE subcategories SET sort_order=$1 WHERE id=$2', [sort_order, id])
@@ -485,22 +641,26 @@ app.put('/api/subcategories/reorder', async (req, res) => {
   res.json({ ok: true })
 })
 
-app.delete('/api/subcategories/:id', async (req, res) => {
+app.delete('/api/subcategories/:id', adminOnly, async (req, res) => {
   await pool.query('DELETE FROM subcategories WHERE id=$1', [req.params.id])
   res.json({ ok: true })
 })
 
 // ── Cards ────────────────────────────────────────────────────────────────────
 
-app.get('/api/categories/:id/cards', async (req, res) => {
+app.get('/api/categories/:id/cards', adminOnly, async (req, res) => {
   const { subcategory_id } = req.query
-  let query = 'SELECT * FROM cards WHERE category_id=$1'
+  // Only shared tabs get a byline — your own cards stay unattributed
+  let query = `SELECT c.*, CASE WHEN s.is_collab THEN u.username END AS author FROM cards c
+               LEFT JOIN users u ON u.id = c.user_id
+               LEFT JOIN subcategories s ON s.id = c.subcategory_id
+               WHERE c.category_id=$1`
   const params = [req.params.id]
   if (subcategory_id) {
-    query += ' AND subcategory_id=$2'
+    query += ' AND c.subcategory_id=$2'
     params.push(subcategory_id)
   }
-  query += ' ORDER BY created_at DESC'
+  query += ' ORDER BY c.created_at DESC'
   const { rows } = await pool.query(query, params)
   res.json(rows)
 })
@@ -535,18 +695,60 @@ async function processCard(card) {
   )
 }
 
+async function applyPlanLinks(rawPlan, tools) {
+  const resources = (await Promise.all(
+    tools.map(async tool => {
+      const url = await searchGitHub(tool) || await searchDDG(tool)
+      return url ? { tool, url } : null
+    })
+  )).filter(Boolean)
+  return resources.length ? injectLinks(rawPlan, resources) : rawPlan
+}
+
 app.post('/api/cards', async (req, res) => {
   try {
-    const { category_id, subcategory_id, url } = req.body
+    const { subcategory_id, url, prepared } = req.body
     const { title = '', description = null, notes = null, thumbnail_url = null } = req.body
 
+    // Derive the category from the tab so a collaborator can't write into an arbitrary one
+    let category_id = req.body.category_id
+    let collab = false
+    if (subcategory_id) {
+      const { rows } = await pool.query('SELECT category_id, is_collab FROM subcategories WHERE id=$1', [subcategory_id])
+      if (!rows[0]) return res.status(404).json({ error: 'no such tab' })
+      category_id = rows[0].category_id
+      collab = rows[0].is_collab
+    }
+
+    if (collab) {
+      if (!req.user?.is_admin && !(req.user && await isMember(req.user.id, subcategory_id))) {
+        return res.status(403).json({ error: 'not a member' })
+      }
+    } else if (!req.user?.is_admin) {
+      return res.status(403).json({ error: 'admin only' })
+    }
+
+    // `prepared` means the poster's own browser already did the AI work — store it as-is.
+    if (prepared) {
+      const { type = 'link', youtube_id = null, plan_raw = null, plan_tools = [] } = req.body
+      const metadata = { ...(req.body.metadata || {}) }
+      if (plan_raw) metadata.plan = await applyPlanLinks(plan_raw, plan_tools)
+      const { rows } = await pool.query(
+        `INSERT INTO cards (category_id, subcategory_id, url, title, description, notes, thumbnail_url, type, youtube_id, metadata, user_id, status)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,'ready') RETURNING *`,
+        [category_id, subcategory_id || null, url || null, title, description, notes, thumbnail_url,
+         type, youtube_id, JSON.stringify(metadata), req.user.id]
+      )
+      return res.json({ ...rows[0], author: collab ? req.user.username : null })
+    }
+
     const { rows } = await pool.query(
-      `INSERT INTO cards (category_id, subcategory_id, url, title, description, notes, thumbnail_url, status)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,'pending') RETURNING *`,
-      [category_id, subcategory_id || null, url || null, title, description, notes, thumbnail_url]
+      `INSERT INTO cards (category_id, subcategory_id, url, title, description, notes, thumbnail_url, user_id, status)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'pending') RETURNING *`,
+      [category_id, subcategory_id || null, url || null, title, description, notes, thumbnail_url, req.user.id]
     )
     const card = rows[0]
-    res.json(card)
+    res.json({ ...card, author: collab ? req.user.username : null })
 
     if (url) processCard(card).catch(err => console.error('processCard failed:', err.message))
   } catch (err) {
@@ -555,13 +757,84 @@ app.post('/api/cards', async (req, res) => {
   }
 })
 
+// Everything the poster's browser needs to run the AI pass itself: no model calls here.
+app.post('/api/prepare', async (req, res) => {
+  try {
+    const url = req.body.url?.trim()
+    if (!url) return res.status(400).json({ error: 'url required' })
+
+    const platform = await resolvePlatform(url) || { type: 'link' }
+    const out = {
+      type: platform.type,
+      youtube_id: platform.media_id || null,
+      title: platform.title || '',
+      thumbnail_url: platform.thumbnail_url || null,
+      og_description: platform.og_description || null,
+      metadata: { embed_url: platform.embed_url || null, aspect: platform.aspect || null },
+      image_candidates: [],
+      transcript: null
+    }
+    if (platform.price) out.metadata.price = platform.price
+    if (platform.currency) out.metadata.currency = platform.currency
+
+    // Only spin up a browser when oEmbed/OG left us short — YouTube et al. already gave us everything
+    if (!out.title || !out.thumbnail_url) {
+      const browser = await chromium.launch({ headless: true })
+      try {
+        const page = await browser.newPage()
+        await page.setExtraHTTPHeaders({ 'Accept-Language': 'en-US,en;q=0.9' })
+        await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 20000 })
+        await page.waitForTimeout(2000)
+        const scraped = extractFromHtml(await page.content())
+        out.title = out.title || scraped.title
+        out.thumbnail_url = out.thumbnail_url || scraped.image
+        out.og_description = out.og_description || scraped.ogDescription
+        out.image_candidates = scraped.imgCandidates
+        if (scraped.price) { out.metadata.price = scraped.price; out.metadata.currency = scraped.currency }
+      } finally {
+        await browser.close()
+      }
+    }
+    if (/facebook\.com|fb\.watch/.test(url)) out.title = cleanFacebookTitle(out.title)
+
+    if (out.type === 'youtube' && out.youtube_id) {
+      try {
+        const segments = await YoutubeTranscript.fetchTranscript(out.youtube_id)
+        out.transcript = segments.map(s => s.text).join(' ').slice(0, 10000)
+      } catch { /* no captions — the card just gets no plan */ }
+    }
+
+    res.json(out)
+  } catch (err) {
+    console.error('prepare error:', err.message)
+    res.status(500).json({ error: err.message })
+  }
+})
+
+// Admin can touch any card; a collaborator only their own.
+async function ownedCard(req, res) {
+  const { rows } = await pool.query(
+    `SELECT c.*, CASE WHEN s.is_collab THEN u.username END AS author FROM cards c
+     LEFT JOIN users u ON u.id = c.user_id
+     LEFT JOIN subcategories s ON s.id = c.subcategory_id
+     WHERE c.id=$1`,
+    [req.params.id]
+  )
+  if (!rows[0]) { res.status(404).json({ error: 'not found' }); return null }
+  if (!req.user?.is_admin && rows[0].user_id !== req.user?.id) {
+    res.status(403).json({ error: 'not yours' })
+    return null
+  }
+  return rows[0]
+}
+
 app.get('/api/cards/:id', async (req, res) => {
-  const { rows } = await pool.query('SELECT * FROM cards WHERE id=$1', [req.params.id])
-  if (!rows[0]) return res.status(404).json({ error: 'not found' })
-  res.json(rows[0])
+  const card = await ownedCard(req, res)
+  if (card) res.json(card)
 })
 
 app.put('/api/cards/:id', async (req, res) => {
+  if (!await ownedCard(req, res)) return
   const { title, description, notes } = req.body
   const { rows } = await pool.query(
     'UPDATE cards SET title=$1, description=$2, notes=$3 WHERE id=$4 RETURNING *',
@@ -571,6 +844,7 @@ app.put('/api/cards/:id', async (req, res) => {
 })
 
 app.delete('/api/cards/:id', async (req, res) => {
+  if (!await ownedCard(req, res)) return
   await pool.query('DELETE FROM cards WHERE id=$1', [req.params.id])
   res.json({ ok: true })
 })
@@ -675,7 +949,7 @@ async function scrapeAndUpdate(card, html) {
   }
 }
 
-app.post('/api/cards/:id/scrape', async (req, res) => {
+app.post('/api/cards/:id/scrape', adminOnly, async (req, res) => {
   try {
     const { rows: existing } = await pool.query('SELECT * FROM cards WHERE id=$1', [req.params.id])
     if (!existing[0]) return res.status(404).json({ error: 'not found' })
@@ -777,7 +1051,7 @@ function injectLinks(plan, resources) {
   return out
 }
 
-app.post('/api/cards/:id/plan', async (req, res) => {
+app.post('/api/cards/:id/plan', adminOnly, async (req, res) => {
   try {
     const { rows: existing } = await pool.query('SELECT * FROM cards WHERE id=$1', [req.params.id])
     if (!existing[0]) return res.status(404).json({ error: 'not found' })
@@ -803,17 +1077,8 @@ app.post('/api/cards/:id/plan', async (req, res) => {
     const tools = await extractTools(rawPlan)
     console.log('plan tools identified:', tools)
 
-    // Step 3 — search GitHub + DDG for each tool in parallel
-    const resources = (await Promise.all(
-      tools.map(async tool => {
-        const url = await searchGitHub(tool) || await searchDDG(tool)
-        console.log(`  ${tool} → ${url || 'not found'}`)
-        return url ? { tool, url } : null
-      })
-    )).filter(Boolean)
-
-    // Step 4 — inject links inline on first mention
-    const plan = resources.length ? injectLinks(rawPlan, resources) : rawPlan
+    // Steps 3 & 4 — search GitHub + DDG for each tool, inject links on first mention
+    const plan = await applyPlanLinks(rawPlan, tools)
 
     const metadata = { ...(card.metadata || {}), plan }
     const { rows } = await pool.query(
@@ -828,12 +1093,12 @@ app.post('/api/cards/:id/plan', async (req, res) => {
 })
 
 // ── Notes ────────────────────────────────────────────────────────────────────
-app.get('/api/notes', async (req, res) => {
+app.get('/api/notes', adminOnly, async (req, res) => {
   const { rows } = await pool.query('SELECT * FROM notes ORDER BY created_at DESC')
   res.json(rows)
 })
 
-app.post('/api/notes', async (req, res) => {
+app.post('/api/notes', adminOnly, async (req, res) => {
   const { content, label } = req.body
   if (!content?.trim()) return res.status(400).json({ error: 'content required' })
   const { rows } = await pool.query(
@@ -843,7 +1108,7 @@ app.post('/api/notes', async (req, res) => {
   res.json(rows[0])
 })
 
-app.delete('/api/notes/:id', async (req, res) => {
+app.delete('/api/notes/:id', adminOnly, async (req, res) => {
   await pool.query('DELETE FROM notes WHERE id=$1', [req.params.id])
   res.json({ ok: true })
 })

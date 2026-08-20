@@ -1,7 +1,7 @@
 import { AnimatePresence, motion } from 'framer-motion'
 import Card from './Card.jsx'
 
-export default function CardGrid({ cards, onDelete, onUpdate, search, nowPlayingId, onPlay }) {
+export default function CardGrid({ cards, onDelete, onUpdate, search, nowPlayingId, onPlay, canEdit = () => true }) {
   if (cards.length === 0) {
     return (
       <motion.div
@@ -38,7 +38,7 @@ export default function CardGrid({ cards, onDelete, onUpdate, search, nowPlaying
             exit={{ opacity: 0, scale: 0.95 }}
             transition={{ delay: i * 0.03 }}
           >
-            <Card card={card} onDelete={onDelete} onUpdate={onUpdate} nowPlayingId={nowPlayingId} onPlay={onPlay} />
+            <Card card={card} onDelete={onDelete} onUpdate={onUpdate} nowPlayingId={nowPlayingId} onPlay={onPlay} canEdit={canEdit(card)} />
           </motion.div>
         ))}
       </AnimatePresence>

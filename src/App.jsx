@@ -8,11 +8,16 @@ import AddCardModal from './components/AddCardModal.jsx'
 import AddCategoryModal from './components/AddCategoryModal.jsx'
 import ThemePicker from './components/ThemePicker.jsx'
 import NotesTab from './components/NotesTab.jsx'
+import MembersBar from './components/MembersBar.jsx'
 import * as api from './api.js'
+import { hasAI, buildCard } from './ai.js'
 import { getSavedTheme, applyTheme, getSavedIntensity, applyIntensity } from './themes.js'
 
-export default function App() {
+export default function App({ me }) {
+  const isAdmin = me.is_admin
+  const [user, setUser] = useState(me)
   const [theme, setTheme] = useState(getSavedTheme)
+  const [building, setBuilding] = useState(null)
   const [categories, setCategories] = useState([])
   const [activeCatId, setActiveCatId] = useState(null)
   const [subcategories, setSubcategories] = useState([])
@@ -45,12 +50,14 @@ export default function App() {
     }, 2000)
   }, [])
 
+  // For a collaborator there is no category layer — each shelf they joined *is* the top level.
   const loadCards = useCallback((catId, subcatId) => {
-    api.getCards(catId, subcatId).then(loaded => {
+    const request = isAdmin ? api.getCards(catId, subcatId) : api.getShelfCards(catId)
+    request.then(loaded => {
       setCards(loaded)
       loaded.filter(c => c.status === 'pending').forEach(c => startPolling(c.id))
     })
-  }, [startPolling])
+  }, [startPolling, isAdmin])
 
   useEffect(() => {
     applyTheme(theme)
@@ -58,17 +65,20 @@ export default function App() {
   }, [])
 
   useEffect(() => {
-    api.getCategories().then((cats) => {
+    const load = isAdmin
+      ? api.getCategories()
+      : api.getMyShelves().then(shelves => shelves.map(s => ({ id: s.id, name: s.name, icon: null })))
+    load.then((cats) => {
       setCategories(cats)
       if (cats.length) setActiveCatId(cats[0].id)
     })
-  }, [])
+  }, [isAdmin])
 
   useEffect(() => {
     if (!activeCatId) return
     setActiveSubcatId(null)
     setSearch('')
-    api.getSubcategories(activeCatId).then(setSubcategories)
+    if (isAdmin) api.getSubcategories(activeCatId).then(setSubcategories)
     loadCards(activeCatId, null)
   }, [activeCatId])
 
@@ -114,12 +124,51 @@ export default function App() {
     setSubcategories((prev) => [...prev, sub])
   }
 
-  const handleAddCard = (data) => {
-    api.createCard({ ...data, subcategory_id: activeSubcatId })
+  // A collaborator's only surface is the shelf itself, so their posts always land in it.
+  const activeShelfId = isAdmin
+    ? (subcategories.find(s => s.id === activeSubcatId)?.is_collab ? activeSubcatId : null)
+    : activeCatId
+
+  const handleAddCard = async (data) => {
+    const targetSub = isAdmin ? (data.subcategory_id || activeSubcatId) : activeCatId
+    const isCollabTarget = isAdmin
+      ? !!subcategories.find(s => s.id === Number(targetSub))?.is_collab
+      : true
+
+    // Collab posts do the whole scrape + describe + plan pass in *this* browser against
+    // *this* user's AI account, and only hit the shelf once it's a finished card.
+    if (isCollabTarget && hasAI()) {
+      setBuilding('starting')
+      try {
+        const built = await buildCard(data.url, setBuilding)
+        const card = await api.createCard({
+          ...built,
+          subcategory_id: targetSub,
+          thumbnail_url: data.thumbnail_url || built.thumbnail_url
+        })
+        setCards(prev => [card, ...prev])
+      } catch (err) {
+        window.alert(`could not post that link — ${err.message}`)
+      }
+      setBuilding(null)
+      return
+    }
+
+    if (isCollabTarget && !isAdmin) {
+      window.alert('add your AI endpoint under the theme dot first — collab posts run on your own account')
+      return
+    }
+
+    api.createCard({ ...data, subcategory_id: targetSub })
       .then(card => {
         setCards(prev => [card, ...prev])
         if (card.status === 'pending') startPolling(card.id)
       })
+  }
+
+  const handleShare = async (subcatId) => {
+    await api.getInvite(subcatId)
+    setSubcategories(prev => prev.map(s => s.id === subcatId ? { ...s, is_collab: true } : s))
   }
 
   const handleDeleteCard = async (id) => {
@@ -179,6 +228,7 @@ export default function App() {
               onAdd={() => setShowAddCat(true)}
               onReorder={handleReorderCategories}
               onReorderEnd={saveCategoryOrder}
+              readOnly={!isAdmin}
             />
 
             {subcategories.length > 0 && (
@@ -190,14 +240,21 @@ export default function App() {
                 onDelete={handleDeleteSubcategory}
                 onReorder={handleReorderSubcategories}
                 onReorderEnd={saveSubcategoryOrder}
+                onShare={handleShare}
               />
             )}
 
-            {subcategories.length === 0 && activeCatId && (
+            {isAdmin && subcategories.length === 0 && activeCatId && (
               <div className="px-4 pb-3">
                 <button onClick={handleAddSubcategory} className="text-xs" style={{ color: 'var(--s-text-3)' }}>
                   + add tab
                 </button>
+              </div>
+            )}
+
+            {activeShelfId && (
+              <div className="mb-3">
+                <MembersBar shelfId={activeShelfId} isAdmin={isAdmin} meId={user.id} />
               </div>
             )}
 
@@ -226,6 +283,7 @@ export default function App() {
                       search={search}
                       nowPlayingId={nowPlaying?.id}
                       onPlay={(card) => setNowPlaying({ id: card.id, title: card.title })}
+                      canEdit={(card) => isAdmin || card.user_id === user.id}
                     />
                   </motion.div>
                 )}
@@ -233,7 +291,7 @@ export default function App() {
             </div>
         </div>
 
-        {activeView === 'notes' && <NotesTab />}
+        {isAdmin && activeView === 'notes' && <NotesTab />}
 
       </div>
 
@@ -254,6 +312,62 @@ export default function App() {
           +
         </motion.button>
       )}
+
+      {/* Collab post progress — the card doesn't exist anywhere until this finishes */}
+      <AnimatePresence>
+        {building && (
+          <motion.div
+            initial={{ y: 20, opacity: 0 }}
+            animate={{ y: 0, opacity: 1 }}
+            exit={{ y: 20, opacity: 0 }}
+            className="fixed z-40 flex items-center gap-2 px-3 py-1.5 rounded-full"
+            style={{
+              left: '50%',
+              transform: 'translateX(-50%)',
+              bottom: 'calc(3.5rem + env(safe-area-inset-bottom) + 10px)',
+              maxWidth: 'calc(100vw - 2rem)',
+              background: 'var(--s-surface)',
+              border: '1px solid var(--s-accent)',
+              boxShadow: '0 4px 16px rgba(0,0,0,0.4)'
+            }}
+          >
+            <motion.span
+              animate={{ opacity: [1, 0.3, 1] }}
+              transition={{ duration: 1.2, repeat: Infinity }}
+              style={{ width: 6, height: 6, borderRadius: '50%', background: 'var(--s-accent)', flexShrink: 0 }}
+            />
+            <span className="text-xs truncate" style={{ color: 'var(--s-text-2)' }}>{building}…</span>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Collab posts run the whole AI pass before they exist, so show the user where it's up to */}
+      <AnimatePresence>
+        {building && (
+          <motion.div
+            initial={{ y: 20, opacity: 0 }}
+            animate={{ y: 0, opacity: 1 }}
+            exit={{ y: 20, opacity: 0 }}
+            className="fixed z-40 flex items-center gap-2 px-4 py-2 rounded-full"
+            style={{
+              left: '50%',
+              transform: 'translateX(-50%)',
+              bottom: 'calc(3.5rem + env(safe-area-inset-bottom) + 10px)',
+              maxWidth: 'calc(100vw - 2rem)',
+              background: 'var(--s-surface)',
+              border: '1px solid var(--s-accent)',
+              boxShadow: '0 0 16px var(--s-accent-glow)'
+            }}
+          >
+            <motion.span
+              animate={{ opacity: [1, 0.3, 1] }}
+              transition={{ duration: 1.2, repeat: Infinity }}
+              style={{ width: 6, height: 6, borderRadius: '50%', background: 'var(--s-accent)', flexShrink: 0 }}
+            />
+            <span className="text-xs truncate" style={{ color: 'var(--s-text-2)' }}>{building}…</span>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* Now-playing bar — lets you pause a video from any tab */}
       <AnimatePresence>
@@ -298,7 +412,7 @@ export default function App() {
       >
         <div className="flex items-center justify-between px-6" style={{ height: '2.75rem' }}>
           <div className="flex items-center gap-4">
-            {['bookmarks', 'notes'].map(v => (
+            {(isAdmin ? ['bookmarks', 'notes'] : ['bookmarks']).map(v => (
               <button
                 key={v}
                 onClick={() => setActiveView(v)}
@@ -313,7 +427,12 @@ export default function App() {
               </button>
             ))}
           </div>
-          <ThemePicker current={theme} onChange={(id) => { applyTheme(id); setTheme(id) }} />
+          <ThemePicker
+            current={theme}
+            onChange={(id) => { applyTheme(id); setTheme(id) }}
+            user={user}
+            onRenamed={setUser}
+          />
         </div>
       </div>
 

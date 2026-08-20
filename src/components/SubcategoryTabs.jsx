@@ -1,7 +1,8 @@
 import { useState } from 'react'
 import { motion, AnimatePresence, Reorder } from 'framer-motion'
+import { CollabIcon } from './MembersBar.jsx'
 
-export default function SubcategoryTabs({ subcategories, activeId, onSelect, onAdd, onDelete, onReorder, onReorderEnd }) {
+export default function SubcategoryTabs({ subcategories, activeId, onSelect, onAdd, onDelete, onReorder, onReorderEnd, onShare }) {
   const [hoverId, setHoverId] = useState(null)
   const [confirmId, setConfirmId] = useState(null)
   const [reordering, setReordering] = useState(false)
@@ -42,13 +43,14 @@ export default function SubcategoryTabs({ subcategories, activeId, onSelect, onA
           >
             <button
               onClick={() => { if (!reordering) { setConfirmId(null); onSelect(sub.id) } }}
-              className="text-xs px-3 py-1 rounded whitespace-nowrap transition-colors"
+              className="text-xs px-3 py-1 rounded whitespace-nowrap transition-colors inline-flex items-center gap-1.5"
               style={{
                 paddingRight: hoverId === sub.id ? '1.5rem' : undefined,
                 background: activeId === sub.id ? 'var(--s-border)' : 'transparent',
                 color: activeId === sub.id ? 'var(--s-accent)' : 'var(--s-text-2)'
               }}
             >
+              {sub.is_collab && <CollabIcon size={11} />}
               {sub.name}
             </button>
 
@@ -102,6 +104,17 @@ export default function SubcategoryTabs({ subcategories, activeId, onSelect, onA
       >
         ⇄
       </button>
+
+      {activeId !== null && !subcategories.find(s => s.id === activeId)?.is_collab && (
+        <button
+          onClick={() => onShare(activeId)}
+          className="text-xs px-2 py-1 rounded flex-shrink-0 inline-flex items-center"
+          title="Share this tab with someone"
+          style={{ color: 'var(--s-border)' }}
+        >
+          <CollabIcon size={12} />
+        </button>
+      )}
     </div>
   )
 }
