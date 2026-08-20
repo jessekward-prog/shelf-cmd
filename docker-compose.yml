@@ -19,6 +19,11 @@ services:
       LM_STUDIO_URL: ${LM_STUDIO_URL:-}
       LM_STUDIO_MODEL: ${LM_STUDIO_MODEL:-}
       LM_STUDIO_API_KEY: ${LM_STUDIO_API_KEY:-}
+      # Shared shelves federate through a hub. Unset = the public default hub
+      # (baked into the app). Point at your own shelf-hub for full independence.
+      HUB_URL: ${HUB_URL:-}
+      HUB_SYNC: ${HUB_SYNC:-}
+      HUB_SYNC_MS: ${HUB_SYNC_MS:-}
     depends_on:
       - db
 
