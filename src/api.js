@@ -59,11 +59,12 @@ export const getFile = (id) => req('GET', `/files/${id}`)
 export const deleteFile = (id) => req('DELETE', `/files/${id}`)
 export const shareFile = (id) => req('POST', `/files/${id}/share`, {})
 
-export function uploadFile(catId, file, subcatId) {
+export function uploadFile(catId, file, subcatId, name) {
   const form = new FormData()
   // Text fields before the file — multer only guarantees req.body for fields
   // that arrive ahead of the file part.
   if (subcatId) form.append('subcategory_id', subcatId)
+  if (name) form.append('name', name)
   form.append('file', file)
   return fetch(`${base}/categories/${catId}/files`, {
     method: 'POST',

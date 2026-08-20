@@ -10,6 +10,7 @@ export default function DrivePage({ categoryId, subcategoryId }) {
   const [uploading, setUploading] = useState(0)
   const [shareFile, setShareFile] = useState(null)
   const inputRef = useRef(null)
+  const folderRef = useRef(null)
   const pollers = useRef({})
 
   const poll = useCallback((id) => {
@@ -33,25 +34,53 @@ export default function DrivePage({ categoryId, subcategoryId }) {
     return () => { Object.values(pollers.current).forEach(clearInterval); pollers.current = {} }
   }, [categoryId, poll])
 
-  const doUpload = useCallback(async (list) => {
-    const arr = Array.from(list)
-    if (!arr.length) return
-    setUploading(u => u + arr.length)
-    for (const file of arr) {
+  // Each item is { file, name } — name carries a folder path when present.
+  const doUpload = useCallback(async (items) => {
+    if (!items.length) return
+    setUploading(u => u + items.length)
+    for (const { file, name } of items) {
       try {
-        const created = await api.uploadFile(categoryId, file, subcategoryId)
+        const created = await api.uploadFile(categoryId, file, subcategoryId, name)
         setFiles(prev => [created, ...prev])
         poll(created.id)
       } catch (err) {
-        window.alert(`could not upload ${file.name} — ${err.message}`)
+        window.alert(`could not upload ${name || file.name} — ${err.message}`)
       }
       setUploading(u => u - 1)
     }
   }, [categoryId, subcategoryId, poll])
 
-  const onDrop = (e) => {
+  // A plain <input> gives Files; a folder input tags each with webkitRelativePath.
+  const fromFileList = (list) =>
+    Array.from(list).map(file => ({ file, name: file.webkitRelativePath || file.name }))
+
+  // Walk a dropped directory tree into a flat list of files with their paths.
+  const collectEntry = async (entry, prefix = '') => {
+    if (entry.isFile) {
+      return new Promise(res => entry.file(f => res([{ file: f, name: prefix + f.name }])))
+    }
+    const reader = entry.createReader()
+    const readAll = () => new Promise(res => {
+      const all = []
+      const next = () => reader.readEntries(batch => batch.length ? (all.push(...batch), next()) : res(all))
+      next()
+    })
+    const kids = await readAll()
+    return (await Promise.all(kids.map(k => collectEntry(k, prefix + entry.name + '/')))).flat()
+  }
+
+  const onDrop = async (e) => {
     e.preventDefault(); setDragging(false)
-    if (e.dataTransfer.files?.length) doUpload(e.dataTransfer.files)
+    const items = e.dataTransfer.items
+    // Prefer the entry API so dropped folders are walked; fall back to flat files.
+    if (items?.length && items[0].webkitGetAsEntry) {
+      const entries = Array.from(items).map(i => i.webkitGetAsEntry()).filter(Boolean)
+      if (entries.some(en => en.isDirectory)) {
+        const collected = (await Promise.all(entries.map(en => collectEntry(en)))).flat()
+        return doUpload(collected)
+      }
+    }
+    if (e.dataTransfer.files?.length) doUpload(fromFileList(e.dataTransfer.files))
   }
 
   const handleDelete = async (id) => {
@@ -67,10 +96,10 @@ export default function DrivePage({ categoryId, subcategoryId }) {
       className="px-4 pb-24 lg:px-8 lg:pb-10 relative"
       style={{ minHeight: '50vh' }}
     >
-      {/* Drop / upload bar */}
-      <button
+      {/* Drop / upload bar — files or a whole folder */}
+      <div
         onClick={() => inputRef.current?.click()}
-        className="w-full rounded-xl mb-4 flex flex-col items-center justify-center gap-1 transition-colors"
+        className="w-full rounded-xl mb-4 flex flex-col items-center justify-center gap-1 transition-colors cursor-pointer"
         style={{
           padding: '1.5rem',
           border: `1.5px dashed ${dragging ? 'var(--s-accent)' : 'var(--s-border)'}`,
@@ -79,11 +108,20 @@ export default function DrivePage({ categoryId, subcategoryId }) {
         }}
       >
         <span className="text-2xl" style={{ opacity: 0.5 }}>↑</span>
-        <span className="text-sm">{dragging ? 'drop to upload' : 'drop files here, or click to choose'}</span>
+        <span className="text-sm">{dragging ? 'drop to upload' : 'drop files or a folder, or click to choose'}</span>
+        <button
+          onClick={(e) => { e.stopPropagation(); folderRef.current?.click() }}
+          className="text-xs mt-1 underline"
+          style={{ color: 'var(--s-accent)', textUnderlineOffset: 3 }}
+        >
+          upload a folder
+        </button>
         {uploading > 0 && <span className="text-xs mt-1" style={{ color: 'var(--s-accent)' }}>uploading {uploading}…</span>}
-      </button>
+      </div>
       <input ref={inputRef} type="file" multiple hidden
-        onChange={(e) => { doUpload(e.target.files); e.target.value = '' }} />
+        onChange={(e) => { doUpload(fromFileList(e.target.files)); e.target.value = '' }} />
+      <input ref={folderRef} type="file" multiple hidden webkitdirectory="" directory=""
+        onChange={(e) => { doUpload(fromFileList(e.target.files)); e.target.value = '' }} />
 
       {files.length === 0 ? (
         <div className="flex flex-col items-center justify-center py-20 text-center">

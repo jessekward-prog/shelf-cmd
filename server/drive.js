@@ -165,7 +165,9 @@ export function mountDrive({ app, pool, adminOnly, lmComplete }) {
       if (!req.file) return res.status(400).json({ error: 'no file' })
       const catId = Number(req.params.id)
       const subId = req.body.subcategory_id ? Number(req.body.subcategory_id) : null
-      const name = req.file.originalname
+      // A folder upload sends the file's path (e.g. "trip/day1/img.jpg") as name,
+      // so the card keeps that context even though the drive itself is flat.
+      const name = (req.body.name || req.file.originalname || 'file').slice(0, 400)
       const kind = kindOf(name, req.file.mimetype)
       const { rows } = await pool.query(
         `INSERT INTO files (category_id, subcategory_id, user_id, name, stored_name, mime_type, kind, size, status)
