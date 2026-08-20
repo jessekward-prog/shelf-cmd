@@ -1,7 +1,9 @@
 import { useState } from 'react'
 import { motion, Reorder } from 'framer-motion'
 
-export default function CategoryNav({ categories, activeId, onSelect, onAdd, onReorder, onReorderEnd, readOnly }) {
+import { CollabIcon } from './MembersBar.jsx'
+
+export default function CategoryNav({ categories, activeId, onSelect, onAdd, onReorder, onReorderEnd, readOnly, onJoin, onShare }) {
   const [reordering, setReordering] = useState(false)
 
   return (
@@ -35,6 +37,7 @@ export default function CategoryNav({ categories, activeId, onSelect, onAdd, onR
           >
             <span className="text-base leading-none">{cat.icon}</span>
             <span>{cat.name}</span>
+            {cat.is_collab && <CollabIcon size={11} />}
             {active && !reordering && (
               <motion.div
                 layoutId="cat-indicator"
@@ -45,6 +48,32 @@ export default function CategoryNav({ categories, activeId, onSelect, onAdd, onR
           </Reorder.Item>
         )
       })}
+
+      {/* A collaborator's only way in is a code, so this is their "+ new" */}
+      {readOnly && (
+        <motion.button
+          onClick={onJoin}
+          whileTap={{ scale: 0.93 }}
+          className="flex items-center gap-1 px-3 py-2 rounded-lg text-sm whitespace-nowrap ml-1 flex-shrink-0"
+          style={{ color: 'var(--s-accent)', border: '1px dashed var(--s-accent)' }}
+        >
+          <span className="text-base">+</span>
+          <span>join</span>
+        </motion.button>
+      )}
+
+      {/* Sharing is whole-shelf, so the invite sits on the shelf row, not the tab row */}
+      {!readOnly && activeId && (
+        <motion.button
+          onClick={() => onShare(activeId)}
+          whileTap={{ scale: 0.93 }}
+          className="flex items-center gap-1 px-3 py-2 rounded-lg text-sm whitespace-nowrap ml-1 flex-shrink-0"
+          style={{ color: 'var(--s-accent)', border: '1px dashed var(--s-accent)' }}
+        >
+          <CollabIcon size={12} />
+          <span>invite</span>
+        </motion.button>
+      )}
 
       {!readOnly && (
         <motion.button

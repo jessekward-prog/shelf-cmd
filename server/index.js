@@ -37,12 +37,18 @@ app.use(async (req, res, next) => {
 const adminOnly = (req, res, next) =>
   req.user?.is_admin ? next() : res.status(403).json({ error: 'admin only' })
 
-async function isMember(userId, subcatId) {
+async function isMember(userId, categoryId) {
   const { rows } = await pool.query(
-    'SELECT 1 FROM shelf_members WHERE user_id=$1 AND subcategory_id=$2',
-    [userId, subcatId]
+    'SELECT 1 FROM shelf_members WHERE user_id=$1 AND category_id=$2',
+    [userId, categoryId]
   )
   return rows.length > 0
+}
+
+// Admin sees everything; a collaborator only the categories they were invited to.
+async function canRead(req, categoryId) {
+  if (req.user?.is_admin) return true
+  return !!req.user && await isMember(req.user.id, categoryId)
 }
 
 async function initDb() {
@@ -488,24 +494,24 @@ app.put('/api/me', async (req, res) => {
   res.json(rows[0])
 })
 
-// Sharing a tab is what makes it collaborative — no separate "make collab" step.
-app.post('/api/subcategories/:id/invite', adminOnly, async (req, res) => {
-  const subcatId = Number(req.params.id)
-  const { rows: existing } = await pool.query('SELECT code FROM invites WHERE subcategory_id=$1', [subcatId])
+// Sharing a category is what makes it collaborative — no separate "make collab" step.
+app.post('/api/categories/:id/invite', adminOnly, async (req, res) => {
+  const categoryId = Number(req.params.id)
+  const { rows: existing } = await pool.query('SELECT code FROM invites WHERE category_id=$1', [categoryId])
   if (existing[0]) return res.json({ code: existing[0].code })
 
-  await pool.query('UPDATE subcategories SET is_collab=TRUE WHERE id=$1', [subcatId])
+  await pool.query('UPDATE categories SET is_collab=TRUE WHERE id=$1', [categoryId])
   await pool.query(
-    'INSERT INTO shelf_members (subcategory_id, user_id) VALUES ($1,$2) ON CONFLICT DO NOTHING',
-    [subcatId, req.user.id]
+    'INSERT INTO shelf_members (category_id, user_id) VALUES ($1,$2) ON CONFLICT DO NOTHING',
+    [categoryId, req.user.id]
   )
 
   // 6 digits is only 900k of space, so retry on the rare collision rather than trusting one draw
   for (let i = 0; i < 20; i++) {
     const code = String(Math.floor(100000 + Math.random() * 900000))
     const { rows } = await pool.query(
-      'INSERT INTO invites (code, subcategory_id) VALUES ($1,$2) ON CONFLICT DO NOTHING RETURNING code',
-      [code, subcatId]
+      'INSERT INTO invites (code, category_id) VALUES ($1,$2) ON CONFLICT DO NOTHING RETURNING code',
+      [code, categoryId]
     )
     if (rows[0]) return res.json({ code: rows[0].code })
   }
@@ -515,9 +521,10 @@ app.post('/api/subcategories/:id/invite', adminOnly, async (req, res) => {
 app.post('/api/join', async (req, res) => {
   const code = String(req.body.code || '').trim()
   const username = req.body.username?.trim()
-  if (!username) return res.status(400).json({ error: 'username required' })
+  // Only a first-time joiner has to pick a name; an existing user keeps the one they have
+  if (!username && !req.user) return res.status(400).json({ error: 'username required' })
 
-  const { rows: inv } = await pool.query('SELECT subcategory_id FROM invites WHERE code=$1', [code])
+  const { rows: inv } = await pool.query('SELECT category_id FROM invites WHERE code=$1', [code])
   if (!inv[0]) return res.status(404).json({ error: 'invalid code' })
 
   // An existing collaborator redeeming a second code joins that shelf with the same identity
@@ -530,49 +537,61 @@ app.post('/api/join', async (req, res) => {
     user = rows[0]
   }
   await pool.query(
-    'INSERT INTO shelf_members (subcategory_id, user_id) VALUES ($1,$2) ON CONFLICT DO NOTHING',
-    [inv[0].subcategory_id, user.id]
+    'INSERT INTO shelf_members (category_id, user_id) VALUES ($1,$2) ON CONFLICT DO NOTHING',
+    [inv[0].category_id, user.id]
   )
-  res.json({ token: user.token, id: user.id, username: user.username, is_admin: user.is_admin })
+  res.json({ token: user.token, id: user.id, username: user.username, is_admin: user.is_admin, shelf_id: inv[0].category_id })
 })
 
-app.get('/api/subcategories/:id/members', async (req, res) => {
-  const subcatId = Number(req.params.id)
-  if (!req.user?.is_admin && !(req.user && await isMember(req.user.id, subcatId))) {
-    return res.status(403).json({ error: 'not a member' })
-  }
+app.get('/api/categories/:id/members', async (req, res) => {
+  const categoryId = Number(req.params.id)
+  if (!await canRead(req, categoryId)) return res.status(403).json({ error: 'not a member' })
   const { rows } = await pool.query(
     `SELECT u.id, u.username, u.is_admin FROM shelf_members m
      JOIN users u ON u.id = m.user_id
-     WHERE m.subcategory_id=$1 ORDER BY u.is_admin DESC, m.joined_at`,
-    [subcatId]
+     WHERE m.category_id=$1 ORDER BY u.is_admin DESC, m.joined_at`,
+    [categoryId]
   )
   res.json(rows)
 })
 
-// The collaborator's whole world: the collab tabs they were invited to.
+// The collaborator's whole world: the shared categories they were invited to.
 app.get('/api/my-shelves', async (req, res) => {
   if (!req.user) return res.status(401).json({ error: 'no session' })
   const { rows } = await pool.query(
-    `SELECT s.id, s.name, s.category_id FROM shelf_members m
-     JOIN subcategories s ON s.id = m.subcategory_id
-     WHERE m.user_id=$1 AND s.is_collab ORDER BY s.sort_order, s.id`,
+    `SELECT c.id, c.name, c.icon, c.is_collab FROM shelf_members m
+     JOIN categories c ON c.id = m.category_id
+     WHERE m.user_id=$1 AND c.is_collab ORDER BY c.sort_order, c.id`,
     [req.user.id]
   )
   res.json(rows)
 })
 
-app.get('/api/shelves/:id/cards', async (req, res) => {
-  const subcatId = Number(req.params.id)
-  if (!req.user?.is_admin && !(req.user && await isMember(req.user.id, subcatId))) {
-    return res.status(403).json({ error: 'not a member' })
-  }
+// A shared category brings its tabs with it, so collaborators need to list them.
+app.get('/api/shelves/:id/subcategories', async (req, res) => {
+  const categoryId = Number(req.params.id)
+  if (!await canRead(req, categoryId)) return res.status(403).json({ error: 'not a member' })
   const { rows } = await pool.query(
-    `SELECT c.*, u.username AS author FROM cards c
-     LEFT JOIN users u ON u.id = c.user_id
-     WHERE c.subcategory_id=$1 AND c.status='ready' ORDER BY c.created_at DESC`,
-    [subcatId]
+    'SELECT * FROM subcategories WHERE category_id=$1 ORDER BY sort_order, id',
+    [categoryId]
   )
+  res.json(rows)
+})
+
+app.get('/api/shelves/:id/cards', async (req, res) => {
+  const categoryId = Number(req.params.id)
+  if (!await canRead(req, categoryId)) return res.status(403).json({ error: 'not a member' })
+  const { subcategory_id } = req.query
+  const params = [categoryId]
+  let query = `SELECT c.*, u.username AS author FROM cards c
+               LEFT JOIN users u ON u.id = c.user_id
+               WHERE c.category_id=$1 AND c.status='ready'`
+  if (subcategory_id) {
+    query += ' AND c.subcategory_id=$2'
+    params.push(subcategory_id)
+  }
+  query += ' ORDER BY c.created_at DESC'
+  const { rows } = await pool.query(query, params)
   res.json(rows)
 })
 
@@ -650,10 +669,10 @@ app.delete('/api/subcategories/:id', adminOnly, async (req, res) => {
 
 app.get('/api/categories/:id/cards', adminOnly, async (req, res) => {
   const { subcategory_id } = req.query
-  // Only shared tabs get a byline — your own cards stay unattributed
-  let query = `SELECT c.*, CASE WHEN s.is_collab THEN u.username END AS author FROM cards c
+  // Only shared categories get a byline — your own cards stay unattributed
+  let query = `SELECT c.*, CASE WHEN cat.is_collab THEN u.username END AS author FROM cards c
                LEFT JOIN users u ON u.id = c.user_id
-               LEFT JOIN subcategories s ON s.id = c.subcategory_id
+               JOIN categories cat ON cat.id = c.category_id
                WHERE c.category_id=$1`
   const params = [req.params.id]
   if (subcategory_id) {
@@ -712,18 +731,18 @@ app.post('/api/cards', async (req, res) => {
 
     // Derive the category from the tab so a collaborator can't write into an arbitrary one
     let category_id = req.body.category_id
-    let collab = false
     if (subcategory_id) {
-      const { rows } = await pool.query('SELECT category_id, is_collab FROM subcategories WHERE id=$1', [subcategory_id])
+      const { rows } = await pool.query('SELECT category_id FROM subcategories WHERE id=$1', [subcategory_id])
       if (!rows[0]) return res.status(404).json({ error: 'no such tab' })
       category_id = rows[0].category_id
-      collab = rows[0].is_collab
     }
 
+    const { rows: cat } = await pool.query('SELECT is_collab FROM categories WHERE id=$1', [category_id])
+    if (!cat[0]) return res.status(404).json({ error: 'no such category' })
+    const collab = cat[0].is_collab
+
     if (collab) {
-      if (!req.user?.is_admin && !(req.user && await isMember(req.user.id, subcategory_id))) {
-        return res.status(403).json({ error: 'not a member' })
-      }
+      if (!await canRead(req, category_id)) return res.status(403).json({ error: 'not a member' })
     } else if (!req.user?.is_admin) {
       return res.status(403).json({ error: 'admin only' })
     }
@@ -814,9 +833,9 @@ app.post('/api/prepare', async (req, res) => {
 // Admin can touch any card; a collaborator only their own.
 async function ownedCard(req, res) {
   const { rows } = await pool.query(
-    `SELECT c.*, CASE WHEN s.is_collab THEN u.username END AS author FROM cards c
+    `SELECT c.*, CASE WHEN cat.is_collab THEN u.username END AS author FROM cards c
      LEFT JOIN users u ON u.id = c.user_id
-     LEFT JOIN subcategories s ON s.id = c.subcategory_id
+     JOIN categories cat ON cat.id = c.category_id
      WHERE c.id=$1`,
     [req.params.id]
   )

@@ -55,20 +55,36 @@ CREATE TABLE IF NOT EXISTS users (
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
-ALTER TABLE subcategories ADD COLUMN IF NOT EXISTS is_collab BOOLEAN NOT NULL DEFAULT FALSE;
+-- A shared shelf is a whole category: the invitee gets it and every tab inside it.
+ALTER TABLE categories ADD COLUMN IF NOT EXISTS is_collab BOOLEAN NOT NULL DEFAULT FALSE;
+ALTER TABLE subcategories DROP COLUMN IF EXISTS is_collab;
 ALTER TABLE cards ADD COLUMN IF NOT EXISTS user_id INT REFERENCES users(id) ON DELETE SET NULL;
 
+-- Sharing started out tab-level. Drop the old shape rather than migrate it: it was
+-- only ever live briefly and never had a row in it.
+DO $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM information_schema.columns
+             WHERE table_name='shelf_members' AND column_name='subcategory_id') THEN
+    DROP TABLE shelf_members;
+  END IF;
+  IF EXISTS (SELECT 1 FROM information_schema.columns
+             WHERE table_name='invites' AND column_name='subcategory_id') THEN
+    DROP TABLE invites;
+  END IF;
+END $$;
+
 CREATE TABLE IF NOT EXISTS shelf_members (
-  subcategory_id INT NOT NULL REFERENCES subcategories(id) ON DELETE CASCADE,
+  category_id INT NOT NULL REFERENCES categories(id) ON DELETE CASCADE,
   user_id INT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   joined_at TIMESTAMPTZ DEFAULT NOW(),
-  PRIMARY KEY (subcategory_id, user_id)
+  PRIMARY KEY (category_id, user_id)
 );
 
 -- One standing invite code per shelf; re-shown rather than rotated.
 CREATE TABLE IF NOT EXISTS invites (
   code TEXT PRIMARY KEY,
-  subcategory_id INT NOT NULL UNIQUE REFERENCES subcategories(id) ON DELETE CASCADE,
+  category_id INT NOT NULL UNIQUE REFERENCES categories(id) ON DELETE CASCADE,
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
 

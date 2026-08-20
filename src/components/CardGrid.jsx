@@ -1,7 +1,26 @@
 import { AnimatePresence, motion } from 'framer-motion'
 import Card from './Card.jsx'
 
-export default function CardGrid({ cards, onDelete, onUpdate, search, nowPlayingId, onPlay, canEdit = () => true }) {
+/* Empty states are dead ends unless they carry the action that fills them. */
+function EmptyAction({ children, onClick }) {
+  return (
+    <button
+      onClick={onClick}
+      className="glow-focus mt-4"
+      style={{
+        padding: '7px 16px', borderRadius: 8, fontFamily: 'inherit', fontSize: 12,
+        color: 'var(--s-accent)', border: '1px solid var(--s-accent)',
+        background: 'transparent', transition: 'background 0.15s'
+      }}
+      onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--s-accent-faint)' }}
+      onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent' }}
+    >
+      {children}
+    </button>
+  )
+}
+
+export default function CardGrid({ cards, onDelete, onUpdate, search, onAdd, onClearSearch, nowPlayingId, onPlay, canEdit = () => true, canServerAI = true }) {
   if (cards.length === 0) {
     return (
       <motion.div
@@ -14,11 +33,13 @@ export default function CardGrid({ cards, onDelete, onUpdate, search, nowPlaying
           <>
             <p className="text-sm" style={{ color: 'var(--s-border)' }}>no results for "{search}"</p>
             <p className="text-xs mt-1" style={{ color: 'var(--s-surface-2)' }}>try different words</p>
+            {onClearSearch && <EmptyAction onClick={onClearSearch}>clear search</EmptyAction>}
           </>
         ) : (
           <>
             <p className="text-sm" style={{ color: 'var(--s-border)' }}>nothing here yet</p>
-            <p className="text-xs mt-1" style={{ color: 'var(--s-surface-2)' }}>tap + to add your first card</p>
+            <p className="text-xs mt-1" style={{ color: 'var(--s-surface-2)' }}>links, videos and notes all live on a shelf</p>
+            {onAdd && <EmptyAction onClick={onAdd}>+ add your first card</EmptyAction>}
           </>
         )}
       </motion.div>
@@ -26,7 +47,7 @@ export default function CardGrid({ cards, onDelete, onUpdate, search, nowPlaying
   }
 
   return (
-    <div className="grid gap-3 px-4 pb-24" style={{
+    <div className="grid gap-3 px-4 pb-24 lg:gap-5 lg:px-8 lg:pb-10" style={{
       gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))'
     }}>
       <AnimatePresence mode="popLayout">
@@ -36,9 +57,9 @@ export default function CardGrid({ cards, onDelete, onUpdate, search, nowPlaying
             initial={{ opacity: 0, y: 16 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, scale: 0.95 }}
-            transition={{ delay: i * 0.03 }}
+            transition={{ delay: Math.min(i, 12) * 0.03 }}
           >
-            <Card card={card} onDelete={onDelete} onUpdate={onUpdate} nowPlayingId={nowPlayingId} onPlay={onPlay} canEdit={canEdit(card)} />
+            <Card card={card} onDelete={onDelete} onUpdate={onUpdate} nowPlayingId={nowPlayingId} onPlay={onPlay} canEdit={canEdit(card)} canServerAI={canServerAI} />
           </motion.div>
         ))}
       </AnimatePresence>

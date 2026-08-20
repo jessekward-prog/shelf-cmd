@@ -235,7 +235,7 @@ function SkeletonCard() {
   )
 }
 
-export default function Card({ card, onDelete, onUpdate, nowPlayingId, onPlay, canEdit = true }) {
+export default function Card({ card, onDelete, onUpdate, nowPlayingId, onPlay, canEdit = true, canServerAI = true }) {
   if (card.status === 'pending') return <SkeletonCard />
   const [confirmDelete, setConfirmDelete] = useState(false)
   const [scraping, setScraping] = useState(false)
@@ -381,16 +381,17 @@ export default function Card({ card, onDelete, onUpdate, nowPlayingId, onPlay, c
 
         {/* Card footer actions — hidden on other people's cards, which you can't change anyway */}
         {canEdit && <div className="flex items-center justify-between mt-3 pt-2" style={{ borderTop: '1px solid var(--s-surface-2)' }}>
+          {/* scrape and plan run on the server's AI account, so they stay with the owner */}
           <div className="flex items-center gap-2">
-            <button
+            {canServerAI && <button
               onClick={handleScrape}
               disabled={scraping}
               className="text-xs px-2 py-1 rounded"
               style={{ color: scraping ? 'var(--s-border)' : 'var(--s-text-3)', background: 'transparent' }}
             >
               {scraping ? 'scraping…' : 'scrape'}
-            </button>
-            {card.type === 'youtube' && (
+            </button>}
+            {canServerAI && card.type === 'youtube' && (
               <button
                 onClick={handleGeneratePlan}
                 disabled={planGenerating}

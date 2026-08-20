@@ -1,8 +1,6 @@
 import { useState } from 'react'
 import { motion, AnimatePresence, Reorder } from 'framer-motion'
-import { CollabIcon } from './MembersBar.jsx'
-
-export default function SubcategoryTabs({ subcategories, activeId, onSelect, onAdd, onDelete, onReorder, onReorderEnd, onShare }) {
+export default function SubcategoryTabs({ subcategories, activeId, onSelect, onAdd, onDelete, onReorder, onReorderEnd, readOnly }) {
   const [hoverId, setHoverId] = useState(null)
   const [confirmId, setConfirmId] = useState(null)
   const [reordering, setReordering] = useState(false)
@@ -43,19 +41,18 @@ export default function SubcategoryTabs({ subcategories, activeId, onSelect, onA
           >
             <button
               onClick={() => { if (!reordering) { setConfirmId(null); onSelect(sub.id) } }}
-              className="text-xs px-3 py-1 rounded whitespace-nowrap transition-colors inline-flex items-center gap-1.5"
+              className="text-xs px-3 py-1 rounded whitespace-nowrap transition-colors"
               style={{
                 paddingRight: hoverId === sub.id ? '1.5rem' : undefined,
                 background: activeId === sub.id ? 'var(--s-border)' : 'transparent',
                 color: activeId === sub.id ? 'var(--s-accent)' : 'var(--s-text-2)'
               }}
             >
-              {sub.is_collab && <CollabIcon size={11} />}
               {sub.name}
             </button>
 
             <AnimatePresence>
-              {!reordering && hoverId === sub.id && confirmId !== sub.id && (
+              {!readOnly && !reordering && hoverId === sub.id && confirmId !== sub.id && (
                 <motion.button
                   key="x"
                   initial={{ opacity: 0, scale: 0.7 }}
@@ -88,33 +85,28 @@ export default function SubcategoryTabs({ subcategories, activeId, onSelect, onA
         ))}
       </Reorder.Group>
 
-      <button
-        onClick={onAdd}
-        className="text-xs px-2 py-1 rounded flex-shrink-0"
-        style={{ color: 'var(--s-border)' }}
-      >
-        + tab
-      </button>
-
-      <button
-        onClick={() => setReordering(r => !r)}
-        className="text-xs px-2 py-1 rounded flex-shrink-0"
-        title={reordering ? 'Done reordering' : 'Reorder'}
-        style={{ color: reordering ? 'var(--s-accent)' : 'var(--s-border)' }}
-      >
-        ⇄
-      </button>
-
-      {activeId !== null && !subcategories.find(s => s.id === activeId)?.is_collab && (
+      {/* Collaborators post into a shared shelf's tabs but don't manage its structure */}
+      {!readOnly && (
         <button
-          onClick={() => onShare(activeId)}
-          className="text-xs px-2 py-1 rounded flex-shrink-0 inline-flex items-center"
-          title="Share this tab with someone"
+          onClick={onAdd}
+          className="text-xs px-2 py-1 rounded flex-shrink-0"
           style={{ color: 'var(--s-border)' }}
         >
-          <CollabIcon size={12} />
+          + tab
         </button>
       )}
+
+      {!readOnly && (
+        <button
+          onClick={() => setReordering(r => !r)}
+          className="text-xs px-2 py-1 rounded flex-shrink-0"
+          title={reordering ? 'Done reordering' : 'Reorder'}
+          style={{ color: reordering ? 'var(--s-accent)' : 'var(--s-border)' }}
+        >
+          ⇄
+        </button>
+      )}
+
     </div>
   )
 }

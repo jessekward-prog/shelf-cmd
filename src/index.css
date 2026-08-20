@@ -6,6 +6,8 @@
 :root {
   --s-font:    'JetBrains Mono', 'Fira Mono', monospace;
   --s-overlay: 1;
+  /* Where floating pills sit: above the mobile bottom bar, off the bottom edge on desktop. */
+  --s-dock:    calc(3.5rem + env(safe-area-inset-bottom) + 10px);
   --s-bg:           #0e0a00;
   --s-surface:      #1a1200;
   --s-surface-2:    #241a00;
@@ -342,4 +344,43 @@ button {
 .glow-focus:focus-visible {
   outline: none;
   box-shadow: 0 0 0 2px var(--s-accent), 0 0 16px var(--s-accent-glow);
+}
+
+/* Keyboard nav has to be followable everywhere, not just on opted-in elements */
+:focus-visible {
+  outline: 2px solid var(--s-accent);
+  outline-offset: 2px;
+}
+
+/* Used by the mobile shelf/tab strips — the scrollbar is noise on a swipe surface */
+.no-scrollbar {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
+/* ── Desktop shell ──────────────────────────────────────────────────────── */
+@media (min-width: 1024px) {
+  :root {
+    --s-dock: 20px;
+  }
+
+  /* Scanlines over a full-width desktop layout read as dirt, not CRT */
+  body::after {
+    opacity: calc(var(--s-overlay, 1) * 0.4);
+  }
+
+  ::-webkit-scrollbar {
+    width: 10px;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: var(--s-border);
+    border: 3px solid var(--s-surface);
+    border-radius: 5px;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: var(--s-text-3);
+  }
 }

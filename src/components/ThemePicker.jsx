@@ -7,7 +7,7 @@ import { getAI, saveAI, testAI } from '../ai.js'
 const CRT_THEMES   = THEMES.filter(t => t.group === 'crt')
 const CLEAN_THEMES = THEMES.filter(t => t.group === 'clean')
 
-export default function ThemePicker({ current, onChange, user, onRenamed }) {
+export default function ThemePicker({ current, onChange, user, onRenamed, placement = 'up' }) {
   const [open, setOpen] = useState(false)
   const [intensity, setIntensity] = useState(getSavedIntensity)
   const [currentFont, setCurrentFont] = useState(getSavedFont)
@@ -58,12 +58,13 @@ export default function ThemePicker({ current, onChange, user, onRenamed }) {
           <>
             <div style={{ position: 'fixed', inset: 0, zIndex: 49 }} onClick={() => setOpen(false)} />
             <motion.div
-              initial={{ opacity: 0, y: 6, scale: 0.95 }}
+              initial={{ opacity: 0, y: placement === 'down' ? -6 : 6, scale: 0.95 }}
               animate={{ opacity: 1, y: 0, scale: 1 }}
-              exit={{ opacity: 0, y: 4, scale: 0.95 }}
+              exit={{ opacity: 0, y: placement === 'down' ? -4 : 4, scale: 0.95 }}
               transition={{ duration: 0.12 }}
               style={{
-                position: 'absolute', right: 0, bottom: 28, zIndex: 50,
+                position: 'absolute', right: 0, zIndex: 50,
+                ...(placement === 'down' ? { top: 28 } : { bottom: 28 }),
                 background: 'var(--s-surface)',
                 border: '1px solid var(--s-border)',
                 borderRadius: 10, padding: '10px 12px',

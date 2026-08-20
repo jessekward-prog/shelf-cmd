@@ -15,28 +15,16 @@ export function CollabIcon({ size = 11, color = 'currentColor' }) {
   )
 }
 
-export default function MembersBar({ shelfId, isAdmin, meId }) {
+export default function MembersBar({ shelfId, isAdmin, meId, onInvite, refreshKey }) {
   const [open, setOpen] = useState(false)
   const [members, setMembers] = useState([])
-  const [code, setCode] = useState(null)
-  const [copied, setCopied] = useState(false)
 
   useEffect(() => {
-    setOpen(false)
-    setCode(null)
     setMembers([])
     api.getMembers(shelfId).then(setMembers).catch(() => {})
-  }, [shelfId])
+  }, [shelfId, refreshKey])
 
-  const showCode = async () => {
-    setCode(await api.getInvite(shelfId).then(r => r.code))
-  }
-
-  const copy = () => {
-    navigator.clipboard?.writeText(code)
-    setCopied(true)
-    setTimeout(() => setCopied(false), 1500)
-  }
+  useEffect(() => { setOpen(false) }, [shelfId])
 
   return (
     <div style={{ borderTop: '1px solid var(--s-surface-2)', borderBottom: '1px solid var(--s-surface-2)' }}>
@@ -74,32 +62,16 @@ export default function MembersBar({ shelfId, isAdmin, meId }) {
               ))}
 
               {isAdmin && (
-                code
-                  ? (
-                    <button
-                      onClick={copy}
-                      style={{
-                        alignSelf: 'flex-start', marginTop: 4, padding: '4px 10px', borderRadius: 6,
-                        background: 'var(--s-surface-2)', border: '1px solid var(--s-border)',
-                        color: 'var(--s-accent)', fontFamily: 'inherit', fontSize: 13,
-                        letterSpacing: '0.3em', cursor: 'pointer'
-                      }}
-                    >
-                      {copied ? 'copied' : code}
-                    </button>
-                  )
-                  : (
-                    <button
-                      onClick={showCode}
-                      style={{
-                        alignSelf: 'flex-start', marginTop: 4, background: 'none', border: 'none',
-                        cursor: 'pointer', fontFamily: 'inherit', fontSize: 10,
-                        letterSpacing: '0.14em', color: 'var(--s-text-3)'
-                      }}
-                    >
-                      + INVITE SOMEONE
-                    </button>
-                  )
+                <button
+                  onClick={() => onInvite(shelfId)}
+                  style={{
+                    alignSelf: 'flex-start', marginTop: 4, background: 'none', border: 'none',
+                    cursor: 'pointer', fontFamily: 'inherit', fontSize: 10,
+                    letterSpacing: '0.14em', color: 'var(--s-accent)'
+                  }}
+                >
+                  + INVITE SOMEONE
+                </button>
               )}
             </div>
           </motion.div>
