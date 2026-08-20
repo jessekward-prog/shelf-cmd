@@ -11,6 +11,7 @@ import AddCategoryModal from './components/AddCategoryModal.jsx'
 import ThemePicker from './components/ThemePicker.jsx'
 import NotesTab from './components/NotesTab.jsx'
 import DrivePage from './components/DrivePage.jsx'
+import MiniPlayer from './components/MiniPlayer.jsx'
 import MembersBar from './components/MembersBar.jsx'
 import InviteModal from './components/InviteModal.jsx'
 import JoinModal from './components/JoinModal.jsx'
@@ -25,17 +26,17 @@ function ModeToggle({ mode, onMode }) {
     { id: 'drive', label: 'DRIVE' },
   ]
   return (
-    <div className="inline-flex rounded-lg p-0.5" style={{ background: 'var(--s-surface)', border: '1px solid var(--s-border)' }}>
+    <div className="inline-flex rounded-lg p-1 gap-1" style={{ background: 'var(--s-surface)', border: '1px solid var(--s-border)' }}>
       {opts.map(o => {
         const active = mode === o.id
         return (
           <button
             key={o.id}
             onClick={() => onMode(o.id)}
-            className="relative px-3 py-1 rounded-md"
+            className="relative px-3.5 py-1 rounded-md"
             style={{
-              fontSize: 10, letterSpacing: '0.14em', fontFamily: 'inherit',
-              color: active ? 'var(--s-bg)' : 'var(--s-text-2)',
+              fontSize: 10, fontWeight: 700, letterSpacing: '0.14em', fontFamily: 'inherit',
+              color: active ? 'var(--s-bg)' : 'var(--s-text-0)',
               transition: 'color 0.15s'
             }}
           >
@@ -43,7 +44,7 @@ function ModeToggle({ mode, onMode }) {
               <motion.span
                 layoutId="mode-pill"
                 className="absolute inset-0 rounded-md"
-                style={{ background: 'var(--s-accent)', boxShadow: '0 0 10px var(--s-accent-glow)' }}
+                style={{ background: 'var(--s-text-0)', boxShadow: '0 0 10px rgba(0,0,0,0.4)' }}
                 transition={{ type: 'spring', damping: 26, stiffness: 320 }}
               />
             )}
@@ -74,6 +75,7 @@ export default function App({ me }) {
   const [activeView, setActiveView] = useState('bookmarks')
   const [shelfMode, setShelfMode] = useState('cards') // 'cards' | 'drive', per shelf
   const [nowPlaying, setNowPlaying] = useState(null)
+  const [popped, setPopped] = useState(null) // card floating in the mini-player
   const pollTimers = useRef({})
   const latestCats = useRef([])
   const latestSubs = useRef([])
@@ -412,6 +414,8 @@ export default function App({ me }) {
                         onClearSearch={() => setSearch('')}
                         nowPlayingId={nowPlaying?.id}
                         onPlay={(card) => setNowPlaying({ id: card.id, title: card.title })}
+                        onPop={(card) => { setPopped(card); setNowPlaying(null) }}
+                        poppedId={popped?.id}
                         canEdit={(card) => card.can_edit !== false}
                         canServerAI={true}
                       />
@@ -474,6 +478,11 @@ export default function App({ me }) {
             <span className="text-xs truncate" style={{ color: 'var(--s-text-2)' }}>{building}…</span>
           </motion.div>
         )}
+      </AnimatePresence>
+
+      {/* Pop-out mini-player — floats in the corner, survives navigation */}
+      <AnimatePresence>
+        {popped && <MiniPlayer card={popped} onClose={() => setPopped(null)} />}
       </AnimatePresence>
 
       {/* Now-playing bar — lets you pause a video from any tab */}

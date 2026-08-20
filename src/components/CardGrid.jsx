@@ -20,7 +20,7 @@ function EmptyAction({ children, onClick }) {
   )
 }
 
-export default function CardGrid({ cards, onDelete, onUpdate, search, onAdd, onClearSearch, nowPlayingId, onPlay, canEdit = () => true, canServerAI = true }) {
+export default function CardGrid({ cards, onDelete, onUpdate, search, onAdd, onClearSearch, nowPlayingId, onPlay, onPop, poppedId, canEdit = () => true, canServerAI = true }) {
   if (cards.length === 0) {
     return (
       <motion.div
@@ -59,7 +59,7 @@ export default function CardGrid({ cards, onDelete, onUpdate, search, onAdd, onC
             exit={{ opacity: 0, scale: 0.95 }}
             transition={{ delay: Math.min(i, 12) * 0.03 }}
           >
-            <Card card={card} onDelete={onDelete} onUpdate={onUpdate} nowPlayingId={nowPlayingId} onPlay={onPlay} canEdit={canEdit(card)} canServerAI={canServerAI} />
+            <Card card={card} onDelete={onDelete} onUpdate={onUpdate} nowPlayingId={nowPlayingId} onPlay={onPlay} onPop={onPop} isPopped={poppedId === card.id} canEdit={canEdit(card)} canServerAI={canServerAI} />
           </motion.div>
         ))}
       </AnimatePresence>

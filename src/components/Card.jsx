@@ -35,7 +35,24 @@ function PriceBadge({ price, currency }) {
   )
 }
 
-function MediaEmbed({ card, price, currency, playing, onPlay }) {
+// Pop-out (picture-in-picture) control — lifts the media into the floating player
+function PopButton({ onClick }) {
+  return (
+    <button
+      onClick={(e) => { e.stopPropagation(); onClick() }}
+      title="Pop out — keep playing while you browse"
+      className="absolute top-2 right-2 z-20 flex items-center justify-center w-7 h-7 rounded transition-opacity"
+      style={{ background: 'rgba(0,0,0,0.6)', color: 'var(--s-text-1)' }}
+    >
+      <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2">
+        <rect x="3" y="4.5" width="18" height="15" rx="2" />
+        <rect x="12" y="11" width="7.5" height="6" rx="1" fill="currentColor" stroke="none" />
+      </svg>
+    </button>
+  )
+}
+
+function MediaEmbed({ card, price, currency, playing, onPlay, onPop, isPopped }) {
   const embedUrl = card.metadata?.embed_url
   const aspect = card.metadata?.aspect
   const isAudio = aspect === 'audio'
@@ -98,6 +115,7 @@ function MediaEmbed({ card, price, currency, playing, onPlay }) {
     return (
       <div style={{ position: 'relative', paddingBottom }}>
         <PlatformBadge type={card.type} />
+        {onPop && <PopButton onClick={() => onPop(card)} />}
         <iframe
           src={embedUrl}
           allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; encrypted-media"
@@ -110,9 +128,9 @@ function MediaEmbed({ card, price, currency, playing, onPlay }) {
 
   return (
     <div
-      className="relative cursor-pointer"
-      onClick={onPlay}
-      style={{ position: 'relative', paddingBottom }}
+      className="relative"
+      onClick={isPopped ? undefined : onPlay}
+      style={{ position: 'relative', paddingBottom, cursor: isPopped ? 'default' : 'pointer' }}
     >
       {card.thumbnail_url ? (
         <img
@@ -125,16 +143,27 @@ function MediaEmbed({ card, price, currency, playing, onPlay }) {
       )}
       <PlatformBadge type={card.type} />
       <PriceBadge price={price} currency={currency} />
+      {onPop && !isPopped && <PopButton onClick={() => onPop(card)} />}
       <div className="absolute inset-0 flex items-center justify-center">
-        <motion.div
-          whileHover={{ scale: 1.1 }}
-          className="w-14 h-14 rounded-full flex items-center justify-center"
-          style={{ background: 'var(--s-accent-strong)', boxShadow: '0 0 24px var(--s-accent-glow)' }}
-        >
-          <svg viewBox="0 0 24 24" className="w-6 h-6 ml-1" fill="var(--s-bg)">
-            <path d="M8 5v14l11-7z" />
-          </svg>
-        </motion.div>
+        {isPopped ? (
+          <div className="flex flex-col items-center gap-1.5" style={{ color: 'var(--s-accent)' }}>
+            <svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor" strokeWidth="2">
+              <rect x="3" y="4.5" width="18" height="15" rx="2" />
+              <rect x="12" y="11" width="7.5" height="6" rx="1" fill="currentColor" stroke="none" />
+            </svg>
+            <span className="text-xs" style={{ letterSpacing: '0.06em' }}>playing in corner</span>
+          </div>
+        ) : (
+          <motion.div
+            whileHover={{ scale: 1.1 }}
+            className="w-14 h-14 rounded-full flex items-center justify-center"
+            style={{ background: 'var(--s-accent-strong)', boxShadow: '0 0 24px var(--s-accent-glow)' }}
+          >
+            <svg viewBox="0 0 24 24" className="w-6 h-6 ml-1" fill="var(--s-bg)">
+              <path d="M8 5v14l11-7z" />
+            </svg>
+          </motion.div>
+        )}
       </div>
     </div>
   )
@@ -235,7 +264,7 @@ function SkeletonCard() {
   )
 }
 
-export default function Card({ card, onDelete, onUpdate, nowPlayingId, onPlay, canEdit = true, canServerAI = true }) {
+export default function Card({ card, onDelete, onUpdate, nowPlayingId, onPlay, onPop, isPopped = false, canEdit = true, canServerAI = true }) {
   if (card.status === 'pending') return <SkeletonCard />
   const [confirmDelete, setConfirmDelete] = useState(false)
   const [scraping, setScraping] = useState(false)
@@ -283,7 +312,8 @@ export default function Card({ card, onDelete, onUpdate, nowPlayingId, onPlay, c
       initial={{ opacity: 0, y: 16 }}
       animate={{ opacity: 1, y: 0 }}
       exit={{ opacity: 0, scale: 0.95 }}
-      whileHover={{ y: -2 }}
+      whileHover={{ scale: 1.03, zIndex: 5 }}
+      transition={{ type: 'spring', damping: 24, stiffness: 320 }}
       className="rounded-xl overflow-hidden relative"
       style={{ background: 'var(--s-surface)', border: '1px solid var(--s-border)' }}
     >
@@ -294,6 +324,8 @@ export default function Card({ card, onDelete, onUpdate, nowPlayingId, onPlay, c
           currency={card.metadata?.currency}
           playing={nowPlayingId === card.id}
           onPlay={() => onPlay(card)}
+          onPop={hasEmbed ? onPop : undefined}
+          isPopped={isPopped}
         />
       )}
 

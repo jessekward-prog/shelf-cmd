@@ -14,7 +14,22 @@ mkdirSync(THUMBS_DIR, { recursive: true })
 const MAX_BYTES = Number(process.env.MAX_UPLOAD_MB || 512) * 1024 * 1024
 
 const TEXT_EXT = new Set(['.txt', '.md', '.markdown', '.csv', '.json', '.js', '.ts', '.jsx', '.tsx',
-  '.py', '.rb', '.go', '.rs', '.java', '.c', '.cpp', '.h', '.css', '.html', '.xml', '.yml', '.yaml', '.sh', '.sql', '.log'])
+  '.py', '.rb', '.go', '.rs', '.java', '.c', '.cpp', '.h', '.css', '.html', '.htm', '.xml', '.yml', '.yaml', '.sh', '.sql', '.log'])
+
+// Read up to this much of a text file for the AI scan. HTML/markup is stripped
+// to visible text first, so a big page still yields a meaningful excerpt.
+const TEXT_SCAN_MAX = 8 * 1024 * 1024
+
+function stripHtml(s) {
+  return s
+    .replace(/<script[\s\S]*?<\/script>/gi, ' ')
+    .replace(/<style[\s\S]*?<\/style>/gi, ' ')
+    .replace(/<!--[\s\S]*?-->/g, ' ')
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/&[a-z#0-9]+;/gi, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
 
 function kindOf(name, mime = '') {
   const ext = extname(name).toLowerCase()
@@ -71,8 +86,14 @@ async function makeThumb(storedName, name, kind) {
 // without downloading it. Scans text-like files; falls back to name + type.
 async function makeBlurb(lmComplete, { path, name, kind, mime, size }) {
   let excerpt = ''
-  if (kind === 'doc' && TEXT_EXT.has(extname(name).toLowerCase()) && size < 256 * 1024) {
-    try { excerpt = (await readFile(path, 'utf8')).slice(0, 4000) } catch {}
+  const ext = extname(name).toLowerCase()
+  const textLike = TEXT_EXT.has(ext) || (mime || '').startsWith('text/')
+  if (textLike && size < TEXT_SCAN_MAX) {
+    try {
+      let raw = await readFile(path, 'utf8')
+      if (ext === '.html' || ext === '.htm' || (mime || '').includes('html')) raw = stripHtml(raw)
+      excerpt = raw.slice(0, 4000)
+    } catch {}
   }
   const prompt = excerpt
     ? `In one plain sentence, say what this file is and what it's for, so a teammate can decide whether to open it. Filename: ${name}. Begins:\n\n${excerpt}\n\nReply with only the sentence, no preamble.`
