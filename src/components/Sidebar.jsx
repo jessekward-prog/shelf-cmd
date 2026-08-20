@@ -278,7 +278,7 @@ export default function Sidebar({
             </Row>
             <Row muted onClick={onJoin}>
               <CollabIcon size={14} />
-              <span>Join with a code</span>
+              <span>Link a shared shelf</span>
             </Row>
           </>
         )}

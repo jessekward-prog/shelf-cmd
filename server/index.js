@@ -10,6 +10,7 @@ import { chromium } from 'playwright-extra'
 import StealthPlugin from 'puppeteer-extra-plugin-stealth'
 import { YoutubeTranscript } from 'youtube-transcript'
 import { randomBytes } from 'crypto'
+import { makeHub } from './hub.js'
 chromium.use(StealthPlugin())
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
@@ -21,6 +22,7 @@ app.use(cors())
 app.use(express.json())
 
 const pool = new pg.Pool({ connectionString: process.env.DATABASE_URL })
+const hub = makeHub(pool)
 
 // ── Identity ─────────────────────────────────────────────────────────────────
 
@@ -487,35 +489,65 @@ app.put('/api/me', async (req, res) => {
   if (!req.user) return res.status(401).json({ error: 'no session' })
   const username = req.body.username?.trim()
   if (!username) return res.status(400).json({ error: 'username required' })
+  const name = username.slice(0, 32)
   const { rows } = await pool.query(
     'UPDATE users SET username=$1 WHERE id=$2 RETURNING id, username, is_admin',
-    [username.slice(0, 32), req.user.id]
+    [name, req.user.id]
   )
+  // The instance owner's hub identity is the same person, so carry the rename up
+  if (req.user.is_admin) await hub.setUsername(name).catch(err => console.error('hub rename:', err.message))
   res.json(rows[0])
 })
 
-// Sharing a category is what makes it collaborative — no separate "make collab" step.
+// Sharing a category publishes it to the hub, which is what lets someone link it
+// into their OWN instance rather than logging in to this one.
 app.post('/api/categories/:id/invite', adminOnly, async (req, res) => {
   const categoryId = Number(req.params.id)
-  const { rows: existing } = await pool.query('SELECT code FROM invites WHERE category_id=$1', [categoryId])
-  if (existing[0]) return res.json({ code: existing[0].code })
-
-  await pool.query('UPDATE categories SET is_collab=TRUE WHERE id=$1', [categoryId])
-  await pool.query(
-    'INSERT INTO shelf_members (category_id, user_id) VALUES ($1,$2) ON CONFLICT DO NOTHING',
-    [categoryId, req.user.id]
-  )
-
-  // 6 digits is only 900k of space, so retry on the rare collision rather than trusting one draw
-  for (let i = 0; i < 20; i++) {
-    const code = String(Math.floor(100000 + Math.random() * 900000))
-    const { rows } = await pool.query(
-      'INSERT INTO invites (code, category_id) VALUES ($1,$2) ON CONFLICT DO NOTHING RETURNING code',
-      [code, categoryId]
+  try {
+    if (!await hub.linkedShelf(categoryId)) {
+      await hub.publish(categoryId, req.user.username)
+    }
+    const { code } = await hub.invite(categoryId)
+    await pool.query(
+      'INSERT INTO shelf_members (category_id, user_id) VALUES ($1,$2) ON CONFLICT DO NOTHING',
+      [categoryId, req.user.id]
     )
-    if (rows[0]) return res.json({ code: rows[0].code })
+    res.json({ code, hub: hub.url })
+  } catch (err) {
+    console.error('invite error:', err.message)
+    res.status(502).json({ error: `could not reach the hub — ${err.message}` })
   }
-  res.status(500).json({ error: 'could not allocate a code' })
+})
+
+// Link a shelf someone shared, into this instance, as a real local category.
+app.post('/api/link', adminOnly, async (req, res) => {
+  const code = String(req.body.code || '').trim()
+  if (!/^[0-9]{6}$/.test(code)) return res.status(400).json({ error: 'six digits required' })
+  try {
+    const out = await hub.link(code, req.user.username)
+    res.json(out)
+  } catch (err) {
+    const status = err.status === 404 ? 404 : 502
+    res.status(status).json({ error: err.status === 404 ? 'invalid or expired code' : err.message })
+  }
+})
+
+app.post('/api/categories/:id/sync', adminOnly, async (req, res) => {
+  try {
+    await hub.syncOne(Number(req.params.id))
+    res.json({ ok: true })
+  } catch (err) {
+    res.status(502).json({ error: err.message })
+  }
+})
+
+app.get('/api/hub', adminOnly, async (req, res) => {
+  const { rows } = await pool.query(
+    `SELECT l.category_id, l.hub_shelf_id, l.last_seq, l.is_owner, l.synced_at, l.sync_error, c.name
+       FROM linked_shelves l JOIN categories c ON c.id = l.category_id ORDER BY c.name`
+  )
+  const { rows: queued } = await pool.query('SELECT count(*)::int n FROM outbox')
+  res.json({ url: hub.url, identity: await hub.identity(), shelves: rows, queued: queued[0].n })
 })
 
 app.post('/api/join', async (req, res) => {
@@ -546,6 +578,19 @@ app.post('/api/join', async (req, res) => {
 app.get('/api/categories/:id/members', async (req, res) => {
   const categoryId = Number(req.params.id)
   if (!await canRead(req, categoryId)) return res.status(403).json({ error: 'not a member' })
+
+  // A published shelf's membership lives on the hub — it spans instances.
+  if (await hub.linkedShelf(categoryId)) {
+    try {
+      const me = await hub.identity()
+      const members = await hub.members(categoryId)
+      return res.json(members.map(m => ({ ...m, is_me: String(m.id) === me.user_id })))
+    } catch (err) {
+      console.error('hub members:', err.message)
+      // Fall through to the local list rather than showing nothing
+    }
+  }
+
   const { rows } = await pool.query(
     `SELECT u.id, u.username, u.is_admin FROM shelf_members m
      JOIN users u ON u.id = m.user_id
@@ -583,8 +628,9 @@ app.get('/api/shelves/:id/cards', async (req, res) => {
   if (!await canRead(req, categoryId)) return res.status(403).json({ error: 'not a member' })
   const { subcategory_id } = req.query
   const params = [categoryId]
-  let query = `SELECT c.*, u.username AS author FROM cards c
+  let query = `SELECT c.*, COALESCE(u.username, hu.username) AS author FROM cards c
                LEFT JOIN users u ON u.id = c.user_id
+               LEFT JOIN hub_users hu ON hu.id = c.hub_user_id
                WHERE c.category_id=$1 AND c.status='ready'`
   if (subcategory_id) {
     query += ' AND c.subcategory_id=$2'
@@ -669,9 +715,12 @@ app.delete('/api/subcategories/:id', adminOnly, async (req, res) => {
 
 app.get('/api/categories/:id/cards', adminOnly, async (req, res) => {
   const { subcategory_id } = req.query
-  // Only shared categories get a byline — your own cards stay unattributed
-  let query = `SELECT c.*, CASE WHEN cat.is_collab THEN u.username END AS author FROM cards c
+  // Only shared categories get a byline — your own cards stay unattributed.
+  // hub_users covers people who posted from another instance.
+  let query = `SELECT c.*, CASE WHEN cat.is_collab THEN COALESCE(u.username, hu.username) END AS author
+               FROM cards c
                LEFT JOIN users u ON u.id = c.user_id
+               LEFT JOIN hub_users hu ON hu.id = c.hub_user_id
                JOIN categories cat ON cat.id = c.category_id
                WHERE c.category_id=$1`
   const params = [req.params.id]
@@ -752,13 +801,30 @@ app.post('/api/cards', async (req, res) => {
       const { type = 'link', youtube_id = null, plan_raw = null, plan_tools = [] } = req.body
       const metadata = { ...(req.body.metadata || {}) }
       if (plan_raw) metadata.plan = await applyPlanLinks(plan_raw, plan_tools)
+
+      // On a published shelf the hub is the source of truth, so write there first
+      // and adopt the id it hands back. If the hub is unreachable the post is
+      // queued and still lands locally, so the link is never lost.
+      let hubCardId = null, queued = false
+      if (await hub.linkedShelf(category_id)) {
+        try {
+          const remote = await hub.postCard(category_id, {
+            subcategory_id, type, url, title, description, thumbnail_url, youtube_id, notes, metadata
+          })
+          hubCardId = remote.id
+        } catch (err) {
+          queued = !!err.queued
+          if (!queued) throw err
+        }
+      }
+
       const { rows } = await pool.query(
-        `INSERT INTO cards (category_id, subcategory_id, url, title, description, notes, thumbnail_url, type, youtube_id, metadata, user_id, status)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,'ready') RETURNING *`,
+        `INSERT INTO cards (category_id, subcategory_id, url, title, description, notes, thumbnail_url, type, youtube_id, metadata, user_id, hub_card_id, status)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,'ready') RETURNING *`,
         [category_id, subcategory_id || null, url || null, title, description, notes, thumbnail_url,
-         type, youtube_id, JSON.stringify(metadata), req.user.id]
+         type, youtube_id, JSON.stringify(metadata), req.user.id, hubCardId]
       )
-      return res.json({ ...rows[0], author: collab ? req.user.username : null })
+      return res.json({ ...rows[0], author: collab ? req.user.username : null, queued })
     }
 
     const { rows } = await pool.query(
@@ -833,8 +899,10 @@ app.post('/api/prepare', async (req, res) => {
 // Admin can touch any card; a collaborator only their own.
 async function ownedCard(req, res) {
   const { rows } = await pool.query(
-    `SELECT c.*, CASE WHEN cat.is_collab THEN u.username END AS author FROM cards c
+    `SELECT c.*, CASE WHEN cat.is_collab THEN COALESCE(u.username, hu.username) END AS author
+     FROM cards c
      LEFT JOIN users u ON u.id = c.user_id
+     LEFT JOIN hub_users hu ON hu.id = c.hub_user_id
      JOIN categories cat ON cat.id = c.category_id
      WHERE c.id=$1`,
     [req.params.id]
@@ -853,8 +921,10 @@ app.get('/api/cards/:id', async (req, res) => {
 })
 
 app.put('/api/cards/:id', async (req, res) => {
-  if (!await ownedCard(req, res)) return
+  const existing = await ownedCard(req, res)
+  if (!existing) return
   const { title, description, notes } = req.body
+  if (existing.hub_card_id) await hub.updateCard(existing, { title, description, notes }).catch(() => {})
   const { rows } = await pool.query(
     'UPDATE cards SET title=$1, description=$2, notes=$3 WHERE id=$4 RETURNING *',
     [title, description, notes, req.params.id]
@@ -863,7 +933,10 @@ app.put('/api/cards/:id', async (req, res) => {
 })
 
 app.delete('/api/cards/:id', async (req, res) => {
-  if (!await ownedCard(req, res)) return
+  const card = await ownedCard(req, res)
+  if (!card) return
+  // Delete on the hub too, or every other instance keeps showing it
+  if (card.hub_card_id) await hub.deleteCard(card).catch(() => {})
   await pool.query('DELETE FROM cards WHERE id=$1', [req.params.id])
   res.json({ ok: true })
 })
@@ -1135,4 +1208,8 @@ app.delete('/api/notes/:id', adminOnly, async (req, res) => {
 app.use(express.static(join(__dirname, '../dist')))
 app.get('*', (req, res) => res.sendFile(join(__dirname, '../dist/index.html')))
 
-initDb().then(() => app.listen(PORT, () => console.log(`shelf-cmd running on :${PORT}`)))
+initDb().then(() => {
+  app.listen(PORT, () => console.log(`shelf-cmd running on :${PORT}`))
+  // Pull linked shelves and flush anything queued while the hub was unreachable
+  if (process.env.HUB_SYNC !== 'off') hub.startLoop(Number(process.env.HUB_SYNC_MS) || 30000)
+})

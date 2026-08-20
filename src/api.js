@@ -56,3 +56,10 @@ export const getShelfSubcategories = (catId) => req('GET', `/shelves/${catId}/su
 export const getShelfCards = (catId, subcatId) =>
   req('GET', `/shelves/${catId}/cards${subcatId ? `?subcategory_id=${subcatId}` : ''}`)
 export const prepare = (url) => req('POST', '/prepare', { url })
+
+// ── Hub (federation) ────────────────────────────────────────────────────────
+// `link` pulls someone else's shelf into THIS instance as a real local
+// category; `join` is the older guest path onto someone else's instance.
+export const linkShelf = (code) => req('POST', '/link', { code })
+export const syncShelf = (catId) => req('POST', `/categories/${catId}/sync`, {})
+export const getHubStatus = () => req('GET', '/hub')

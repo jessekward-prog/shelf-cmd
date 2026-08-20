@@ -88,6 +88,48 @@ CREATE TABLE IF NOT EXISTS invites (
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
+-- ── Hub sync ────────────────────────────────────────────────────────────────
+-- A linked shelf is a local category whose contents are mirrored from the hub.
+-- We keep a full local copy on purpose: the shelf still renders when the hub or
+-- the other person's box is unreachable, and it means the hub holds no unique
+-- data, so it can be rebuilt from any member.
+CREATE TABLE IF NOT EXISTS linked_shelves (
+  category_id  INT PRIMARY KEY REFERENCES categories(id) ON DELETE CASCADE,
+  hub_shelf_id INT NOT NULL UNIQUE,
+  last_seq     BIGINT NOT NULL DEFAULT 0,
+  is_owner     BOOLEAN NOT NULL DEFAULT FALSE,
+  synced_at    TIMESTAMPTZ,
+  sync_error   TEXT
+);
+
+-- Mirrored rows carry their hub identity so the changefeed can match them up.
+ALTER TABLE cards ADD COLUMN IF NOT EXISTS hub_card_id INT;
+ALTER TABLE cards ADD COLUMN IF NOT EXISTS hub_user_id INT;
+ALTER TABLE subcategories ADD COLUMN IF NOT EXISTS hub_tab_id INT;
+
+-- Names of people who exist on the hub but have no account here. Refreshed on
+-- every sync, and bylines resolve THROUGH this table rather than storing the
+-- name on the card — otherwise someone renaming themselves would leave stale
+-- names on every card they'd already posted to another instance.
+CREATE TABLE IF NOT EXISTS hub_users (
+  id       INT PRIMARY KEY,
+  username TEXT NOT NULL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS cards_hub_id ON cards (hub_card_id) WHERE hub_card_id IS NOT NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS subcategories_hub_tab ON subcategories (hub_tab_id) WHERE hub_tab_id IS NOT NULL;
+
+-- Writes made while the hub is unreachable wait here and flush on reconnect,
+-- so a dropped connection costs you a delay rather than the link you saved.
+CREATE TABLE IF NOT EXISTS outbox (
+  id          SERIAL PRIMARY KEY,
+  category_id INT NOT NULL REFERENCES categories(id) ON DELETE CASCADE,
+  op          TEXT NOT NULL,
+  payload     JSONB NOT NULL,
+  attempts    INT NOT NULL DEFAULT 0,
+  last_error  TEXT,
+  created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
 -- Seed starter categories only if table is empty
 INSERT INTO categories (name, icon, sort_order)
 SELECT * FROM (VALUES ('Cooking','🍳',0),('Tech','💻',1),('Music','🎵',2)) AS v(name,icon,sort_order)

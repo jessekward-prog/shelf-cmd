@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { motion } from 'framer-motion'
 import * as api from '../api.js'
 
-export default function JoinModal({ onClose, onJoined }) {
+export default function JoinModal({ onClose, onJoined, isAdmin }) {
   const [code, setCode] = useState('')
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
@@ -13,10 +13,21 @@ export default function JoinModal({ onClose, onJoined }) {
     setBusy(true)
     setError('')
     try {
-      const { shelf_id } = await api.join(code)
-      onJoined(shelf_id)
+      // An instance owner LINKS the shelf into their own shelf; a guest with no
+      // instance of their own just joins this one.
+      if (isAdmin) {
+        const { category_id } = await api.linkShelf(code)
+        onJoined(category_id)
+      } else {
+        const { shelf_id } = await api.join(code)
+        onJoined(shelf_id)
+      }
     } catch (err) {
-      setError(err.message.includes('404') ? 'that code does not match a shelf' : 'could not join — try again')
+      setError(
+        err.message.includes('404') ? 'that code does not match a shelf'
+        : err.message.includes('502') ? "couldn't reach the hub — try again shortly"
+        : 'could not link that shelf — try again'
+      )
       setBusy(false)
     }
   }
@@ -38,11 +49,13 @@ export default function JoinModal({ onClose, onJoined }) {
         className="w-full max-w-md rounded-xl p-5"
         style={{ background: 'var(--s-surface)', border: '1px solid var(--s-border)' }}
       >
-        <p className="text-sm font-medium mb-1" style={{ color: 'var(--s-accent)' }}>join a shared shelf</p>
+        <p className="text-sm font-medium mb-1" style={{ color: 'var(--s-accent)' }}>
+          {isAdmin ? 'link a shared shelf' : 'join a shared shelf'}
+        </p>
         <p className="text-xs mb-4" style={{ color: 'var(--s-text-3)', lineHeight: 1.5 }}>
-          Paste the 6-digit code someone sent you. You'll keep the username you already have.
-          The shelf opens here, on the owner's instance — linking it into your own self-hosted
-          shelf comes later.
+          {isAdmin
+            ? "Paste the 6-digit code someone sent you. Their shelf appears here alongside your own, and stays in sync both ways."
+            : "Paste the 6-digit code someone sent you. You'll keep the username you already have."}
         </p>
 
         <form onSubmit={submit} className="flex flex-col gap-3">
@@ -82,7 +95,7 @@ export default function JoinModal({ onClose, onJoined }) {
                 opacity: code.length === 6 && !busy ? 1 : 0.4
               }}
             >
-              {busy ? 'joining…' : 'join'}
+              {busy ? (isAdmin ? 'linking…' : 'joining…') : (isAdmin ? 'link' : 'join')}
             </motion.button>
           </div>
         </form>

@@ -49,18 +49,16 @@ export default function CategoryNav({ categories, activeId, onSelect, onAdd, onR
         )
       })}
 
-      {/* A collaborator's only way in is a code, so this is their "+ new" */}
-      {readOnly && (
-        <motion.button
-          onClick={onJoin}
-          whileTap={{ scale: 0.93 }}
-          className="flex items-center gap-1 px-3 py-2 rounded-lg text-sm whitespace-nowrap ml-1 flex-shrink-0"
-          style={{ color: 'var(--s-accent)', border: '1px dashed var(--s-accent)' }}
-        >
-          <span className="text-base">+</span>
-          <span>join</span>
-        </motion.button>
-      )}
+      {/* An owner links someone else's shelf in; a guest has only this way in at all */}
+      <motion.button
+        onClick={onJoin}
+        whileTap={{ scale: 0.93 }}
+        className="flex items-center gap-1 px-3 py-2 rounded-lg text-sm whitespace-nowrap ml-1 flex-shrink-0"
+        style={{ color: 'var(--s-accent)', border: '1px dashed var(--s-accent)' }}
+      >
+        <span className="text-base">+</span>
+        <span>{readOnly ? 'join' : 'link'}</span>
+      </motion.button>
 
       {/* Sharing is whole-shelf, so the invite sits on the shelf row, not the tab row */}
       {!readOnly && activeId && (

@@ -525,6 +525,7 @@ export default function App({ me }) {
         )}
         {showJoin && (
           <JoinModal
+            isAdmin={isAdmin}
             onJoined={handleJoined}
             onClose={() => setShowJoin(false)}
           />
