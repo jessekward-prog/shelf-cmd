@@ -77,8 +77,28 @@ async function makeBlurb(lmComplete, { path, name, kind, mime, size }) {
   const prompt = excerpt
     ? `In one plain sentence, say what this file is and what it's for, so a teammate can decide whether to open it. Filename: ${name}. Begins:\n\n${excerpt}\n\nReply with only the sentence, no preamble.`
     : `In one short plain sentence, describe what this file most likely is for a teammate, from its name and type only. Filename: ${name}. Type: ${mime || kind}, ${fmtBytes(size)}. Reply with only the sentence.`
-  const out = await lmComplete([{ role: 'user', content: prompt }], { maxTokens: 90, temperature: 0.4, timeout: 60000 })
-  return out.replace(/^["']|["']$/g, '').trim().slice(0, 240) || null
+  const out = await lmComplete([{ role: 'user', content: prompt }], { maxTokens: 500, temperature: 0.4, timeout: 90000 })
+  return cleanBlurb(out) || null
+}
+
+// Local LLMs are often reasoning models that dump their working into the answer
+// ("<think>…</think>" or "Thinking Process: 1. …"). The blurb is the conclusion,
+// so strip the thinking and keep the last real sentence. See the reasoning-model
+// latency lesson: instruct models are better for this, but we can't assume one.
+function cleanBlurb(raw) {
+  let t = (raw || '').replace(/<think>[\s\S]*?<\/think>/gi, '').replace(/<\/?think>/gi, '').trim()
+  const paras = t.split(/\n\s*\n/).map(s => s.trim()).filter(Boolean)
+  // If it reasoned, the answer is the last paragraph; otherwise there's just one.
+  const looksLikeThinking = /^(thinking|reasoning|analysis|let me|okay|first,|step \d)/i.test(t) || /thinking process/i.test(t)
+  let s = (looksLikeThinking && paras.length > 1) ? paras[paras.length - 1] : (paras[0] || t)
+  s = s.replace(/^["']+|["']+$/g, '')
+       .replace(/^\**\s*(final answer|answer|blurb|description|here'?s?[^:]*)\s*[:*-]*\s*/i, '')
+       .replace(/^[-*•\d.)\s]+/, '')
+       .replace(/\s+/g, ' ')
+       .trim()
+  // A leftover multi-sentence dump: keep the first sentence.
+  if (s.length > 240) s = s.slice(0, s.indexOf('. ') > 40 ? s.indexOf('. ') + 1 : 240)
+  return s.trim()
 }
 
 export function mountDrive({ app, pool, adminOnly, lmComplete }) {
