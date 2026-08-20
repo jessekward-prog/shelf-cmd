@@ -61,8 +61,10 @@ export const shareFile = (id) => req('POST', `/files/${id}/share`, {})
 
 export function uploadFile(catId, file, subcatId) {
   const form = new FormData()
-  form.append('file', file)
+  // Text fields before the file — multer only guarantees req.body for fields
+  // that arrive ahead of the file part.
   if (subcatId) form.append('subcategory_id', subcatId)
+  form.append('file', file)
   return fetch(`${base}/categories/${catId}/files`, {
     method: 'POST',
     headers: { Authorization: `Bearer ${getToken()}` },

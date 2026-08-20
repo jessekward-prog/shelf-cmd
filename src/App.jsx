@@ -33,22 +33,16 @@ function ModeToggle({ mode, onMode }) {
           <button
             key={o.id}
             onClick={() => onMode(o.id)}
-            className="relative px-3.5 py-1 rounded-md"
+            className="px-3.5 py-1 rounded-md"
             style={{
               fontSize: 10, fontWeight: 700, letterSpacing: '0.14em', fontFamily: 'inherit',
+              background: active ? 'var(--s-text-0)' : 'transparent',
               color: active ? 'var(--s-bg)' : 'var(--s-text-0)',
-              transition: 'color 0.15s'
+              boxShadow: active ? '0 0 8px rgba(0,0,0,0.35)' : 'none',
+              transition: 'background 0.15s, color 0.15s'
             }}
           >
-            {active && (
-              <motion.span
-                layoutId="mode-pill"
-                className="absolute inset-0 rounded-md"
-                style={{ background: 'var(--s-text-0)', boxShadow: '0 0 10px rgba(0,0,0,0.4)' }}
-                transition={{ type: 'spring', damping: 26, stiffness: 320 }}
-              />
-            )}
-            <span className="relative">{o.label}</span>
+            {o.label}
           </button>
         )
       })}
@@ -222,6 +216,7 @@ export default function App({ me }) {
   const handleDeleteCard = async (id) => {
     await api.deleteCard(id)
     setCards((prev) => prev.filter((c) => c.id !== id))
+    if (popped?.id === id) setPopped(null)
   }
 
   const handleUpdateCard = (updated) => {

@@ -19,11 +19,9 @@ export default function MiniPlayer({ card, onClose }) {
   const width = isPortrait ? 210 : isAudio ? 320 : 340
 
   return (
-    // Full-viewport layer the player can be dragged around within, but that lets
-    // clicks through everywhere except the player itself.
-    <div ref={constraints} className="fixed inset-0 z-50" style={{ pointerEvents: 'none' }}
-      // Keep it clear of the mobile dock / safe area
-      >
+    // Full-viewport layer the player is dragged within; it lets clicks through
+    // everywhere except the player itself (pointer-events none, restored below).
+    <div ref={constraints} className="fixed inset-0 z-50" style={{ pointerEvents: 'none' }}>
       <motion.div
         drag
         dragConstraints={constraints}

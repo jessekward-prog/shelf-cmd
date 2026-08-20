@@ -98,7 +98,8 @@ async function makeBlurb(lmComplete, { path, name, kind, mime, size }) {
   const prompt = excerpt
     ? `In one plain sentence, say what this file is and what it's for, so a teammate can decide whether to open it. Filename: ${name}. Begins:\n\n${excerpt}\n\nReply with only the sentence, no preamble.`
     : `In one short plain sentence, describe what this file most likely is for a teammate, from its name and type only. Filename: ${name}. Type: ${mime || kind}, ${fmtBytes(size)}. Reply with only the sentence.`
-  const out = await lmComplete([{ role: 'user', content: prompt }], { maxTokens: 500, temperature: 0.4, timeout: 90000 })
+  // Room for reasoning models to think and still land the sentence.
+  const out = await lmComplete([{ role: 'user', content: prompt }], { maxTokens: 800, temperature: 0.4, timeout: 90000 })
   return cleanBlurb(out) || null
 }
 
@@ -129,8 +130,19 @@ export function mountDrive({ app, pool, adminOnly, lmComplete }) {
   })
   const upload = multer({ storage, limits: { fileSize: MAX_BYTES } })
 
+  // multer errors (e.g. oversize) otherwise fall through to the HTML error page;
+  // turn them into the JSON the client expects.
+  const uploadOne = (req, res, next) => upload.single('file')(req, res, (err) => {
+    if (err) {
+      const msg = err.code === 'LIMIT_FILE_SIZE'
+        ? `file too large (max ${Math.floor(MAX_BYTES / 1024 / 1024)} MB)` : err.message
+      return res.status(400).json({ error: msg })
+    }
+    next()
+  })
+
   // Build thumbnail + AI blurb after the row exists, then flip to ready.
-  async function process(id, path) {
+  async function processFile(id, path) {
     const { rows } = await pool.query('SELECT * FROM files WHERE id=$1', [id])
     const f = rows[0]
     if (!f) return
@@ -141,7 +153,14 @@ export function mountDrive({ app, pool, adminOnly, lmComplete }) {
     await pool.query('UPDATE files SET has_thumb=$1, blurb=$2, status=$3 WHERE id=$4', [hasThumb, blurb, 'ready', id])
   }
 
-  app.post('/api/categories/:id/files', adminOnly, upload.single('file'), async (req, res) => {
+  // A restart mid-scan (e.g. a redeploy while a slow blurb runs) would otherwise
+  // leave a file spinning on 'pending' forever. Re-run those on boot.
+  pool.query("SELECT id, stored_name FROM files WHERE status='pending'")
+    .then(({ rows }) => rows.forEach(f =>
+      processFile(f.id, join(UPLOADS_DIR, f.stored_name)).catch(e => console.error('resume:', e.message))))
+    .catch(() => {})
+
+  app.post('/api/categories/:id/files', adminOnly, uploadOne, async (req, res) => {
     try {
       if (!req.file) return res.status(400).json({ error: 'no file' })
       const catId = Number(req.params.id)
@@ -155,7 +174,7 @@ export function mountDrive({ app, pool, adminOnly, lmComplete }) {
       )
       const file = rows[0]
       res.json(file)
-      process(file.id, req.file.path).catch(e => console.error('process:', e.message))
+      processFile(file.id, req.file.path).catch(e => console.error('process:', e.message))
     } catch (err) {
       console.error('upload:', err.message)
       res.status(500).json({ error: err.message })

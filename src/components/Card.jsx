@@ -102,6 +102,7 @@ function MediaEmbed({ card, price, currency, playing, onPlay, onPop, isPopped })
     return (
       <div style={{ height: 120, position: 'relative', paddingBottom: 0 }}>
         <PlatformBadge type={card.type} />
+        {onPop && !isPopped && <PopButton onClick={() => onPop(card)} />}
         <iframe
           src={embedUrl}
           style={{ width: '100%', height: '100%', border: 0 }}
