@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { motion } from 'framer-motion'
 import * as api from '../api.js'
 
-export default function JoinModal({ onClose, onJoined, isAdmin }) {
+export default function JoinModal({ onClose, onLinked }) {
   const [code, setCode] = useState('')
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
@@ -13,15 +13,8 @@ export default function JoinModal({ onClose, onJoined, isAdmin }) {
     setBusy(true)
     setError('')
     try {
-      // An instance owner LINKS the shelf into their own shelf; a guest with no
-      // instance of their own just joins this one.
-      if (isAdmin) {
-        const { category_id } = await api.linkShelf(code)
-        onJoined(category_id)
-      } else {
-        const { shelf_id } = await api.join(code)
-        onJoined(shelf_id)
-      }
+      const { category_id } = await api.linkShelf(code)
+      onLinked(category_id)
     } catch (err) {
       setError(
         err.message.includes('404') ? 'that code does not match a shelf'
@@ -49,13 +42,10 @@ export default function JoinModal({ onClose, onJoined, isAdmin }) {
         className="w-full max-w-md rounded-xl p-5"
         style={{ background: 'var(--s-surface)', border: '1px solid var(--s-border)' }}
       >
-        <p className="text-sm font-medium mb-1" style={{ color: 'var(--s-accent)' }}>
-          {isAdmin ? 'link a shared shelf' : 'join a shared shelf'}
-        </p>
+        <p className="text-sm font-medium mb-1" style={{ color: 'var(--s-accent)' }}>link a shared shelf</p>
         <p className="text-xs mb-4" style={{ color: 'var(--s-text-3)', lineHeight: 1.5 }}>
-          {isAdmin
-            ? "Paste the 6-digit code someone sent you. Their shelf appears here alongside your own, and stays in sync both ways."
-            : "Paste the 6-digit code someone sent you. You'll keep the username you already have."}
+          Paste the 6-digit code someone sent you. Their shelf appears here beside your own
+          and stays in sync both ways — they never see the rest of your shelves.
         </p>
 
         <form onSubmit={submit} className="flex flex-col gap-3">
@@ -95,7 +85,7 @@ export default function JoinModal({ onClose, onJoined, isAdmin }) {
                 opacity: code.length === 6 && !busy ? 1 : 0.4
               }}
             >
-              {busy ? (isAdmin ? 'linking…' : 'joining…') : (isAdmin ? 'link' : 'join')}
+              {busy ? 'linking…' : 'link'}
             </motion.button>
           </div>
         </form>

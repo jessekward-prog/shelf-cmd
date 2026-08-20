@@ -39,20 +39,6 @@ app.use(async (req, res, next) => {
 const adminOnly = (req, res, next) =>
   req.user?.is_admin ? next() : res.status(403).json({ error: 'admin only' })
 
-async function isMember(userId, categoryId) {
-  const { rows } = await pool.query(
-    'SELECT 1 FROM shelf_members WHERE user_id=$1 AND category_id=$2',
-    [userId, categoryId]
-  )
-  return rows.length > 0
-}
-
-// Admin sees everything; a collaborator only the categories they were invited to.
-async function canRead(req, categoryId) {
-  if (req.user?.is_admin) return true
-  return !!req.user && await isMember(req.user.id, categoryId)
-}
-
 async function initDb() {
   const schema = await readFile(join(__dirname, 'schema.sql'), 'utf8')
   await pool.query(schema)
@@ -508,10 +494,6 @@ app.post('/api/categories/:id/invite', adminOnly, async (req, res) => {
       await hub.publish(categoryId, req.user.username)
     }
     const { code } = await hub.invite(categoryId)
-    await pool.query(
-      'INSERT INTO shelf_members (category_id, user_id) VALUES ($1,$2) ON CONFLICT DO NOTHING',
-      [categoryId, req.user.id]
-    )
     res.json({ code, hub: hub.url })
   } catch (err) {
     console.error('invite error:', err.message)
@@ -550,95 +532,18 @@ app.get('/api/hub', adminOnly, async (req, res) => {
   res.json({ url: hub.url, identity: await hub.identity(), shelves: rows, queued: queued[0].n })
 })
 
-app.post('/api/join', async (req, res) => {
-  const code = String(req.body.code || '').trim()
-  const username = req.body.username?.trim()
-  // Only a first-time joiner has to pick a name; an existing user keeps the one they have
-  if (!username && !req.user) return res.status(400).json({ error: 'username required' })
-
-  const { rows: inv } = await pool.query('SELECT category_id FROM invites WHERE code=$1', [code])
-  if (!inv[0]) return res.status(404).json({ error: 'invalid code' })
-
-  // An existing collaborator redeeming a second code joins that shelf with the same identity
-  let user = req.user
-  if (!user) {
-    const { rows } = await pool.query(
-      'INSERT INTO users (username, token) VALUES ($1,$2) RETURNING *',
-      [username.slice(0, 32), randomBytes(24).toString('hex')]
-    )
-    user = rows[0]
-  }
-  await pool.query(
-    'INSERT INTO shelf_members (category_id, user_id) VALUES ($1,$2) ON CONFLICT DO NOTHING',
-    [inv[0].category_id, user.id]
-  )
-  res.json({ token: user.token, id: user.id, username: user.username, is_admin: user.is_admin, shelf_id: inv[0].category_id })
-})
-
-app.get('/api/categories/:id/members', async (req, res) => {
+app.get('/api/categories/:id/members', adminOnly, async (req, res) => {
   const categoryId = Number(req.params.id)
-  if (!await canRead(req, categoryId)) return res.status(403).json({ error: 'not a member' })
-
-  // A published shelf's membership lives on the hub — it spans instances.
-  if (await hub.linkedShelf(categoryId)) {
-    try {
-      const me = await hub.identity()
-      const members = await hub.members(categoryId)
-      return res.json(members.map(m => ({ ...m, is_me: String(m.id) === me.user_id })))
-    } catch (err) {
-      console.error('hub members:', err.message)
-      // Fall through to the local list rather than showing nothing
-    }
+  // Membership lives on the hub — it spans instances, so there is nothing local to read.
+  if (!await hub.linkedShelf(categoryId)) return res.json([])
+  try {
+    const me = await hub.identity()
+    const members = await hub.members(categoryId)
+    res.json(members.map(m => ({ ...m, is_me: String(m.id) === me.user_id })))
+  } catch (err) {
+    console.error('hub members:', err.message)
+    res.status(502).json({ error: 'could not reach the hub' })
   }
-
-  const { rows } = await pool.query(
-    `SELECT u.id, u.username, u.is_admin FROM shelf_members m
-     JOIN users u ON u.id = m.user_id
-     WHERE m.category_id=$1 ORDER BY u.is_admin DESC, m.joined_at`,
-    [categoryId]
-  )
-  res.json(rows)
-})
-
-// The collaborator's whole world: the shared categories they were invited to.
-app.get('/api/my-shelves', async (req, res) => {
-  if (!req.user) return res.status(401).json({ error: 'no session' })
-  const { rows } = await pool.query(
-    `SELECT c.id, c.name, c.icon, c.is_collab FROM shelf_members m
-     JOIN categories c ON c.id = m.category_id
-     WHERE m.user_id=$1 AND c.is_collab ORDER BY c.sort_order, c.id`,
-    [req.user.id]
-  )
-  res.json(rows)
-})
-
-// A shared category brings its tabs with it, so collaborators need to list them.
-app.get('/api/shelves/:id/subcategories', async (req, res) => {
-  const categoryId = Number(req.params.id)
-  if (!await canRead(req, categoryId)) return res.status(403).json({ error: 'not a member' })
-  const { rows } = await pool.query(
-    'SELECT * FROM subcategories WHERE category_id=$1 ORDER BY sort_order, id',
-    [categoryId]
-  )
-  res.json(rows)
-})
-
-app.get('/api/shelves/:id/cards', async (req, res) => {
-  const categoryId = Number(req.params.id)
-  if (!await canRead(req, categoryId)) return res.status(403).json({ error: 'not a member' })
-  const { subcategory_id } = req.query
-  const params = [categoryId]
-  let query = `SELECT c.*, COALESCE(u.username, hu.username) AS author FROM cards c
-               LEFT JOIN users u ON u.id = c.user_id
-               LEFT JOIN hub_users hu ON hu.id = c.hub_user_id
-               WHERE c.category_id=$1 AND c.status='ready'`
-  if (subcategory_id) {
-    query += ' AND c.subcategory_id=$2'
-    params.push(subcategory_id)
-  }
-  query += ' ORDER BY c.created_at DESC'
-  const { rows } = await pool.query(query, params)
-  res.json(rows)
 })
 
 // ── Categories ───────────────────────────────────────────────────────────────
@@ -715,17 +620,20 @@ app.delete('/api/subcategories/:id', adminOnly, async (req, res) => {
 
 app.get('/api/categories/:id/cards', adminOnly, async (req, res) => {
   const { subcategory_id } = req.query
+  const me = await hub.identity()
+  const shelf = await hub.linkedShelf(Number(req.params.id))
   // Only shared categories get a byline — your own cards stay unattributed.
   // hub_users covers people who posted from another instance.
-  let query = `SELECT c.*, CASE WHEN cat.is_collab THEN COALESCE(u.username, hu.username) END AS author
+  let query = `SELECT c.*, CASE WHEN cat.is_collab THEN COALESCE(u.username, hu.username) END AS author,
+                      (c.hub_card_id IS NULL OR $2::boolean OR c.hub_user_id::text = $3) AS can_edit
                FROM cards c
                LEFT JOIN users u ON u.id = c.user_id
                LEFT JOIN hub_users hu ON hu.id = c.hub_user_id
                JOIN categories cat ON cat.id = c.category_id
                WHERE c.category_id=$1`
-  const params = [req.params.id]
+  const params = [req.params.id, !!shelf?.is_owner, me.user_id]
   if (subcategory_id) {
-    query += ' AND c.subcategory_id=$2'
+    query += ' AND c.subcategory_id=$4'
     params.push(subcategory_id)
   }
   query += ' ORDER BY c.created_at DESC'
@@ -790,11 +698,8 @@ app.post('/api/cards', async (req, res) => {
     if (!cat[0]) return res.status(404).json({ error: 'no such category' })
     const collab = cat[0].is_collab
 
-    if (collab) {
-      if (!await canRead(req, category_id)) return res.status(403).json({ error: 'not a member' })
-    } else if (!req.user?.is_admin) {
-      return res.status(403).json({ error: 'admin only' })
-    }
+    // One person owns this instance, so every write here is theirs
+    if (!req.user?.is_admin) return res.status(403).json({ error: 'admin only' })
 
     // `prepared` means the poster's own browser already did the AI work — store it as-is.
     if (prepared) {
@@ -896,7 +801,9 @@ app.post('/api/prepare', async (req, res) => {
   }
 })
 
-// Admin can touch any card; a collaborator only their own.
+// On a linked shelf, a card belongs to whoever posted it — on whichever instance.
+// Editing someone else's copy locally would silently diverge from the hub, which
+// would reject the write anyway, so refuse it here.
 async function ownedCard(req, res) {
   const { rows } = await pool.query(
     `SELECT c.*, CASE WHEN cat.is_collab THEN COALESCE(u.username, hu.username) END AS author
@@ -908,11 +815,17 @@ async function ownedCard(req, res) {
     [req.params.id]
   )
   if (!rows[0]) { res.status(404).json({ error: 'not found' }); return null }
-  if (!req.user?.is_admin && rows[0].user_id !== req.user?.id) {
-    res.status(403).json({ error: 'not yours' })
-    return null
+  const card = rows[0]
+  if (card.hub_card_id) {
+    const me = await hub.identity()
+    const shelf = await hub.linkedShelf(card.category_id)
+    const mine = card.hub_user_id != null && String(card.hub_user_id) === me.user_id
+    if (!mine && !shelf?.is_owner) {
+      res.status(403).json({ error: 'posted from another shelf' })
+      return null
+    }
   }
-  return rows[0]
+  return card
 }
 
 app.get('/api/cards/:id', async (req, res) => {
@@ -1043,9 +956,9 @@ async function scrapeAndUpdate(card, html) {
 
 app.post('/api/cards/:id/scrape', adminOnly, async (req, res) => {
   try {
-    const { rows: existing } = await pool.query('SELECT * FROM cards WHERE id=$1', [req.params.id])
-    if (!existing[0]) return res.status(404).json({ error: 'not found' })
-    const card = existing[0]
+    // Re-scraping rewrites the card, so the same ownership rule applies as an edit
+    const card = await ownedCard(req, res)
+    if (!card) return
     if (!card.url) return res.status(400).json({ error: 'no url' })
 
     // Use a real headless Chromium browser — bypasses TLS fingerprinting and JS rendering
@@ -1145,9 +1058,8 @@ function injectLinks(plan, resources) {
 
 app.post('/api/cards/:id/plan', adminOnly, async (req, res) => {
   try {
-    const { rows: existing } = await pool.query('SELECT * FROM cards WHERE id=$1', [req.params.id])
-    if (!existing[0]) return res.status(404).json({ error: 'not found' })
-    const card = existing[0]
+    const card = await ownedCard(req, res)
+    if (!card) return
     if (card.type !== 'youtube' || !card.youtube_id) return res.status(400).json({ error: 'not a youtube card' })
 
     const segments = await YoutubeTranscript.fetchTranscript(card.youtube_id)
@@ -1204,6 +1116,10 @@ app.delete('/api/notes/:id', adminOnly, async (req, res) => {
   await pool.query('DELETE FROM notes WHERE id=$1', [req.params.id])
   res.json({ ok: true })
 })
+
+// Unknown /api paths must not fall through to the SPA, or a stale client gets
+// HTML where it expected JSON and fails with a parse error instead of a 404.
+app.use('/api', (req, res) => res.status(404).json({ error: 'no such endpoint' }))
 
 app.use(express.static(join(__dirname, '../dist')))
 app.get('*', (req, res) => res.sendFile(join(__dirname, '../dist/index.html')))

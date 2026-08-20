@@ -60,33 +60,11 @@ ALTER TABLE categories ADD COLUMN IF NOT EXISTS is_collab BOOLEAN NOT NULL DEFAU
 ALTER TABLE subcategories DROP COLUMN IF EXISTS is_collab;
 ALTER TABLE cards ADD COLUMN IF NOT EXISTS user_id INT REFERENCES users(id) ON DELETE SET NULL;
 
--- Sharing started out tab-level. Drop the old shape rather than migrate it: it was
--- only ever live briefly and never had a row in it.
-DO $$
-BEGIN
-  IF EXISTS (SELECT 1 FROM information_schema.columns
-             WHERE table_name='shelf_members' AND column_name='subcategory_id') THEN
-    DROP TABLE shelf_members;
-  END IF;
-  IF EXISTS (SELECT 1 FROM information_schema.columns
-             WHERE table_name='invites' AND column_name='subcategory_id') THEN
-    DROP TABLE invites;
-  END IF;
-END $$;
-
-CREATE TABLE IF NOT EXISTS shelf_members (
-  category_id INT NOT NULL REFERENCES categories(id) ON DELETE CASCADE,
-  user_id INT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-  joined_at TIMESTAMPTZ DEFAULT NOW(),
-  PRIMARY KEY (category_id, user_id)
-);
-
--- One standing invite code per shelf; re-shown rather than rotated.
-CREATE TABLE IF NOT EXISTS invites (
-  code TEXT PRIMARY KEY,
-  category_id INT NOT NULL UNIQUE REFERENCES categories(id) ON DELETE CASCADE,
-  created_at TIMESTAMPTZ DEFAULT NOW()
-);
+-- Membership and invite codes used to live here, from when collaborators logged
+-- in to someone else's instance. They live on the hub now, because they span
+-- instances: a person is a member from their own shelf, not a guest on yours.
+DROP TABLE IF EXISTS shelf_members;
+DROP TABLE IF EXISTS invites;
 
 -- ── Hub sync ────────────────────────────────────────────────────────────────
 -- A linked shelf is a local category whose contents are mirrored from the hub.

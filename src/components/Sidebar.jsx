@@ -88,7 +88,7 @@ export default function Sidebar({
   subcategories, activeSubcatId, onSelectSub,
   onAddCat, onAddSub, onDeleteSub, onShareCat,
   onReorderCats, onReorderCatsEnd, onReorderSubs, onReorderSubsEnd,
-  isAdmin, onJoin, activeView, onView, cardCount
+  onJoin, activeView, onView, cardCount
 }) {
   const [reordering, setReordering] = useState(false)
   const [confirmSub, setConfirmSub] = useState(null)
@@ -110,19 +110,17 @@ export default function Sidebar({
       <nav className="flex-1 overflow-y-auto py-4 px-2">
         <div className="flex items-center justify-between" style={{ padding: '0 12px', marginBottom: 6 }}>
           <span style={{ ...sectionLabel, padding: 0, marginBottom: 0 }}>SHELVES</span>
-          {isAdmin && (
-            <button
-              onClick={() => setReordering(r => !r)}
-              title={reordering ? 'Done reordering' : 'Reorder shelves'}
-              className="glow-focus"
-              style={{
-                display: 'flex', padding: 3, borderRadius: 4,
-                color: reordering ? 'var(--s-accent)' : 'var(--s-text-3)'
-              }}
-            >
-              <ReorderIcon />
-            </button>
-          )}
+          <button
+            onClick={() => setReordering(r => !r)}
+            title={reordering ? 'Done reordering' : 'Reorder shelves'}
+            className="glow-focus"
+            style={{
+              display: 'flex', padding: 3, borderRadius: 4,
+              color: reordering ? 'var(--s-accent)' : 'var(--s-text-3)'
+            }}
+          >
+            <ReorderIcon />
+          </button>
         </div>
 
         <Reorder.Group
@@ -139,7 +137,7 @@ export default function Sidebar({
                 key={cat.id}
                 value={cat}
                 as="div"
-                dragListener={reordering && isAdmin}
+                dragListener={reordering}
                 onDragEnd={onReorderCatsEnd}
                 whileDrag={{ scale: 1.02, zIndex: 10 }}
                 style={{ marginBottom: 1, cursor: reordering ? 'grab' : 'auto' }}
@@ -154,17 +152,17 @@ export default function Sidebar({
                     active={active}
                     onClick={() => { if (!reordering) { onView('bookmarks'); onSelectCat(cat.id) } }}
                     title={cat.name}
-                    style={{ paddingRight: hoverCat === cat.id && isAdmin ? 30 : undefined }}
+                    style={{ paddingRight: hoverCat === cat.id ? 30 : undefined }}
                   >
                     {cat.icon
                       ? <span style={{ fontSize: 14, lineHeight: 1, width: 14, textAlign: 'center', flexShrink: 0 }}>{cat.icon}</span>
                       : <BookmarkIcon />}
                     <span className="truncate flex-1">{cat.name}</span>
                     {cat.is_collab && <CollabIcon size={11} />}
-                    {active && (subcategories.length > 0 || isAdmin) && <ChevronIcon open />}
+                    {active && <ChevronIcon open />}
                   </Row>
 
-                  {isAdmin && hoverCat === cat.id && !reordering && (
+                  {hoverCat === cat.id && !reordering && (
                     <button
                       onClick={(e) => { e.stopPropagation(); onShareCat(cat.id) }}
                       title="Get a code to share this shelf"
@@ -180,7 +178,7 @@ export default function Sidebar({
 
                 {/* Tabs live under their shelf so both levels of the hierarchy are on screen at once */}
                 <AnimatePresence initial={false}>
-                  {active && (subcategories.length > 0 || isAdmin) && (
+                  {active && (
                     <motion.div
                       initial={{ height: 0, opacity: 0 }}
                       animate={{ height: 'auto', opacity: 1 }}
@@ -209,7 +207,7 @@ export default function Sidebar({
                               key={sub.id}
                               value={sub}
                               as="div"
-                              dragListener={reordering && isAdmin}
+                              dragListener={reordering}
                               onDragEnd={onReorderSubsEnd}
                               whileDrag={{ scale: 1.02, zIndex: 10 }}
                               style={{ position: 'relative' }}
@@ -219,13 +217,13 @@ export default function Sidebar({
                               <Row
                                 active={activeSubcatId === sub.id}
                                 onClick={() => { if (!reordering) { setConfirmSub(null); onSelectSub(sub.id) } }}
-                                style={{ fontSize: 12, padding: '5px 10px', paddingRight: hoverSub === sub.id && isAdmin ? 44 : 10 }}
+                                style={{ fontSize: 12, padding: '5px 10px', paddingRight: hoverSub === sub.id ? 44 : 10 }}
                                 title={sub.name}
                               >
                                 <span className="truncate flex-1">{sub.name}</span>
                               </Row>
 
-                              {isAdmin && hoverSub === sub.id && !reordering && (
+                              {hoverSub === sub.id && !reordering && (
                                 <div style={{ position: 'absolute', right: 4, top: '50%', transform: 'translateY(-50%)', display: 'flex', gap: 2 }}>
                                   {confirmSub === sub.id ? (
                                     <button
@@ -249,11 +247,9 @@ export default function Sidebar({
                           ))}
                         </Reorder.Group>
 
-                        {isAdmin && (
-                          <Row muted onClick={onAddSub} style={{ fontSize: 12, padding: '5px 10px' }}>
-                            <span>+ tab</span>
-                          </Row>
-                        )}
+                        <Row muted onClick={onAddSub} style={{ fontSize: 12, padding: '5px 10px' }}>
+                          <span>+ tab</span>
+                        </Row>
                       </div>
                     </motion.div>
                   )}
@@ -263,25 +259,23 @@ export default function Sidebar({
           })}
         </Reorder.Group>
 
-        <Row muted onClick={isAdmin ? onAddCat : onJoin} style={{ marginTop: 4 }}>
+        <Row muted onClick={onAddCat} style={{ marginTop: 4 }}>
           <span style={{ width: 14, textAlign: 'center', flexShrink: 0 }}>+</span>
-          <span>{isAdmin ? 'new shelf' : 'join with a code'}</span>
+          <span>new shelf</span>
         </Row>
 
-        {isAdmin && (
-          <>
-            <div style={{ borderTop: '1px solid var(--s-border)', margin: '16px 8px 12px' }} />
-            <span style={sectionLabel}>WORKSPACE</span>
-            <Row active={activeView === 'notes'} onClick={() => onView('notes')}>
-              <NotesIcon />
-              <span>Notes</span>
-            </Row>
-            <Row muted onClick={onJoin}>
-              <CollabIcon size={14} />
-              <span>Link a shared shelf</span>
-            </Row>
-          </>
-        )}
+        <>
+          <div style={{ borderTop: '1px solid var(--s-border)', margin: '16px 8px 12px' }} />
+          <span style={sectionLabel}>WORKSPACE</span>
+          <Row active={activeView === 'notes'} onClick={() => onView('notes')}>
+            <NotesIcon />
+            <span>Notes</span>
+          </Row>
+          <Row muted onClick={onJoin}>
+            <CollabIcon size={14} />
+            <span>Link a shared shelf</span>
+          </Row>
+        </>
       </nav>
 
       <div style={{ padding: '12px 16px', borderTop: '1px solid var(--s-border)' }}>

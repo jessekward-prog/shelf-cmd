@@ -3,7 +3,7 @@ import { motion, Reorder } from 'framer-motion'
 
 import { CollabIcon } from './MembersBar.jsx'
 
-export default function CategoryNav({ categories, activeId, onSelect, onAdd, onReorder, onReorderEnd, readOnly, onJoin, onShare }) {
+export default function CategoryNav({ categories, activeId, onSelect, onAdd, onReorder, onReorderEnd, onJoin, onShare }) {
   const [reordering, setReordering] = useState(false)
 
   return (
@@ -49,7 +49,7 @@ export default function CategoryNav({ categories, activeId, onSelect, onAdd, onR
         )
       })}
 
-      {/* An owner links someone else's shelf in; a guest has only this way in at all */}
+      {/* Pull someone else's shelf into this one */}
       <motion.button
         onClick={onJoin}
         whileTap={{ scale: 0.93 }}
@@ -57,11 +57,11 @@ export default function CategoryNav({ categories, activeId, onSelect, onAdd, onR
         style={{ color: 'var(--s-accent)', border: '1px dashed var(--s-accent)' }}
       >
         <span className="text-base">+</span>
-        <span>{readOnly ? 'join' : 'link'}</span>
+        <span>link</span>
       </motion.button>
 
       {/* Sharing is whole-shelf, so the invite sits on the shelf row, not the tab row */}
-      {!readOnly && activeId && (
+      {activeId && (
         <motion.button
           onClick={() => onShare(activeId)}
           whileTap={{ scale: 0.93 }}
@@ -73,32 +73,28 @@ export default function CategoryNav({ categories, activeId, onSelect, onAdd, onR
         </motion.button>
       )}
 
-      {!readOnly && (
-        <motion.button
-          onClick={onAdd}
-          whileTap={{ scale: 0.93 }}
-          className="flex items-center gap-1 px-3 py-2 rounded-lg text-sm whitespace-nowrap ml-1 flex-shrink-0"
-          style={{ color: 'var(--s-border)', border: '1px dashed var(--s-border)' }}
-        >
-          <span className="text-base">+</span>
-          <span>new</span>
-        </motion.button>
-      )}
+      <motion.button
+        onClick={onAdd}
+        whileTap={{ scale: 0.93 }}
+        className="flex items-center gap-1 px-3 py-2 rounded-lg text-sm whitespace-nowrap ml-1 flex-shrink-0"
+        style={{ color: 'var(--s-border)', border: '1px dashed var(--s-border)' }}
+      >
+        <span className="text-base">+</span>
+        <span>new</span>
+      </motion.button>
 
-      {!readOnly && (
-        <motion.button
-          onClick={() => setReordering(r => !r)}
-          whileTap={{ scale: 0.93 }}
-          className="flex items-center justify-center px-3 py-2 rounded-lg text-sm whitespace-nowrap ml-1 flex-shrink-0"
-          title={reordering ? 'Done reordering' : 'Reorder'}
-          style={{
-            color: reordering ? 'var(--s-accent)' : 'var(--s-border)',
-            border: `1px ${reordering ? 'solid' : 'dashed'} ${reordering ? 'var(--s-accent)' : 'var(--s-border)'}`
-          }}
-        >
-          ⇄
-        </motion.button>
-      )}
+      <motion.button
+        onClick={() => setReordering(r => !r)}
+        whileTap={{ scale: 0.93 }}
+        className="flex items-center justify-center px-3 py-2 rounded-lg text-sm whitespace-nowrap ml-1 flex-shrink-0"
+        title={reordering ? 'Done reordering' : 'Reorder'}
+        style={{
+          color: reordering ? 'var(--s-accent)' : 'var(--s-border)',
+          border: `1px ${reordering ? 'solid' : 'dashed'} ${reordering ? 'var(--s-accent)' : 'var(--s-border)'}`
+        }}
+      >
+        ⇄
+      </motion.button>
     </Reorder.Group>
   )
 }

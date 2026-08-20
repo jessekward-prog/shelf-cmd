@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { motion, AnimatePresence, Reorder } from 'framer-motion'
-export default function SubcategoryTabs({ subcategories, activeId, onSelect, onAdd, onDelete, onReorder, onReorderEnd, readOnly }) {
+export default function SubcategoryTabs({ subcategories, activeId, onSelect, onAdd, onDelete, onReorder, onReorderEnd }) {
   const [hoverId, setHoverId] = useState(null)
   const [confirmId, setConfirmId] = useState(null)
   const [reordering, setReordering] = useState(false)
@@ -52,7 +52,7 @@ export default function SubcategoryTabs({ subcategories, activeId, onSelect, onA
             </button>
 
             <AnimatePresence>
-              {!readOnly && !reordering && hoverId === sub.id && confirmId !== sub.id && (
+              {!reordering && hoverId === sub.id && confirmId !== sub.id && (
                 <motion.button
                   key="x"
                   initial={{ opacity: 0, scale: 0.7 }}
@@ -85,27 +85,22 @@ export default function SubcategoryTabs({ subcategories, activeId, onSelect, onA
         ))}
       </Reorder.Group>
 
-      {/* Collaborators post into a shared shelf's tabs but don't manage its structure */}
-      {!readOnly && (
-        <button
-          onClick={onAdd}
-          className="text-xs px-2 py-1 rounded flex-shrink-0"
-          style={{ color: 'var(--s-border)' }}
-        >
-          + tab
-        </button>
-      )}
+      <button
+        onClick={onAdd}
+        className="text-xs px-2 py-1 rounded flex-shrink-0"
+        style={{ color: 'var(--s-border)' }}
+      >
+        + tab
+      </button>
 
-      {!readOnly && (
-        <button
-          onClick={() => setReordering(r => !r)}
-          className="text-xs px-2 py-1 rounded flex-shrink-0"
-          title={reordering ? 'Done reordering' : 'Reorder'}
-          style={{ color: reordering ? 'var(--s-accent)' : 'var(--s-border)' }}
-        >
-          ⇄
-        </button>
-      )}
+      <button
+        onClick={() => setReordering(r => !r)}
+        className="text-xs px-2 py-1 rounded flex-shrink-0"
+        title={reordering ? 'Done reordering' : 'Reorder'}
+        style={{ color: reordering ? 'var(--s-accent)' : 'var(--s-border)' }}
+      >
+        ⇄
+      </button>
 
     </div>
   )

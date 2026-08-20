@@ -2,7 +2,6 @@ import { useState, useEffect, useCallback } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { getSavedTheme, applyTheme, getSavedIntensity, applyIntensity, getSavedFont, applyFont, getSavedOverlay, applyOverlay } from '../themes.js'
 import * as api from '../api.js'
-import JoinGate from './JoinGate.jsx'
 
 const AUTH_KEY = 'shelf_authed'
 const PIN_LENGTH = 4
@@ -65,7 +64,7 @@ export default function PinGate({ children }) {
     applyOverlay(getSavedOverlay())
   }, [])
 
-  const [mode, setMode] = useState(null) // null | 'setup' | 'confirm' | 'enter' | 'join'
+  const [mode, setMode] = useState(null) // null | 'setup' | 'confirm' | 'enter'
   const [digits, setDigits] = useState('')
   const [firstPin, setFirstPin] = useState('')
   const [error, setError] = useState('')
@@ -82,8 +81,7 @@ export default function PinGate({ children }) {
     if (!api.getToken()) return askForPin()
     api.getMe()
       .then(user => {
-        // Collaborators have no PIN — their token is the whole credential
-        if (!user.is_admin || sessionStorage.getItem(AUTH_KEY) === '1') setMe(user)
+        if (sessionStorage.getItem(AUTH_KEY) === '1') setMe(user)
         else askForPin()
       })
       .catch(() => { api.clearToken(); askForPin() })
@@ -150,13 +148,6 @@ export default function PinGate({ children }) {
 
   if (me) return children(me)
 
-  if (mode === 'join') return (
-    <JoinGate
-      onBack={() => { setError(''); askForPin() }}
-      onJoined={(user) => { api.setToken(user.token); setMe(user) }}
-    />
-  )
-
   if (!mode) return (
     <div style={{ minHeight: '100dvh', background: 'var(--s-bg)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
       {error
@@ -197,16 +188,6 @@ export default function PinGate({ children }) {
       </div>
 
       <NumPad onDigit={handleDigit} onBack={handleBack} />
-
-      <button
-        onClick={() => { setError(''); setDigits(''); setMode('join') }}
-        style={{
-          background: 'none', border: 'none', cursor: 'pointer', fontFamily: 'inherit',
-          color: 'var(--s-text-3)', fontSize: 11, letterSpacing: '0.14em'
-        }}
-      >
-        i have an invite code
-      </button>
 
       <AnimatePresence>
         {error && (

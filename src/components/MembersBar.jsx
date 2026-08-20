@@ -15,7 +15,7 @@ export function CollabIcon({ size = 11, color = 'currentColor' }) {
   )
 }
 
-export default function MembersBar({ shelfId, isAdmin, meId, onInvite, refreshKey }) {
+export default function MembersBar({ shelfId, onInvite, refreshKey }) {
   const [open, setOpen] = useState(false)
   const [members, setMembers] = useState([])
 
@@ -56,13 +56,12 @@ export default function MembersBar({ shelfId, isAdmin, meId, onInvite, refreshKe
           >
             <div style={{ padding: '4px 16px 10px', display: 'flex', flexDirection: 'column', gap: 5 }}>
               {members.map(m => (
-                <span key={m.id} style={{ fontSize: 11, color: m.id === meId ? 'var(--s-accent)' : 'var(--s-text-2)' }}>
-                  {m.username}{m.is_admin ? ' · owner' : ''}{m.id === meId ? ' · you' : ''}
+                <span key={m.id} style={{ fontSize: 11, color: m.is_me ? 'var(--s-accent)' : 'var(--s-text-2)' }}>
+                  {m.username}{m.is_owner ? ' · owner' : ''}{m.is_me ? ' · you' : ''}
                 </span>
               ))}
 
-              {isAdmin && (
-                <button
+              <button
                   onClick={() => onInvite(shelfId)}
                   style={{
                     alignSelf: 'flex-start', marginTop: 4, background: 'none', border: 'none',
@@ -71,8 +70,7 @@ export default function MembersBar({ shelfId, isAdmin, meId, onInvite, refreshKe
                   }}
                 >
                   + INVITE SOMEONE
-                </button>
-              )}
+              </button>
             </div>
           </motion.div>
         )}

@@ -18,7 +18,6 @@ import { hasAI, buildCard } from './ai.js'
 import { getSavedTheme, applyTheme, getSavedIntensity, applyIntensity } from './themes.js'
 
 export default function App({ me }) {
-  const isAdmin = me.is_admin
   const [user, setUser] = useState(me)
   const [theme, setTheme] = useState(getSavedTheme)
   const [building, setBuilding] = useState(null)
@@ -58,14 +57,12 @@ export default function App({ me }) {
     }, 2000)
   }, [])
 
-  // A collaborator's top level is the shared categories themselves, tabs and all.
   const loadCards = useCallback((catId, subcatId) => {
-    const request = isAdmin ? api.getCards(catId, subcatId) : api.getShelfCards(catId, subcatId)
-    request.then(loaded => {
+    api.getCards(catId, subcatId).then(loaded => {
       setCards(loaded)
       loaded.filter(c => c.status === 'pending').forEach(c => startPolling(c.id))
     })
-  }, [startPolling, isAdmin])
+  }, [startPolling])
 
   useEffect(() => {
     applyTheme(theme)
@@ -73,13 +70,12 @@ export default function App({ me }) {
   }, [])
 
   const loadTopLevel = useCallback((selectId) => {
-    const load = isAdmin ? api.getCategories() : api.getMyShelves()
-    return load.then((cats) => {
+    return api.getCategories().then((cats) => {
       setCategories(cats)
       if (selectId && cats.some(c => c.id === selectId)) setActiveCatId(selectId)
       else if (cats.length) setActiveCatId(prev => prev ?? cats[0].id)
     })
-  }, [isAdmin])
+  }, [])
 
   useEffect(() => { loadTopLevel() }, [loadTopLevel])
 
@@ -87,8 +83,7 @@ export default function App({ me }) {
     if (!activeCatId) return
     setActiveSubcatId(null)
     setSearch('')
-    const tabs = isAdmin ? api.getSubcategories(activeCatId) : api.getShelfSubcategories(activeCatId)
-    tabs.then(setSubcategories).catch(() => setSubcategories([]))
+    api.getSubcategories(activeCatId).then(setSubcategories).catch(() => setSubcategories([]))
     loadCards(activeCatId, null)
   }, [activeCatId])
 
@@ -161,11 +156,6 @@ export default function App({ me }) {
       return
     }
 
-    if (isCollabTarget && !isAdmin) {
-      window.alert('add your AI endpoint under the theme dot first — collab posts run on your own account')
-      return
-    }
-
     api.createCard({ ...data, category_id: activeCatId, subcategory_id: targetSub })
       .then(card => {
         setCards(prev => [card, ...prev])
@@ -179,14 +169,12 @@ export default function App({ me }) {
     setMembersKey(k => k + 1)
   }
 
-  const handleJoined = async (shelfId) => {
+  // A linked shelf becomes a real category here, so refresh and jump to it
+  const handleLinked = async (categoryId) => {
     setShowJoin(false)
-    if (isAdmin) {
-      setMembersKey(k => k + 1)
-      return
-    }
-    await loadTopLevel(shelfId)
-    setActiveCatId(shelfId)
+    await loadTopLevel(categoryId)
+    setActiveCatId(categoryId)
+    setMembersKey(k => k + 1)
   }
 
   const handleDeleteCard = async (id) => {
@@ -249,7 +237,6 @@ export default function App({ me }) {
         onReorderCatsEnd={saveCategoryOrder}
         onReorderSubs={handleReorderSubcategories}
         onReorderSubsEnd={saveSubcategoryOrder}
-        isAdmin={isAdmin}
         onJoin={() => setShowJoin(true)}
         activeView={activeView}
         onView={setActiveView}
@@ -286,7 +273,6 @@ export default function App({ me }) {
                   onAdd={() => setShowAddCat(true)}
                   onReorder={handleReorderCategories}
                   onReorderEnd={saveCategoryOrder}
-                  readOnly={!isAdmin}
                   onJoin={() => setShowJoin(true)}
                   onShare={setInviteFor}
                 />
@@ -300,11 +286,10 @@ export default function App({ me }) {
                     onDelete={handleDeleteSubcategory}
                     onReorder={handleReorderSubcategories}
                     onReorderEnd={saveSubcategoryOrder}
-                    readOnly={!isAdmin}
-                  />
+                    />
                 )}
 
-                {isAdmin && subcategories.length === 0 && activeCatId && (
+                {subcategories.length === 0 && activeCatId && (
                   <div className="px-4 pb-3">
                     <button onClick={handleAddSubcategory} className="text-xs" style={{ color: 'var(--s-text-3)' }}>
                       + add tab
@@ -339,9 +324,7 @@ export default function App({ me }) {
                 <div className="mb-3 lg:mx-8 lg:mb-5">
                   <MembersBar
                     shelfId={activeShelfId}
-                    isAdmin={isAdmin}
-                    meId={user.id}
-                    onInvite={setInviteFor}
+                                  onInvite={setInviteFor}
                     refreshKey={membersKey}
                   />
                 </div>
@@ -374,8 +357,8 @@ export default function App({ me }) {
                         onClearSearch={() => setSearch('')}
                         nowPlayingId={nowPlaying?.id}
                         onPlay={(card) => setNowPlaying({ id: card.id, title: card.title })}
-                        canEdit={(card) => isAdmin || card.user_id === user.id}
-                        canServerAI={isAdmin}
+                        canEdit={(card) => card.can_edit !== false}
+                        canServerAI={true}
                       />
                     </motion.div>
                   )}
@@ -383,7 +366,7 @@ export default function App({ me }) {
               </div>
           </div>
 
-          {isAdmin && activeView === 'notes' && (
+          {activeView === 'notes' && (
             <div className="lg:max-w-3xl lg:px-8 lg:pt-7">
               <NotesTab />
             </div>
@@ -481,7 +464,7 @@ export default function App({ me }) {
       >
         <div className="flex items-center justify-between px-6" style={{ height: '2.75rem' }}>
           <div className="flex items-center gap-4">
-            {(isAdmin ? ['bookmarks', 'notes'] : ['bookmarks']).map(v => (
+            {['bookmarks', 'notes'].map(v => (
               <button
                 key={v}
                 onClick={() => setActiveView(v)}
@@ -525,8 +508,7 @@ export default function App({ me }) {
         )}
         {showJoin && (
           <JoinModal
-            isAdmin={isAdmin}
-            onJoined={handleJoined}
+                onLinked={handleLinked}
             onClose={() => setShowJoin(false)}
           />
         )}
