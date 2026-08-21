@@ -2,6 +2,7 @@
 // Wired onto the app by index.js so all the multer/sharp/fs weight stays here.
 import multer from 'multer'
 import sharp from 'sharp'
+import archiver from 'archiver'
 import { randomBytes } from 'crypto'
 import { mkdirSync, createReadStream, existsSync } from 'fs'
 import { unlink, readFile, stat } from 'fs/promises'
@@ -212,6 +213,79 @@ export function mountDrive({ app, pool, adminOnly, lmComplete }) {
       await unlink(join(THUMBS_DIR, rows[0].stored_name + '.jpg')).catch(() => {})
     }
     res.json({ ok: true })
+  })
+
+  // ── Folders ───────────────────────────────────────────────────────────────
+  // A folder isn't a row: it's the path prefix carried in files.name. That means
+  // anything already uploaded groups up without a migration.
+
+  // LIKE-escape, so a folder literally named "a_b" doesn't match "axb".
+  const likePrefix = (p) => p.replace(/([\\%_])/g, '\\$1') + '/%'
+
+  async function folderFiles(categoryId, prefix) {
+    const { rows } = await pool.query(
+      `SELECT * FROM files WHERE category_id=$1 AND name LIKE $2 ESCAPE '\\' ORDER BY name`,
+      [categoryId, likePrefix(prefix)]
+    )
+    return rows
+  }
+
+  app.delete('/api/categories/:id/folder', adminOnly, async (req, res) => {
+    const prefix = String(req.query.prefix || '')
+    if (!prefix) return res.status(400).json({ error: 'prefix required' })
+    const files = await folderFiles(req.params.id, prefix)
+    if (!files.length) return res.status(404).json({ error: 'no such folder' })
+    await pool.query(
+      `DELETE FROM files WHERE category_id=$1 AND name LIKE $2 ESCAPE '\\'`,
+      [req.params.id, likePrefix(prefix)]
+    )
+    for (const f of files) {
+      await unlink(join(UPLOADS_DIR, f.stored_name)).catch(() => {})
+      await unlink(join(THUMBS_DIR, f.stored_name + '.jpg')).catch(() => {})
+    }
+    res.json({ ok: true, deleted: files.length })
+  })
+
+  app.post('/api/categories/:id/folder/share', adminOnly, async (req, res) => {
+    const prefix = String(req.body?.prefix || '')
+    if (!prefix) return res.status(400).json({ error: 'prefix required' })
+    const key = `${req.params.id}:${prefix}`
+    const { rows: have } = await pool.query(
+      'SELECT token FROM folder_share_tokens WHERE folder_key=$1 LIMIT 1', [key])
+    if (have[0]) return res.json({ token: have[0].token })
+    const token = randomBytes(18).toString('hex')
+    await pool.query(
+      'INSERT INTO folder_share_tokens (token, folder_key, category_id, prefix) VALUES ($1,$2,$3,$4)',
+      [token, key, req.params.id, prefix])
+    res.json({ token })
+  })
+
+  // Zip a folder subtree. Used by the owner's download and the public share link.
+  async function streamZip(res, categoryId, prefix) {
+    const files = await folderFiles(categoryId, prefix)
+    if (!files.length) return res.status(404).send('Folder is empty or no longer available.')
+    const base = prefix.split('/').pop() || 'folder'
+    res.setHeader('Content-Type', 'application/zip')
+    res.setHeader('Content-Disposition',
+      `attachment; filename="${encodeURIComponent(base)}.zip"`)
+    const archive = archiver('zip', { zlib: { level: 6 } })
+    archive.on('error', () => res.destroy())
+    archive.pipe(res)
+    for (const f of files) {
+      const p = join(UPLOADS_DIR, f.stored_name)
+      if (existsSync(p)) archive.file(p, { name: f.name.slice(prefix.length + 1) })
+    }
+    archive.finalize()
+  }
+
+  app.get('/api/categories/:id/folder/zip', ownerOrToken, (req, res) =>
+    streamZip(res, req.params.id, String(req.query.prefix || '')))
+
+  app.get('/s/f/:token', async (req, res) => {
+    const { rows } = await pool.query(
+      'SELECT category_id, prefix FROM folder_share_tokens WHERE token=$1', [req.params.token])
+    if (!rows[0]) return res.status(404).send('This link has expired or was revoked.')
+    streamZip(res, rows[0].category_id, rows[0].prefix)
   })
 
   // Auth-gated bytes for the owner's own UI. <img>/<a> can't send a bearer

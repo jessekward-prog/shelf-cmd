@@ -56,8 +56,10 @@ export default function FileCard({ file, onDelete, onShare }) {
       </a>
 
       <div className="p-3">
+        {/* The breadcrumb already says which folder you're in, so show the leaf
+            name here and keep the full path on hover. */}
         <p className="text-sm font-medium leading-snug mb-1 line-clamp-1" style={{ color: 'var(--s-text-0)' }} title={file.name}>
-          {file.name}
+          {file.name.split('/').pop()}
         </p>
 
         {pending ? (

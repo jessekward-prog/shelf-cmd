@@ -2,7 +2,8 @@ import { useState, useEffect } from 'react'
 import { motion } from 'framer-motion'
 import * as api from '../api.js'
 
-export default function ShareModal({ file, onClose }) {
+// Shares a file by default; pass getLink to share something else (e.g. a folder).
+export default function ShareModal({ file, onClose, getLink, note }) {
   const [url, setUrl] = useState(null)
   const [qr, setQr] = useState(null)
   const [copied, setCopied] = useState(false)
@@ -10,10 +11,12 @@ export default function ShareModal({ file, onClose }) {
 
   useEffect(() => {
     let alive = true
-    api.shareFile(file.id)
-      .then(async ({ token }) => {
+    const resolve = getLink
+      ? getLink()
+      : api.shareFile(file.id).then(({ token }) => api.shareUrl(token))
+    resolve
+      .then(async (link) => {
         if (!alive) return
-        const link = api.shareUrl(token)
         setUrl(link)
         const QRCode = (await import('qrcode')).default
         const data = await QRCode.toDataURL(link, {
@@ -24,7 +27,7 @@ export default function ShareModal({ file, onClose }) {
       })
       .catch(() => alive && setError('could not make a share link'))
     return () => { alive = false }
-  }, [file.id])
+  }, [file.id, file.name])
 
   const copy = () => {
     navigator.clipboard.writeText(url).then(() => {
@@ -74,7 +77,7 @@ export default function ShareModal({ file, onClose }) {
               </button>
             </div>
             <p className="text-xs mt-3" style={{ color: 'var(--s-text-3)', lineHeight: 1.5 }}>
-              Anyone with this link can download the file. Scan the code to open it on a phone.
+              {note || 'Anyone with this link can download the file.'} Scan the code to open it on a phone.
             </p>
           </>
         )}

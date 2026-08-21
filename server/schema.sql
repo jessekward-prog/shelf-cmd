@@ -136,6 +136,16 @@ CREATE TABLE IF NOT EXISTS file_share_tokens (
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
+-- A folder is a path prefix in files.name, not a row, so its share token keys
+-- off "<category_id>:<prefix>" rather than a foreign key.
+CREATE TABLE IF NOT EXISTS folder_share_tokens (
+  token       TEXT PRIMARY KEY,
+  folder_key  TEXT NOT NULL UNIQUE,
+  category_id INT NOT NULL REFERENCES categories(id) ON DELETE CASCADE,
+  prefix      TEXT NOT NULL,
+  created_at  TIMESTAMPTZ DEFAULT NOW()
+);
+
 -- Seed starter categories only if table is empty
 INSERT INTO categories (name, icon, sort_order)
 SELECT * FROM (VALUES ('Cooking','🍳',0),('Tech','💻',1),('Music','🎵',2)) AS v(name,icon,sort_order)

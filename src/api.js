@@ -79,6 +79,15 @@ export const fileThumbUrl = (id) => `${base}/files/${id}/thumb?t=${tok()}`
 export const fileRawUrl = (id, download) => `${base}/files/${id}/raw?t=${tok()}${download ? '&dl=1' : ''}`
 export const shareUrl = (token) => `${location.origin}/s/${token}`
 
+// ── Folders (a path prefix inside a shelf's drive) ───────────────────────────
+export const deleteFolder = (catId, prefix) =>
+  req('DELETE', `/categories/${catId}/folder?prefix=${encodeURIComponent(prefix)}`)
+export const shareFolder = (catId, prefix) =>
+  req('POST', `/categories/${catId}/folder/share`, { prefix })
+export const folderZipUrl = (catId, prefix) =>
+  `${base}/categories/${catId}/folder/zip?prefix=${encodeURIComponent(prefix)}&t=${tok()}`
+export const folderShareUrl = (token) => `${location.origin}/s/f/${token}`
+
 // ── Hub (federation) ────────────────────────────────────────────────────────
 // A code links someone else's shelf into THIS instance as a real local category.
 export const linkShelf = (code) => req('POST', '/link', { code })

@@ -2,13 +2,37 @@ import { useState, useEffect, useRef, useCallback } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import * as api from '../api.js'
 import FileCard from './FileCard.jsx'
+import FolderCard from './FolderCard.jsx'
 import ShareModal from './ShareModal.jsx'
+
+// Folders are the path prefixes stored in each file's name, so an uploaded
+// folder stays one thing you open rather than 70 loose cards.
+function listing(files, path) {
+  const prefix = path ? path + '/' : ''
+  const here = [], folders = new Map()
+  for (const f of files) {
+    if (!f.name.startsWith(prefix)) continue
+    const rest = f.name.slice(prefix.length)
+    const slash = rest.indexOf('/')
+    if (slash === -1) { here.push(f); continue }
+    const dir = rest.slice(0, slash)
+    const agg = folders.get(dir) || { name: dir, prefix: prefix + dir, count: 0, size: 0 }
+    agg.count++; agg.size += Number(f.size) || 0
+    folders.set(dir, agg)
+  }
+  return {
+    folders: [...folders.values()].sort((a, b) => a.name.localeCompare(b.name)),
+    files: here
+  }
+}
 
 export default function DrivePage({ categoryId, subcategoryId }) {
   const [files, setFiles] = useState([])
+  const [path, setPath] = useState('')
   const [dragging, setDragging] = useState(false)
   const [uploading, setUploading] = useState(0)
   const [shareFile, setShareFile] = useState(null)
+  const [shareFolder, setShareFolder] = useState(null)
   const inputRef = useRef(null)
   const folderRef = useRef(null)
   const pollers = useRef({})
@@ -27,12 +51,21 @@ export default function DrivePage({ categoryId, subcategoryId }) {
   }, [])
 
   useEffect(() => {
+    setPath('')
     api.getFiles(categoryId).then(loaded => {
       setFiles(loaded)
       loaded.filter(f => f.status === 'pending').forEach(f => poll(f.id))
     }).catch(() => setFiles([]))
     return () => { Object.values(pollers.current).forEach(clearInterval); pollers.current = {} }
   }, [categoryId, poll])
+
+  const view = listing(files, path)
+  const crumbs = path ? path.split('/') : []
+
+  const handleDeleteFolder = async (folder) => {
+    await api.deleteFolder(categoryId, folder.prefix)
+    setFiles(prev => prev.filter(f => !f.name.startsWith(folder.prefix + '/')))
+  }
 
   // Each item is { file, name } — name carries a folder path when present.
   const doUpload = useCallback(async (items) => {
@@ -135,16 +168,48 @@ export default function DrivePage({ categoryId, subcategoryId }) {
       <input ref={folderRef} type="file" multiple hidden webkitdirectory="" directory=""
         onChange={(e) => { doUpload(fromFileList(e.target.files)); e.target.value = '' }} />
 
-      {files.length === 0 ? (
+      {/* Breadcrumb — only once you're inside a folder */}
+      {crumbs.length > 0 && (
+        <div className="flex items-center gap-1.5 flex-wrap mb-3 text-xs">
+          <button onClick={() => setPath('')} style={{ color: 'var(--s-accent)' }}>drive</button>
+          {crumbs.map((c, i) => {
+            const to = crumbs.slice(0, i + 1).join('/')
+            const last = i === crumbs.length - 1
+            return (
+              <span key={to} className="flex items-center gap-1.5">
+                <span style={{ color: 'var(--s-text-3)' }}>/</span>
+                {last
+                  ? <span style={{ color: 'var(--s-text-1)' }}>{c}</span>
+                  : <button onClick={() => setPath(to)} style={{ color: 'var(--s-accent)' }}>{c}</button>}
+              </span>
+            )
+          })}
+        </div>
+      )}
+
+      {view.folders.length === 0 && view.files.length === 0 ? (
         <div className="flex flex-col items-center justify-center py-20 text-center">
           <p className="text-2xl mb-3" style={{ opacity: 0.2 }}>▤</p>
-          <p className="text-sm" style={{ color: 'var(--s-border)' }}>no files on this shelf yet</p>
-          <p className="text-xs mt-1" style={{ color: 'var(--s-surface-2)' }}>each upload becomes a card with a shareable link</p>
+          <p className="text-sm" style={{ color: 'var(--s-border)' }}>
+            {path ? 'this folder is empty' : 'no files on this shelf yet'}
+          </p>
+          <p className="text-xs mt-1" style={{ color: 'var(--s-surface-2)' }}>
+            {path ? 'go back to the drive to add more' : 'drop a folder and it stays one folder'}
+          </p>
         </div>
       ) : (
         <div className="grid gap-3 lg:gap-5" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))' }}>
           <AnimatePresence mode="popLayout">
-            {files.map(f => (
+            {view.folders.map(f => (
+              <FolderCard
+                key={'d:' + f.prefix}
+                folder={{ ...f, categoryId }}
+                onOpen={setPath}
+                onDelete={handleDeleteFolder}
+                onShare={setShareFolder}
+              />
+            ))}
+            {view.files.map(f => (
               <FileCard key={f.id} file={f} onDelete={handleDelete} onShare={setShareFile} />
             ))}
           </AnimatePresence>
@@ -153,6 +218,18 @@ export default function DrivePage({ categoryId, subcategoryId }) {
 
       <AnimatePresence>
         {shareFile && <ShareModal file={shareFile} onClose={() => setShareFile(null)} />}
+        {shareFolder && (
+          <ShareModal
+            key="folder"
+            file={{ name: shareFolder.name + '/' }}
+            getLink={async () => {
+              const { token } = await api.shareFolder(categoryId, shareFolder.prefix)
+              return api.folderShareUrl(token)
+            }}
+            note="Anyone with this link can download the whole folder as a .zip."
+            onClose={() => setShareFolder(null)}
+          />
+        )}
       </AnimatePresence>
     </div>
   )
