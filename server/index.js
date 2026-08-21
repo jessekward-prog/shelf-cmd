@@ -670,6 +670,21 @@ async function processCard(card) {
     `UPDATE cards SET type=$1, title=$2, description=$3, thumbnail_url=$4, youtube_id=$5, metadata=$6, status='ready' WHERE id=$7`,
     [type, title, description, thumbnail_url, youtube_id, JSON.stringify(metadata), card.id]
   )
+
+  // Only the `prepared` path used to reach the hub, so a card added the ordinary
+  // way stayed local and no collaborator ever saw it. Push here, once the card
+  // is finished, and adopt the id the hub hands back.
+  if (!card.hub_card_id && await hub.linkedShelf(card.category_id)) {
+    try {
+      const remote = await hub.postCard(card.category_id, {
+        subcategory_id: card.subcategory_id, type, url, title, description,
+        thumbnail_url, youtube_id, notes: card.notes, metadata
+      })
+      await pool.query('UPDATE cards SET hub_card_id=$1 WHERE id=$2', [remote.id, card.id])
+    } catch (err) {
+      if (!err.queued) console.error('hub post failed:', err.message)
+    }
+  }
 }
 
 async function applyPlanLinks(rawPlan, tools) {
