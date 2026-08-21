@@ -55,32 +55,44 @@ export default function DrivePage({ categoryId, subcategoryId }) {
     Array.from(list).map(file => ({ file, name: file.webkitRelativePath || file.name }))
 
   // Walk a dropped directory tree into a flat list of files with their paths.
+  // Resilient per-entry: one unreadable file can't sink the whole drop.
   const collectEntry = async (entry, prefix = '') => {
-    if (entry.isFile) {
-      return new Promise(res => entry.file(f => res([{ file: f, name: prefix + f.name }])))
-    }
-    const reader = entry.createReader()
-    const readAll = () => new Promise(res => {
-      const all = []
-      const next = () => reader.readEntries(batch => batch.length ? (all.push(...batch), next()) : res(all))
-      next()
-    })
-    const kids = await readAll()
-    return (await Promise.all(kids.map(k => collectEntry(k, prefix + entry.name + '/')))).flat()
+    try {
+      if (entry.isFile) {
+        return await new Promise(res => entry.file(f => res([{ file: f, name: prefix + f.name }]), () => res([])))
+      }
+      const reader = entry.createReader()
+      const readAll = () => new Promise(res => {
+        const all = []
+        const next = () => reader.readEntries(batch => batch.length ? (all.push(...batch), next()) : res(all), () => res(all))
+        next()
+      })
+      const kids = await readAll()
+      return (await Promise.all(kids.map(k => collectEntry(k, prefix + entry.name + '/')))).flat()
+    } catch { return [] }
   }
+
+  // A dragged folder can also surface as a size-0, typeless pseudo-file; that's
+  // not something we can read, so never try to upload it as a file.
+  const looksLikeDir = (file) => file.size === 0 && file.type === '' && !file.name.includes('.')
 
   const onDrop = async (e) => {
     e.preventDefault(); setDragging(false)
-    const items = e.dataTransfer.items
-    // Prefer the entry API so dropped folders are walked; fall back to flat files.
-    if (items?.length && items[0].webkitGetAsEntry) {
-      const entries = Array.from(items).map(i => i.webkitGetAsEntry()).filter(Boolean)
-      if (entries.some(en => en.isDirectory)) {
-        const collected = (await Promise.all(entries.map(en => collectEntry(en)))).flat()
-        return doUpload(collected)
-      }
+    const dt = e.dataTransfer
+    // Capture entries synchronously — the list goes stale after the first await.
+    const entries = dt.items?.length
+      ? Array.from(dt.items).map(i => i.webkitGetAsEntry?.()).filter(Boolean)
+      : []
+    // The entry API walks folders and plain files alike; use it whenever it works.
+    if (entries.length) {
+      const collected = (await Promise.all(entries.map(en => collectEntry(en)))).flat()
+      if (collected.length) return doUpload(collected)
     }
-    if (e.dataTransfer.files?.length) doUpload(fromFileList(e.dataTransfer.files))
+    // Fallback for browsers without the entry API — flat files only, and never a
+    // directory masquerading as a 0-byte file.
+    const files = fromFileList(dt.files || []).filter(({ file }) => !looksLikeDir(file))
+    if (files.length) doUpload(files)
+    else window.alert('Your browser blocked reading that folder on drop — use the “upload a folder” button instead.')
   }
 
   const handleDelete = async (id) => {

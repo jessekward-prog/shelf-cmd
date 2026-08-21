@@ -84,7 +84,15 @@ async function makeThumb(storedName, name, kind) {
 
 // One-liner an uploader sees on the card, so a collaborator knows what a file is
 // without downloading it. Scans text-like files; falls back to name + type.
+// Internal plumbing from an uploaded folder (.git objects, node_modules, lockfiles).
+// A blurb for these is meaningless, and a repo drop would otherwise queue one slow
+// model call per object.
+function isInternalPath(name) {
+  return /(^|\/)(\.git|node_modules|\.next|dist|\.cache|__pycache__)\//.test(name)
+}
+
 async function makeBlurb(lmComplete, { path, name, kind, mime, size }) {
+  if (isInternalPath(name)) return null
   let excerpt = ''
   const ext = extname(name).toLowerCase()
   const textLike = TEXT_EXT.has(ext) || (mime || '').startsWith('text/')
