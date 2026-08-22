@@ -26,6 +26,7 @@ function ModeToggle({ mode, onMode }) {
   const opts = [
     { id: 'cards', label: 'CARDS' },
     { id: 'drive', label: 'DRIVE' },
+    { id: 'guides', label: 'GUIDES' },
   ]
   return (
     <div className="inline-flex rounded-lg p-1 gap-1" style={{ background: 'var(--s-surface)', border: '1px solid var(--s-border)' }}>
@@ -70,8 +71,9 @@ export default function App({ me }) {
   const [direction, setDirection] = useState(1)
   const [activeView, setActiveView] = useState('bookmarks')
   const [showGuide, setShowGuide] = useState(false)
+  const [guideModalCatId, setGuideModalCatId] = useState(null)
   const [guidesKey, setGuidesKey] = useState(0)
-  const [shelfMode, setShelfMode] = useState('cards') // 'cards' | 'drive', per shelf
+  const [shelfMode, setShelfMode] = useState('cards') // 'cards' | 'drive' | 'guides', per shelf
   const [nowPlaying, setNowPlaying] = useState(null)
   const [popped, setPopped] = useState(null) // card floating in the mini-player
   const pollTimers = useRef({})
@@ -395,6 +397,16 @@ export default function App({ me }) {
                       <DrivePage categoryId={activeCatId} subcategoryId={activeSubcatId}
                         joined={!!categories.find(c => c.id === activeCatId)?.joined} />
                     </motion.div>
+                  ) : activeCatId && shelfMode === 'guides' ? (
+                    <motion.div key={'guides-' + activeCatId}
+                      initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}
+                      transition={{ duration: 0.2 }}>
+                      <GuidesView
+                        categoryId={activeCatId}
+                        onGenerate={() => { setGuideModalCatId(activeCatId); setShowGuide(true) }}
+                        refreshKey={guidesKey}
+                      />
+                    </motion.div>
                   ) : activeCatId && (
                     <motion.div
                       key={activeCatId + '-' + activeSubcatId}
@@ -433,7 +445,7 @@ export default function App({ me }) {
 
           {activeView === 'guides' && (
             <div className="lg:px-8 lg:pt-7">
-              <GuidesView onGenerate={() => setShowGuide(true)} refreshKey={guidesKey} />
+              <GuidesView onGenerate={() => { setGuideModalCatId(null); setShowGuide(true) }} refreshKey={guidesKey} />
             </div>
           )}
 
@@ -584,6 +596,7 @@ export default function App({ me }) {
         )}
         {showGuide && (
           <GuideModal
+            categoryId={guideModalCatId}
             onClose={() => setShowGuide(false)}
             onSaved={() => setGuidesKey(k => k + 1)}
           />

@@ -68,6 +68,11 @@ async function ensureTable(pool) {
     html TEXT NOT NULL,
     created_at TIMESTAMPTZ DEFAULT NOW()
   )`)
+  await pool.query('ALTER TABLE guides ADD COLUMN IF NOT EXISTS tagline TEXT')
+  await pool.query('ALTER TABLE guides ADD COLUMN IF NOT EXISTS category TEXT')
+  // NULL = a personal guide on the home Workspace tab. Set = generated (or
+  // saved) into a specific shelf's own Guides tab.
+  await pool.query('ALTER TABLE guides ADD COLUMN IF NOT EXISTS category_id INT REFERENCES categories(id) ON DELETE CASCADE')
 }
 
 // ── Source material ──────────────────────────────────────────────────────────
@@ -135,6 +140,10 @@ function digestOf(src) {
 
 // ── Model → chapters ─────────────────────────────────────────────────────────
 
+// Five fixed buckets a guide gets auto-sorted into — kept in sync with the
+// legend colors in GuidesView.jsx (PlayStation face-button colors).
+const CATEGORIES = ['speed', 'thinking', 'design', 'tools', 'reference']
+
 async function writeChapters(digest, fallbackName) {
   const system =
     'You write a clear, practical end-user guide for a software project using only the ' +
@@ -146,7 +155,11 @@ async function writeChapters(digest, fallbackName) {
     `Write the guide for this project.\n\n${digest}\n\n---\n` +
     'OUTPUT FORMAT — follow it exactly and output nothing before or after:\n\n' +
     '@@TITLE: <short product name>\n' +
-    '@@TAGLINE: <one plain sentence saying what it is>\n' +
+    '@@TAGLINE: <one to two plain sentences: what it is, and what it could help someone do>\n' +
+    '@@CATEGORY: <exactly one of: speed, thinking, design, tools, reference — ' +
+    'speed = performance/CLI/low-level utilities, thinking = AI/algorithms/data/logic, ' +
+    'design = UI/CSS/visual/creative, tools = general dev libraries/frameworks/infra, ' +
+    'reference = docs/curated lists/learning material>\n' +
     // Placeholders spelled out rather than <angle-bracketed>: a small model
     // copies a bare "<body>" line into the chapter verbatim.
     '@@CHAPTER: the chapter title\nthe chapter text\n' +
@@ -170,25 +183,62 @@ async function writeChapters(digest, fallbackName) {
 }
 
 function parseChapters(raw, fallbackName) {
-  let title = '', tagline = ''
+  let title = '', tagline = '', category = ''
   const chapters = []
   let cur = null
   for (const line of String(raw).split('\n')) {
     const t = line.match(/^@@TITLE:\s*(.*)$/)
     const g = line.match(/^@@TAGLINE:\s*(.*)$/)
+    const k = line.match(/^@@CATEGORY:\s*(.*)$/)
     const c = line.match(/^@@CHAPTER:\s*(.*)$/)
     if (t) { title = t[1].trim(); continue }
     if (g) { tagline = g[1].trim(); continue }
+    if (k) { category = k[1].trim().toLowerCase(); continue }
     if (c) { cur = { title: c[1].trim(), body: [] }; chapters.push(cur); continue }
     if (cur) cur.body.push(line)
   }
+  if (!CATEGORIES.includes(category)) category = 'reference'
   return {
     title: title || fallbackName || 'User Guide',
     tagline,
+    category,
     chapters: chapters
       .map(ch => ({ title: ch.title, body: ch.body.join('\n').trim() }))
       .filter(ch => ch.title)
   }
+}
+
+// A cheap, capped call for guides that already have chapters and only need a
+// tagline/category backfilled — small max_tokens so it can't run away and
+// crash the local model the way an uncapped full-guide generation can.
+async function writeBlurb(digest) {
+  const system =
+    'You summarize a software project in one place. Reply with ONLY the two lines requested — no preamble.'
+  const user =
+    `${digest}\n\n---\n` +
+    'Reply with exactly these two lines and nothing else:\n' +
+    '@@TAGLINE: <one to two plain sentences: what it is, and what it could help someone do>\n' +
+    '@@CATEGORY: <exactly one of: speed, thinking, design, tools, reference — ' +
+    'speed = performance/CLI/low-level utilities, thinking = AI/algorithms/data/logic, ' +
+    'design = UI/CSS/visual/creative, tools = general dev libraries/frameworks/infra, ' +
+    'reference = docs/curated lists/learning material>'
+
+  const model = process.env.LM_STUDIO_GUIDE_MODEL || process.env.LM_STUDIO_PLAN_MODEL || undefined
+  const raw = stripReasoning(await lmComplete(
+    [{ role: 'system', content: system }, { role: 'user', content: user }],
+    // The local model can burn hundreds of tokens on hidden reasoning before it
+    // ever reaches the two-line answer — too low a cap starves it mid-thought.
+    { maxTokens: 700, temperature: 0.4, timeout: 60000, model }
+  ))
+  let tagline = '', category = ''
+  for (const line of raw.split('\n')) {
+    const g = line.match(/^@@TAGLINE:\s*(.*)$/)
+    const k = line.match(/^@@CATEGORY:\s*(.*)$/)
+    if (g) tagline = g[1].trim()
+    if (k) category = k[1].trim().toLowerCase()
+  }
+  if (!CATEGORIES.includes(category)) category = 'reference'
+  return { tagline, category }
 }
 
 // ── Markdown-lite → the shell's component set ────────────────────────────────
@@ -369,6 +419,8 @@ export function mountGuide({ app, pool, adminOnly, adminOrToken }) {
     try {
       const url = String(req.body.url || '').trim()
       if (!/^https?:\/\/\S+$/.test(url)) return res.status(400).json({ error: 'a full http(s) URL is required' })
+      // Present = generated into that shelf's own Guides tab. Absent = the personal home tab.
+      const categoryId = req.body.category_id ? Number(req.body.category_id) : null
 
       const gh = url.match(GITHUB_RE)
       const src = gh ? await fetchGitHub(gh[1], gh[2]) : await fetchGeneric(url)
@@ -390,13 +442,13 @@ export function mountGuide({ app, pool, adminOnly, adminOrToken }) {
       let id = null
       try {
         const { rows } = await pool.query(
-          'INSERT INTO guides (title, source, filename, chapters, html) VALUES ($1,$2,$3,$4,$5) RETURNING id',
-          [guide.title, src.source, filename, guide.chapters.length, html]
+          'INSERT INTO guides (title, source, filename, chapters, html, tagline, category, category_id) VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING id',
+          [guide.title, src.source, filename, guide.chapters.length, html, guide.tagline, guide.category, categoryId]
         )
         id = rows[0].id
       } catch (e) { console.error('guide save:', e.message) }
 
-      res.json({ id, title: guide.title, filename, chapters: guide.chapters.length, html })
+      res.json({ id, title: guide.title, tagline: guide.tagline, category: guide.category, filename, chapters: guide.chapters.length, html })
     } catch (err) {
       console.error('guide error:', err.message)
       res.status(err.status === 404 ? 404 : 500).json({ error: err.status === 404 ? 'repo not found (or private)' : err.message })
@@ -404,11 +456,50 @@ export function mountGuide({ app, pool, adminOnly, adminOrToken }) {
   })
 
   // The list stays light — the full HTML is only fetched when a guide is opened.
+  // No ?category_id → the personal home tab. With it → that shelf's own guides.
   app.get('/api/guides', guard, async (req, res) => {
+    const catId = req.query.category_id ? Number(req.query.category_id) : null
     const { rows } = await pool.query(
-      'SELECT id, title, source, filename, chapters, created_at FROM guides ORDER BY created_at DESC'
+      `SELECT id, title, tagline, category, source, filename, chapters, created_at FROM guides
+       WHERE category_id ${catId ? '= $1' : 'IS NULL'} ORDER BY created_at DESC`,
+      catId ? [catId] : []
     )
     res.json(rows)
+  })
+
+  // Copies a shelf guide onto the caller's personal home Guides tab.
+  app.post('/api/guides/:id/save', guard, async (req, res) => {
+    const { rows } = await pool.query('SELECT * FROM guides WHERE id=$1', [req.params.id])
+    const g = rows[0]
+    if (!g) return res.status(404).json({ error: 'not found' })
+    const { rows: inserted } = await pool.query(
+      `INSERT INTO guides (title, source, filename, chapters, html, tagline, category, category_id)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,NULL) RETURNING id`,
+      [g.title, g.source, g.filename, g.chapters, g.html, g.tagline, g.category]
+    )
+    res.json({ id: inserted[0].id })
+  })
+
+  // Backfills tagline/category on guides that predate those columns (or that a
+  // collaborator generated from another client that missed a schema update),
+  // then the caller re-fetches the list — which also surfaces anything a
+  // collaborator added that this client hadn't seen yet.
+  app.post('/api/guides/backfill', guard, async (req, res) => {
+    const { rows } = await pool.query(
+      "SELECT id, title, source FROM guides WHERE tagline IS NULL OR tagline = '' OR category IS NULL OR category = ''"
+    )
+    let updated = 0
+    for (const row of rows) {
+      try {
+        const gh = (row.source || '').match(GITHUB_RE)
+        const src = gh ? await fetchGitHub(gh[1], gh[2]) : await fetchGeneric(row.source)
+        const { tagline, category } = await writeBlurb(digestOf(src))
+        if (!tagline) continue
+        await pool.query('UPDATE guides SET tagline=$1, category=$2 WHERE id=$3', [tagline, category, row.id])
+        updated++
+      } catch (e) { console.error('guide backfill:', row.id, e.message) }
+    }
+    res.json({ checked: rows.length, updated })
   })
 
   app.get('/api/guides/:id', guard, async (req, res) => {

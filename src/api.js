@@ -99,18 +99,20 @@ export const getHubStatus = () => req('GET', '/hub')
 
 // ── Guides (generated standalone HTML) ───────────────────────────────────────
 // Surfaces the server's error text, which carries the real reason a guide failed.
-export async function generateGuide(url) {
+export async function generateGuide(url, categoryId) {
   const res = await fetch(base + '/guide', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...(getToken() ? { Authorization: `Bearer ${getToken()}` } : {}) },
-    body: JSON.stringify({ url })
+    body: JSON.stringify({ url, category_id: categoryId || undefined })
   })
   const data = await res.json().catch(() => ({}))
   if (!res.ok) throw new Error(data.error || `guide → ${res.status}`)
   return data
 }
-export const getGuides   = ()   => req('GET',    '/guides')
-export const getGuide    = (id) => req('GET',    `/guides/${id}`)
-export const deleteGuide = (id) => req('DELETE', `/guides/${id}`)
+export const getGuides     = (categoryId) => req('GET', `/guides${categoryId ? `?category_id=${categoryId}` : ''}`)
+export const getGuide      = (id) => req('GET',    `/guides/${id}`)
+export const deleteGuide   = (id) => req('DELETE', `/guides/${id}`)
+export const saveGuide     = (id) => req('POST',   `/guides/${id}/save`, {})
+export const backfillGuides = ()  => req('POST',   '/guides/backfill', {})
 // A real link, so the browser downloads it directly — see the note on the route.
 export const guideDownloadUrl = (id) => `${base}/guides/${id}/download?t=${tok()}`

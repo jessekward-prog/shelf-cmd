@@ -4,7 +4,7 @@ import * as api from '../api.js'
 
 // Paste a repo (or any) URL → the server writes a guide and hands back a
 // standalone HTML document to open or download.
-export default function GuideModal({ onClose, onSaved }) {
+export default function GuideModal({ onClose, onSaved, categoryId }) {
   const [url, setUrl] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
@@ -24,7 +24,7 @@ export default function GuideModal({ onClose, onSaved }) {
     if (busy || !/^https?:\/\/\S+$/.test(url.trim())) return
     setBusy(true); setError('')
     try {
-      setResult(await api.generateGuide(url.trim()))
+      setResult(await api.generateGuide(url.trim(), categoryId))
       onSaved && onSaved() // it's now saved to the Workspace — refresh the list
     } catch (err) {
       setError(err.message || 'could not generate a guide')
