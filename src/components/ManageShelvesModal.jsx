@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { motion, Reorder, AnimatePresence } from 'framer-motion'
+import { motion, Reorder } from 'framer-motion'
 import ShelfIcon from './ShelfIcons.jsx'
 import { CollabIcon } from './MembersBar.jsx'
 
@@ -37,6 +37,15 @@ function TrashIcon() {
   )
 }
 
+function StarIcon({ filled }) {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill={filled ? 'currentColor' : 'none'}
+      stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <polygon points="12 2 15.1 8.6 22 9.3 17 14.1 18.2 21 12 17.8 5.8 21 7 14.1 2 9.3 8.9 8.6 12 2" />
+    </svg>
+  )
+}
+
 const iconBtn = {
   display: 'flex', alignItems: 'center', justifyContent: 'center',
   width: 28, height: 28, borderRadius: 6, flexShrink: 0,
@@ -46,7 +55,7 @@ const iconBtn = {
 // A dedicated bottom-sheet for reordering shelves by touch (dragging pills in
 // a horizontally-scrolling strip doesn't work well on a phone), plus the only
 // place archive/delete live — there's nowhere else in the app to reach them.
-export default function ManageShelvesModal({ categories, onClose, onReorder, onReorderEnd, onArchive, onDelete }) {
+export default function ManageShelvesModal({ categories, onClose, onReorder, onReorderEnd, onArchive, onDelete, favorites, onToggleFavorite, onAddNew }) {
   const [confirmId, setConfirmId] = useState(null)
   const active = categories.filter(c => !c.archived)
   const archived = categories.filter(c => c.archived)
@@ -84,6 +93,14 @@ export default function ManageShelvesModal({ categories, onClose, onReorder, onR
                 <ShelfIcon name={cat.icon} />
                 <span className="truncate flex-1" style={{ fontSize: 13, color: 'var(--s-text-0)' }}>{cat.name}</span>
                 {cat.is_collab && <CollabIcon size={11} />}
+                <button
+                  style={{ ...iconBtn, color: favorites.includes(cat.id) ? 'var(--s-accent)' : 'var(--s-text-3)' }}
+                  title={favorites.includes(cat.id) ? 'Remove from favourites' : 'Add to favourites'}
+                  onClick={() => onToggleFavorite(cat.id)}
+                  onPointerDown={(e) => e.stopPropagation()}
+                >
+                  <StarIcon filled={favorites.includes(cat.id)} />
+                </button>
                 <button style={iconBtn} title="Archive" onClick={() => onArchive(cat.id, true)}
                   onPointerDown={(e) => e.stopPropagation()}>
                   <ArchiveIcon />
@@ -105,6 +122,17 @@ export default function ManageShelvesModal({ categories, onClose, onReorder, onR
               </Reorder.Item>
             ))}
           </Reorder.Group>
+
+          <button
+            onClick={onAddNew}
+            style={{
+              display: 'flex', alignItems: 'center', gap: 8, width: '100%', padding: '9px 6px',
+              fontSize: 13, color: 'var(--s-text-3)', background: 'transparent', textAlign: 'left'
+            }}
+          >
+            <span style={{ width: 14, textAlign: 'center', flexShrink: 0 }}>+</span>
+            <span>new shelf</span>
+          </button>
 
           {archived.length > 0 && (
             <>

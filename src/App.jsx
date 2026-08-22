@@ -69,6 +69,12 @@ export default function App({ me }) {
   const [inviteFor, setInviteFor] = useState(null)
   const [showJoin, setShowJoin] = useState(false)
   const [showManageShelves, setShowManageShelves] = useState(false)
+  const [favorites, setFavorites] = useState(() => {
+    try { return JSON.parse(localStorage.getItem('shelf_favorites')) || [] } catch { return [] }
+  })
+  useEffect(() => { localStorage.setItem('shelf_favorites', JSON.stringify(favorites)) }, [favorites])
+  const toggleFavorite = (id) =>
+    setFavorites(f => f.includes(id) ? f.filter(x => x !== id) : [...f, id])
   const [membersKey, setMembersKey] = useState(0)
   const [direction, setDirection] = useState(1)
   const [activeView, setActiveView] = useState('bookmarks')
@@ -313,6 +319,8 @@ export default function App({ me }) {
         activeView={activeView}
         onView={setActiveView}
         cardCount={cards.length}
+        favorites={favorites}
+        onToggleFavorite={toggleFavorite}
       />
 
       <div className="lg:flex-1 lg:min-w-0 lg:flex lg:flex-col">
@@ -637,6 +645,9 @@ export default function App({ me }) {
             onReorderEnd={saveCategoryOrder}
             onArchive={handleArchiveCategory}
             onDelete={handleDeleteCategory}
+            favorites={favorites}
+            onToggleFavorite={toggleFavorite}
+            onAddNew={() => { setShowManageShelves(false); setShowAddCat(true) }}
           />
         )}
       </AnimatePresence>

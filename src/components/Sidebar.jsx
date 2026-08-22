@@ -108,19 +108,15 @@ export default function Sidebar({
   subcategories, activeSubcatId, onSelectSub,
   onAddCat, onAddSub, onDeleteSub, onShareCat,
   onReorderCats, onReorderCatsEnd, onReorderSubs, onReorderSubsEnd,
-  onJoin, onManage, activeView, onView, cardCount
+  onJoin, onManage, activeView, onView, cardCount,
+  favorites, onToggleFavorite
 }) {
   const [reordering, setReordering] = useState(false)
-  const [favorites, setFavorites] = useState(() => {
-    try { return JSON.parse(localStorage.getItem('shelf_favorites')) || [] } catch { return [] }
-  })
   const [collapsed, setCollapsed] = useState(() => {
     try { return JSON.parse(localStorage.getItem('shelf_shelves_collapsed')) || false } catch { return false }
   })
-  useEffect(() => { localStorage.setItem('shelf_favorites', JSON.stringify(favorites)) }, [favorites])
   useEffect(() => { localStorage.setItem('shelf_shelves_collapsed', JSON.stringify(collapsed)) }, [collapsed])
-  const toggleFav = (id) =>
-    setFavorites(f => f.includes(id) ? f.filter(x => x !== id) : [...f, id])
+  const toggleFav = onToggleFavorite
   const [confirmSub, setConfirmSub] = useState(null)
   const [hoverSub, setHoverSub] = useState(null)
   const [hoverCat, setHoverCat] = useState(null)
