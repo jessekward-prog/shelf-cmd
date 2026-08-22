@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { motion, Reorder } from 'framer-motion'
 
 import { CollabIcon } from './MembersBar.jsx'
+import ShelfIcon from './ShelfIcons.jsx'
 
 export default function CategoryNav({ categories, activeId, onSelect, onAdd, onReorder, onReorderEnd, onJoin, onShare }) {
   const [reordering, setReordering] = useState(false)
@@ -35,7 +36,7 @@ export default function CategoryNav({ categories, activeId, onSelect, onAdd, onR
               cursor: reordering ? 'grab' : 'pointer'
             }}
           >
-            <span className="text-base leading-none">{cat.icon}</span>
+            <ShelfIcon name={cat.icon} size={16} />
             <span>{cat.name}</span>
             {cat.is_collab && <CollabIcon size={11} />}
             {active && !reordering && (

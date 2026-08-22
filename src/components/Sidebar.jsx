@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { motion, AnimatePresence, Reorder } from 'framer-motion'
 import { CollabIcon } from './MembersBar.jsx'
+import ShelfIcon from './ShelfIcons.jsx'
 
 function StarIcon({ filled }) {
   return (
@@ -37,15 +38,6 @@ function NotesIcon() {
       strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
       <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
       <path d="M14 2v6h6M16 13H8M16 17H8" />
-    </svg>
-  )
-}
-
-function BookmarkIcon() {
-  return (
-    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-      strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
-      <path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z" />
     </svg>
   )
 }
@@ -201,9 +193,7 @@ export default function Sidebar({
                     title={cat.name}
                     style={{ paddingRight: hoverCat === cat.id ? 52 : (isFav ? 26 : undefined) }}
                   >
-                    {cat.icon
-                      ? <span style={{ fontSize: 14, lineHeight: 1, width: 14, textAlign: 'center', flexShrink: 0 }}>{cat.icon}</span>
-                      : <BookmarkIcon />}
+                    <ShelfIcon name={cat.icon} />
                     <span className="truncate flex-1">{cat.name}</span>
                     {cat.is_collab && <CollabIcon size={11} />}
                     {active && <ChevronIcon open />}

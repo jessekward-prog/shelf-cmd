@@ -1,11 +1,11 @@
 import { useState } from 'react'
 import { motion } from 'framer-motion'
 
-const ICONS = ['📁', '🍳', '💻', '🎵', '📚', '🎮', '✈️', '🏋️', '🎨', '🛠️', '🌿', '💡']
+import ShelfIcon, { SHELF_ICONS } from './ShelfIcons.jsx'
 
 export default function AddCategoryModal({ onAdd, onClose }) {
   const [name, setName] = useState('')
-  const [icon, setIcon] = useState('📁')
+  const [icon, setIcon] = useState('folder')
 
   const handleSubmit = async (e) => {
     e.preventDefault()
@@ -35,18 +35,21 @@ export default function AddCategoryModal({ onAdd, onClose }) {
 
         <form onSubmit={handleSubmit} className="flex flex-col gap-3">
           <div className="flex flex-wrap gap-2 mb-1">
-            {ICONS.map((ic) => (
+            {SHELF_ICONS.map((ic) => (
               <button
                 key={ic}
                 type="button"
                 onClick={() => setIcon(ic)}
-                className="text-xl rounded-lg p-1.5 transition-all"
+                className="rounded-lg transition-all"
                 style={{
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  width: 34, height: 34,
+                  color: icon === ic ? 'var(--s-accent)' : 'var(--s-text-2)',
                   background: icon === ic ? 'var(--s-accent-faint)' : 'var(--s-surface-2)',
                   border: `1px solid ${icon === ic ? 'var(--s-accent)' : 'transparent'}`
                 }}
               >
-                {ic}
+                <ShelfIcon name={ic} size={17} />
               </button>
             ))}
           </div>
