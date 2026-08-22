@@ -19,6 +19,9 @@ services:
       LM_STUDIO_URL: ${LM_STUDIO_URL:-}
       LM_STUDIO_MODEL: ${LM_STUDIO_MODEL:-}
       LM_STUDIO_API_KEY: ${LM_STUDIO_API_KEY:-}
+      # Raises the guide-generation GitHub API calls from 60/hr (shared across the
+      # whole box) to 5000/hr. A plain personal access token with public read scope.
+      GITHUB_TOKEN: ${GITHUB_TOKEN:-}
       # Shared shelves federate through a hub. Unset = the public default hub
       # (baked into the app). Point at your own shelf-hub for full independence.
       HUB_URL: ${HUB_URL:-}

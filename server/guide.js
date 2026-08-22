@@ -83,7 +83,13 @@ async function ensureTable(pool) {
 
 async function fetchGitHub(owner, repo) {
   repo = repo.replace(/\.git$/, '')
-  const headers = { 'User-Agent': 'shelf-cmd', Accept: 'application/vnd.github+json' }
+  // Unauthenticated GitHub calls share one 60/hr bucket across everything on
+  // the box; a token bumps that to 5000/hr. Read-only public repo data either way.
+  const ghToken = process.env.GITHUB_TOKEN
+  const headers = {
+    'User-Agent': 'shelf-cmd', Accept: 'application/vnd.github+json',
+    ...(ghToken ? { Authorization: `Bearer ${ghToken}` } : {})
+  }
   const get = (path, accept) =>
     fetch(`https://api.github.com/repos/${owner}/${repo}${path}`, {
       headers: accept ? { ...headers, Accept: accept } : headers,
