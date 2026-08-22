@@ -51,6 +51,15 @@ function ReorderIcon() {
   )
 }
 
+function ManageIcon() {
+  return (
+    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
+      <circle cx="12" cy="5" r="1" /><circle cx="12" cy="12" r="1" /><circle cx="12" cy="19" r="1" />
+    </svg>
+  )
+}
+
 /* Section labels share one style so the sidebar reads as a single scale, not five. */
 const sectionLabel = {
   fontSize: 10, letterSpacing: '0.16em', color: 'var(--s-text-3)',
@@ -99,7 +108,7 @@ export default function Sidebar({
   subcategories, activeSubcatId, onSelectSub,
   onAddCat, onAddSub, onDeleteSub, onShareCat,
   onReorderCats, onReorderCatsEnd, onReorderSubs, onReorderSubsEnd,
-  onJoin, activeView, onView, cardCount
+  onJoin, onManage, activeView, onView, cardCount
 }) {
   const [reordering, setReordering] = useState(false)
   const [favorites, setFavorites] = useState(() => {
@@ -148,17 +157,27 @@ export default function Sidebar({
             <ChevronIcon open={!collapsed} />
             <span>SHELVES</span>
           </button>
-          <button
-            onClick={() => setReordering(r => !r)}
-            title={reordering ? 'Done reordering' : 'Reorder shelves'}
-            className="glow-focus"
-            style={{
-              display: 'flex', padding: 3, borderRadius: 4,
-              color: reordering ? 'var(--s-accent)' : 'var(--s-text-3)'
-            }}
-          >
-            <ReorderIcon />
-          </button>
+          <div style={{ display: 'flex', gap: 2 }}>
+            <button
+              onClick={() => setReordering(r => !r)}
+              title={reordering ? 'Done reordering' : 'Reorder shelves'}
+              className="glow-focus"
+              style={{
+                display: 'flex', padding: 3, borderRadius: 4,
+                color: reordering ? 'var(--s-accent)' : 'var(--s-text-3)'
+              }}
+            >
+              <ReorderIcon />
+            </button>
+            <button
+              onClick={onManage}
+              title="Archive or delete shelves"
+              className="glow-focus"
+              style={{ display: 'flex', padding: 3, borderRadius: 4, color: 'var(--s-text-3)' }}
+            >
+              <ManageIcon />
+            </button>
+          </div>
         </div>
 
         <Reorder.Group

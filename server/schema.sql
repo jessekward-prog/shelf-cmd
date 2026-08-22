@@ -154,3 +154,7 @@ WHERE NOT EXISTS (SELECT 1 FROM categories);
 -- Where the shelf owner's instance lives. Drive files are never mirrored, so a
 -- member needs this to fetch them from the machine that actually holds them.
 ALTER TABLE linked_shelves ADD COLUMN IF NOT EXISTS origin TEXT;
+
+-- Archived hides a shelf from the everyday nav without deleting it (and
+-- everything on it — cards, drive files, guides, a collab link).
+ALTER TABLE categories ADD COLUMN IF NOT EXISTS archived BOOLEAN NOT NULL DEFAULT FALSE;

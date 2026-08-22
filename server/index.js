@@ -588,10 +588,11 @@ app.put('/api/categories/reorder', adminOnly, async (req, res) => {
 })
 
 app.put('/api/categories/:id', adminOnly, async (req, res) => {
-  const { name, icon } = req.body
+  const { name, icon, archived } = req.body
   const { rows } = await pool.query(
-    'UPDATE categories SET name=$1, icon=$2 WHERE id=$3 RETURNING *',
-    [name, icon, req.params.id]
+    `UPDATE categories SET name=COALESCE($1,name), icon=COALESCE($2,icon),
+                           archived=COALESCE($3,archived) WHERE id=$4 RETURNING *`,
+    [name, icon, archived, req.params.id]
   )
   res.json(rows[0])
 })

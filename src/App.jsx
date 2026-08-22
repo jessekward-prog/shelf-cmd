@@ -17,6 +17,7 @@ import MiniPlayer from './components/MiniPlayer.jsx'
 import MembersBar from './components/MembersBar.jsx'
 import InviteModal from './components/InviteModal.jsx'
 import JoinModal from './components/JoinModal.jsx'
+import ManageShelvesModal from './components/ManageShelvesModal.jsx'
 import * as api from './api.js'
 import { hasAI, buildCard } from './ai.js'
 import { getSavedTheme, applyTheme, getSavedIntensity, applyIntensity } from './themes.js'
@@ -67,6 +68,7 @@ export default function App({ me }) {
   const [showAddCat, setShowAddCat] = useState(false)
   const [inviteFor, setInviteFor] = useState(null)
   const [showJoin, setShowJoin] = useState(false)
+  const [showManageShelves, setShowManageShelves] = useState(false)
   const [membersKey, setMembersKey] = useState(0)
   const [direction, setDirection] = useState(1)
   const [activeView, setActiveView] = useState('bookmarks')
@@ -253,6 +255,31 @@ export default function App({ me }) {
     api.reorderSubcategories(latestSubs.current.map((s, i) => ({ id: s.id, sort_order: i })))
   }, [])
 
+  // Reordering inside the manage-shelves modal only ever sees the active
+  // (non-archived) shelves, so the archived ones need folding back in untouched.
+  const handleReorderActiveCategories = (nextActive) => {
+    handleReorderCategories([...nextActive, ...categories.filter(c => c.archived)])
+  }
+
+  const handleArchiveCategory = async (id, archived) => {
+    const cat = await api.updateCategory(id, { archived })
+    setCategories(prev => prev.map(c => c.id === id ? cat : c))
+    // An archived shelf can't stay the active one — fall back to the first visible shelf.
+    if (archived && activeCatId === id) {
+      const next = categories.find(c => c.id !== id && !c.archived)
+      setActiveCatId(next?.id ?? null)
+    }
+  }
+
+  const handleDeleteCategory = async (id) => {
+    await api.deleteCategory(id)
+    setCategories(prev => prev.filter(c => c.id !== id))
+    if (activeCatId === id) {
+      const next = categories.find(c => c.id !== id && !c.archived)
+      setActiveCatId(next?.id ?? null)
+    }
+  }
+
   const pageVariants = {
     enter: (dir) => ({ x: dir > 0 ? 40 : -40, opacity: 0 }),
     center: { x: 0, opacity: 1 },
@@ -261,12 +288,13 @@ export default function App({ me }) {
 
   const activeCat = categories.find(c => c.id === activeCatId)
   const activeSub = subcategories.find(s => s.id === activeSubcatId)
+  const visibleCategories = categories.filter(c => !c.archived)
   const pickTheme = (id) => { applyTheme(id); setTheme(id) }
 
   return (
     <div className="min-h-full lg:flex" style={{ background: 'var(--s-bg)' }}>
       <Sidebar
-        categories={categories}
+        categories={visibleCategories}
         activeCatId={activeCatId}
         onSelectCat={selectCategory}
         subcategories={subcategories}
@@ -281,6 +309,7 @@ export default function App({ me }) {
         onReorderSubs={handleReorderSubcategories}
         onReorderSubsEnd={saveSubcategoryOrder}
         onJoin={() => setShowJoin(true)}
+        onManage={() => setShowManageShelves(true)}
         activeView={activeView}
         onView={setActiveView}
         cardCount={cards.length}
@@ -310,14 +339,13 @@ export default function App({ me }) {
           <div style={{ display: activeView === 'bookmarks' ? 'block' : 'none' }}>
               <div className="lg:hidden">
                 <CategoryNav
-                  categories={categories}
+                  categories={visibleCategories}
                   activeId={activeCatId}
                   onSelect={selectCategory}
                   onAdd={() => setShowAddCat(true)}
-                  onReorder={handleReorderCategories}
-                  onReorderEnd={saveCategoryOrder}
                   onJoin={() => setShowJoin(true)}
                   onShare={setInviteFor}
+                  onManage={() => setShowManageShelves(true)}
                 />
 
                 {subcategories.length > 0 && (
@@ -599,6 +627,16 @@ export default function App({ me }) {
             categoryId={guideModalCatId}
             onClose={() => setShowGuide(false)}
             onSaved={() => setGuidesKey(k => k + 1)}
+          />
+        )}
+        {showManageShelves && (
+          <ManageShelvesModal
+            categories={categories}
+            onClose={() => setShowManageShelves(false)}
+            onReorder={handleReorderActiveCategories}
+            onReorderEnd={saveCategoryOrder}
+            onArchive={handleArchiveCategory}
+            onDelete={handleDeleteCategory}
           />
         )}
       </AnimatePresence>
