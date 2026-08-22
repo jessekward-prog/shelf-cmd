@@ -73,6 +73,10 @@ async function ensureTable(pool) {
   // NULL = a personal guide on the home Workspace tab. Set = generated (or
   // saved) into a specific shelf's own Guides tab.
   await pool.query('ALTER TABLE guides ADD COLUMN IF NOT EXISTS category_id INT REFERENCES categories(id) ON DELETE CASCADE')
+  // Set once this guide has been mirrored to the hub — lets a collaborator's
+  // pull recognise it instead of duplicating it, same as cards' hub_card_id.
+  await pool.query('ALTER TABLE guides ADD COLUMN IF NOT EXISTS hub_guide_id INT')
+  await pool.query('CREATE UNIQUE INDEX IF NOT EXISTS guides_hub_id ON guides (hub_guide_id) WHERE hub_guide_id IS NOT NULL')
 }
 
 // ── Source material ──────────────────────────────────────────────────────────
@@ -407,7 +411,7 @@ function renderHtml({ title, tagline, source, badges, chapters, meta, files }) {
 
 // ── Endpoint ─────────────────────────────────────────────────────────────────
 
-export function mountGuide({ app, pool, adminOnly, adminOrToken }) {
+export function mountGuide({ app, pool, adminOnly, adminOrToken, hub }) {
   // Protect the routes with the host's auth middleware when provided; the routes
   // are otherwise open, so pass your admin/auth guard in a multi-user setup.
   const guard = adminOnly || ((req, res, next) => next())
@@ -447,6 +451,20 @@ export function mountGuide({ app, pool, adminOnly, adminOrToken }) {
         )
         id = rows[0].id
       } catch (e) { console.error('guide save:', e.message) }
+
+      // Mirror it to collaborators the same way a card is: push once saved
+      // locally, and don't let a hub hiccup fail the guide the user just got.
+      if (id && categoryId && hub && await hub.linkedShelf(categoryId)) {
+        try {
+          const remote = await hub.postGuide(categoryId, {
+            title: guide.title, source: src.source, filename, chapters: guide.chapters.length,
+            tagline: guide.tagline, category: guide.category, html
+          })
+          await pool.query('UPDATE guides SET hub_guide_id=$1 WHERE id=$2', [remote.id, id])
+        } catch (err) {
+          if (!err.queued) console.error('hub guide post failed:', err.message)
+        }
+      }
 
       res.json({ id, title: guide.title, tagline: guide.tagline, category: guide.category, filename, chapters: guide.chapters.length, html })
     } catch (err) {
@@ -521,7 +539,11 @@ export function mountGuide({ app, pool, adminOnly, adminOrToken }) {
   })
 
   app.delete('/api/guides/:id', guard, async (req, res) => {
+    const { rows } = await pool.query('SELECT hub_guide_id, category_id FROM guides WHERE id=$1', [req.params.id])
     await pool.query('DELETE FROM guides WHERE id=$1', [req.params.id])
+    if (rows[0]?.hub_guide_id && hub) {
+      await hub.deleteGuideRemote({ hub_guide_id: rows[0].hub_guide_id, category_id: rows[0].category_id }).catch(() => {})
+    }
     res.json({ ok: true })
   })
 }

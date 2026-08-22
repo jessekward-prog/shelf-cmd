@@ -225,9 +225,27 @@ export function makeHub(pool) {
         )
       }
 
+      // Guides share the shelf's card changefeed cursor — the two tables
+      // advance the same underlying seq counter, so nothing needs a second
+      // column, just folding both maxes into the one cursor below.
+      const { guides, seq: guideSeq } = await call('GET', `/shelves/${shelf.hub_shelf_id}/guides?since=${shelf.last_seq}`)
+      for (const g of guides) {
+        if (g.deleted_at) {
+          await pool.query('DELETE FROM guides WHERE hub_guide_id=$1', [g.id])
+          continue
+        }
+        await pool.query(
+          `INSERT INTO guides (category_id, hub_guide_id, title, source, filename, chapters, tagline, category, html)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+           ON CONFLICT (hub_guide_id) WHERE hub_guide_id IS NOT NULL
+           DO UPDATE SET title=$3, tagline=$7, category=$8`,
+          [categoryId, g.id, g.title, g.source, g.filename, g.chapters, g.tagline, g.category, g.html]
+        )
+      }
+
       await pool.query(
         'UPDATE linked_shelves SET last_seq=$1, synced_at=NOW(), sync_error=NULL WHERE category_id=$2',
-        [Math.max(Number(seq), Number(shelf.last_seq)), categoryId]
+        [Math.max(Number(seq), Number(guideSeq), Number(shelf.last_seq)), categoryId]
       )
     } catch (err) {
       // A shelf that can't reach the hub keeps showing its mirror; it just goes stale.
@@ -292,6 +310,33 @@ export function makeHub(pool) {
     }
   }
 
+  async function postGuide(categoryId, guide) {
+    const { rows: ls } = await pool.query('SELECT * FROM linked_shelves WHERE category_id=$1', [categoryId])
+    if (!ls[0]) throw new Error('not a linked shelf')
+
+    const payload = {
+      shelf_id: ls[0].hub_shelf_id,
+      title: guide.title, source: guide.source, filename: guide.filename,
+      chapters: guide.chapters, tagline: guide.tagline, category: guide.category, html: guide.html
+    }
+    try {
+      return await call('POST', '/guides', payload)
+    } catch (err) {
+      await queue(categoryId, 'guide_create', payload)
+      err.queued = true
+      throw err
+    }
+  }
+
+  async function deleteGuideRemote(guide) {
+    if (!guide.hub_guide_id) return
+    try {
+      await call('DELETE', `/guides/${guide.hub_guide_id}`)
+    } catch (err) {
+      await queue(guide.category_id, 'guide_delete', { hub_guide_id: guide.hub_guide_id })
+    }
+  }
+
   async function updateCard(card, patch) {
     if (!card.hub_card_id) return
     try {
@@ -311,6 +356,8 @@ export function makeHub(pool) {
           const { hub_card_id, ...patch } = item.payload
           await call('PATCH', `/cards/${hub_card_id}`, patch)
         }
+        if (item.op === 'guide_create') await call('POST', '/guides', item.payload)
+        if (item.op === 'guide_delete') await call('DELETE', `/guides/${item.payload.hub_guide_id}`)
         await pool.query('DELETE FROM outbox WHERE id=$1', [item.id])
       } catch (err) {
         await pool.query('UPDATE outbox SET attempts=attempts+1, last_error=$1 WHERE id=$2',
@@ -380,6 +427,7 @@ export function makeHub(pool) {
   return {
     url: HUB_URL,
     publish, link, syncOne, syncAll, postCard, deleteCard, updateCard,
+    postGuide, deleteGuideRemote,
     flushOutbox, invite, members, linkedShelf, setUsername, startLoop,
     ticketFor, redeemTicket, publicUrl: PUBLIC_URL,
     identity: async () => ({
