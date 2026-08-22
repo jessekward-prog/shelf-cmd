@@ -8,6 +8,7 @@ import { mkdirSync, createReadStream, existsSync } from 'fs'
 import { unlink, readFile, stat } from 'fs/promises'
 import { Readable } from 'stream'
 import { join, extname } from 'path'
+import { logActivity } from './chat.js'
 
 const UPLOADS_DIR = process.env.UPLOADS_DIR || join(process.cwd(), 'uploads')
 const THUMBS_DIR = join(UPLOADS_DIR, 'thumbs')
@@ -187,6 +188,7 @@ export function mountDrive({ app, pool, adminOnly, lmComplete, hub }) {
       const file = rows[0]
       res.json(file)
       processFile(file.id, req.file.path).catch(e => console.error('process:', e.message))
+      logActivity(pool, hub, catId, 'file_added', `uploaded a file: ${name}`).catch(() => {})
     } catch (err) {
       console.error('upload:', err.message)
       res.status(500).json({ error: err.message })
@@ -328,10 +330,11 @@ export function mountDrive({ app, pool, adminOnly, lmComplete, hub }) {
   })
 
   app.delete('/api/files/:id', adminOnly, async (req, res) => {
-    const { rows } = await pool.query('DELETE FROM files WHERE id=$1 RETURNING stored_name', [req.params.id])
+    const { rows } = await pool.query('DELETE FROM files WHERE id=$1 RETURNING stored_name, category_id, name', [req.params.id])
     if (rows[0]) {
       await unlink(join(UPLOADS_DIR, rows[0].stored_name)).catch(() => {})
       await unlink(join(THUMBS_DIR, rows[0].stored_name + '.jpg')).catch(() => {})
+      logActivity(pool, hub, rows[0].category_id, 'file_removed', `removed a file: ${rows[0].name}`).catch(() => {})
     }
     res.json({ ok: true })
   })

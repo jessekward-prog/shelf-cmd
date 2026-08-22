@@ -13,6 +13,7 @@ import { randomBytes } from 'crypto'
 import { makeHub } from './hub.js'
 import { mountDrive } from './drive.js'
 import { mountGuide } from './guide.js'
+import { mountChat, logActivity } from './chat.js'
 chromium.use(StealthPlugin())
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
@@ -702,6 +703,7 @@ async function processCard(card) {
       if (!err.queued) console.error('hub post failed:', err.message)
     }
   }
+  logActivity(pool, hub, card.category_id, 'card_added', `added a card: ${title || url}`).catch(() => {})
 }
 
 async function applyPlanLinks(rawPlan, tools) {
@@ -762,6 +764,7 @@ app.post('/api/cards', async (req, res) => {
         [category_id, subcategory_id || null, url || null, title, description, notes, thumbnail_url,
          type, youtube_id, JSON.stringify(metadata), req.user.id, hubCardId]
       )
+      logActivity(pool, hub, category_id, 'card_added', `added a card: ${title || url}`).catch(() => {})
       return res.json({ ...rows[0], author: collab ? req.user.username : null, queued })
     }
 
@@ -884,6 +887,7 @@ app.delete('/api/cards/:id', async (req, res) => {
   // Delete on the hub too, or every other instance keeps showing it
   if (card.hub_card_id) await hub.deleteCard(card).catch(() => {})
   await pool.query('DELETE FROM cards WHERE id=$1', [req.params.id])
+  logActivity(pool, hub, card.category_id, 'card_removed', `removed a card: ${card.title || card.url}`).catch(() => {})
   res.json({ ok: true })
 })
 
@@ -1154,6 +1158,7 @@ app.delete('/api/notes/:id', adminOnly, async (req, res) => {
 // resolves fine even though it's defined further up.
 mountDrive({ app, pool, adminOnly, lmComplete, hub })
 mountGuide({ app, pool, adminOnly, adminOrToken, hub })
+mountChat({ app, pool, adminOnly, adminOrToken, hub })
 
 // Unknown /api paths must not fall through to the SPA, or a stale client gets
 // HTML where it expected JSON and fails with a parse error instead of a 404.

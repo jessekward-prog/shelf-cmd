@@ -18,6 +18,7 @@ import MembersBar from './components/MembersBar.jsx'
 import InviteModal from './components/InviteModal.jsx'
 import JoinModal from './components/JoinModal.jsx'
 import ManageShelvesModal from './components/ManageShelvesModal.jsx'
+import ShelfChat from './components/ShelfChat.jsx'
 import * as api from './api.js'
 import { hasAI, buildCard } from './ai.js'
 import { getSavedTheme, applyTheme, getSavedIntensity, applyIntensity } from './themes.js'
@@ -504,6 +505,12 @@ export default function App({ me }) {
         >
           +
         </motion.button>
+      )}
+
+      {/* Persists across a shelf's CARDS/DRIVE/GUIDES tabs — keyed so switching
+          shelves gets a clean remount instead of showing the old shelf's chat. */}
+      {activeView === 'bookmarks' && activeCatId && (
+        <ShelfChat key={activeCatId} categoryId={activeCatId} isLinked={!!activeCat?.is_collab} />
       )}
 
       {/* Collab posts run the whole AI pass before they exist, so show the user where it's up to */}

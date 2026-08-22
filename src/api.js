@@ -116,3 +116,19 @@ export const saveGuide     = (id) => req('POST',   `/guides/${id}/save`, {})
 export const backfillGuides = ()  => req('POST',   '/guides/backfill', {})
 // A real link, so the browser downloads it directly — see the note on the route.
 export const guideDownloadUrl = (id) => `${base}/guides/${id}/download?t=${tok()}`
+
+// ── Shelf chat: "man" (member messages) and "machine" (activity log) ─────────
+export async function sendMessage(categoryId, body) {
+  const res = await fetch(`${base}/categories/${categoryId}/messages`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...(getToken() ? { Authorization: `Bearer ${getToken()}` } : {}) },
+    body: JSON.stringify({ body })
+  })
+  const data = await res.json().catch(() => ({}))
+  if (!res.ok && res.status !== 202) throw new Error(data.error || `message → ${res.status}`)
+  return data
+}
+export const getMessages = (categoryId) => req('GET', `/categories/${categoryId}/messages`)
+export const getActivity = (categoryId) => req('GET', `/categories/${categoryId}/activity`)
+// EventSource can't set headers, so the token rides as ?t= like the download link.
+export const chatStreamUrl = (categoryId) => `${base}/categories/${categoryId}/chat/stream?t=${tok()}`

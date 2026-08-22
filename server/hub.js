@@ -8,6 +8,9 @@
 //      is authoritative for ordering, but it holds no unique data, so a shelf
 //      keeps rendering when the hub is down and can be rebuilt from any member.
 
+import { io as ioClient } from 'socket.io-client'
+import { EventEmitter } from 'events'
+
 const HUB_URL = (process.env.HUB_URL || 'https://shelf-hub-production.up.railway.app').replace(/\/+$/, '')
 
 // This instance's own address, published so members can reach its drive. Unset
@@ -243,9 +246,31 @@ export function makeHub(pool) {
         )
       }
 
+      // Live delivery is the socket above; this pull just backstops anything
+      // missed while offline or before a chat panel was ever opened.
+      const { messages, seq: msgSeq } = await call('GET', `/shelves/${shelf.hub_shelf_id}/messages?since=${shelf.last_seq}`)
+      for (const m of messages) {
+        await pool.query(
+          `INSERT INTO shelf_messages (category_id, hub_message_id, hub_user_id, body, created_at)
+           VALUES ($1,$2,$3,$4,$5)
+           ON CONFLICT (hub_message_id) WHERE hub_message_id IS NOT NULL DO NOTHING`,
+          [categoryId, m.id, m.user_id, m.body, m.created_at]
+        )
+      }
+
+      const { activity, seq: actSeq } = await call('GET', `/shelves/${shelf.hub_shelf_id}/activity?since=${shelf.last_seq}`)
+      for (const a of activity) {
+        await pool.query(
+          `INSERT INTO shelf_activity (category_id, hub_activity_id, kind, summary, created_at)
+           VALUES ($1,$2,$3,$4,$5)
+           ON CONFLICT (hub_activity_id) WHERE hub_activity_id IS NOT NULL DO NOTHING`,
+          [categoryId, a.id, a.kind, a.summary, a.created_at]
+        )
+      }
+
       await pool.query(
         'UPDATE linked_shelves SET last_seq=$1, synced_at=NOW(), sync_error=NULL WHERE category_id=$2',
-        [Math.max(Number(seq), Number(guideSeq), Number(shelf.last_seq)), categoryId]
+        [Math.max(Number(seq), Number(guideSeq), Number(msgSeq), Number(actSeq), Number(shelf.last_seq)), categoryId]
       )
     } catch (err) {
       // A shelf that can't reach the hub keeps showing its mirror; it just goes stale.
@@ -337,6 +362,83 @@ export function makeHub(pool) {
     }
   }
 
+  // ── Realtime: shelf chat + activity ────────────────────────────────────────
+  // One persistent Socket.IO connection to the hub, authenticated the same way
+  // as every REST call — this instance's own token. Rooms are joined lazily
+  // (only shelves someone's actually got a chat panel open for), and every
+  // live event is also upserted into the local mirror so chat.js's own
+  // subscribers (see `events`) and a plain page reload see the same thing.
+  const events = new EventEmitter()
+  let socket = null
+
+  async function categoryIdFor(hubShelfId) {
+    const { rows } = await pool.query('SELECT category_id FROM linked_shelves WHERE hub_shelf_id=$1', [hubShelfId])
+    return rows[0]?.category_id || null
+  }
+
+  function ensureSocket() {
+    if (socket) return socket
+    socket = ioClient(HUB_URL, { auth: (cb) => hubToken().then(token => cb({ token })) })
+
+    socket.on('message:new', async (m) => {
+      const categoryId = await categoryIdFor(m.shelf_id)
+      if (!categoryId) return
+      const { rows } = await pool.query(
+        `INSERT INTO shelf_messages (category_id, hub_message_id, hub_user_id, body, created_at)
+         VALUES ($1,$2,$3,$4,$5)
+         ON CONFLICT (hub_message_id) WHERE hub_message_id IS NOT NULL DO NOTHING
+         RETURNING *`,
+        [categoryId, m.id, m.user_id, m.body, m.created_at]
+      )
+      events.emit('message', { categoryId, row: rows[0] ? { ...rows[0], username: m.username } : { ...m, username: m.username } })
+    })
+
+    socket.on('activity:new', async (a) => {
+      const categoryId = await categoryIdFor(a.shelf_id)
+      if (!categoryId) return
+      const { rows } = await pool.query(
+        `INSERT INTO shelf_activity (category_id, hub_activity_id, kind, summary, created_at)
+         VALUES ($1,$2,$3,$4,$5)
+         ON CONFLICT (hub_activity_id) WHERE hub_activity_id IS NOT NULL DO NOTHING
+         RETURNING *`,
+        [categoryId, a.id, a.kind, a.summary, a.created_at]
+      )
+      events.emit('activity', { categoryId, row: rows[0] || a })
+    })
+
+    return socket
+  }
+
+  async function joinShelfRoom(categoryId) {
+    const shelf = await linkedShelf(categoryId)
+    if (!shelf) return
+    ensureSocket().emit('shelf:join', shelf.hub_shelf_id)
+  }
+
+  async function postMessage(categoryId, body) {
+    const shelf = await linkedShelf(categoryId)
+    if (!shelf) throw new Error('not a linked shelf')
+    try {
+      return await call('POST', '/messages', { shelf_id: shelf.hub_shelf_id, body })
+    } catch (err) {
+      await queue(categoryId, 'message_create', { shelf_id: shelf.hub_shelf_id, body })
+      err.queued = true
+      throw err
+    }
+  }
+
+  async function postActivity(categoryId, kind, summary) {
+    const shelf = await linkedShelf(categoryId)
+    if (!shelf) throw new Error('not a linked shelf')
+    try {
+      return await call('POST', '/activity', { shelf_id: shelf.hub_shelf_id, kind, summary })
+    } catch (err) {
+      await queue(categoryId, 'activity_create', { shelf_id: shelf.hub_shelf_id, kind, summary })
+      err.queued = true
+      throw err
+    }
+  }
+
   async function updateCard(card, patch) {
     if (!card.hub_card_id) return
     try {
@@ -358,6 +460,8 @@ export function makeHub(pool) {
         }
         if (item.op === 'guide_create') await call('POST', '/guides', item.payload)
         if (item.op === 'guide_delete') await call('DELETE', `/guides/${item.payload.hub_guide_id}`)
+        if (item.op === 'message_create') await call('POST', '/messages', item.payload)
+        if (item.op === 'activity_create') await call('POST', '/activity', item.payload)
         await pool.query('DELETE FROM outbox WHERE id=$1', [item.id])
       } catch (err) {
         await pool.query('UPDATE outbox SET attempts=attempts+1, last_error=$1 WHERE id=$2',
@@ -428,6 +532,7 @@ export function makeHub(pool) {
     url: HUB_URL,
     publish, link, syncOne, syncAll, postCard, deleteCard, updateCard,
     postGuide, deleteGuideRemote,
+    postMessage, postActivity, joinShelfRoom, events,
     flushOutbox, invite, members, linkedShelf, setUsername, startLoop,
     ticketFor, redeemTicket, publicUrl: PUBLIC_URL,
     identity: async () => ({

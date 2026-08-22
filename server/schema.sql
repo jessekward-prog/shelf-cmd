@@ -158,3 +158,31 @@ ALTER TABLE linked_shelves ADD COLUMN IF NOT EXISTS origin TEXT;
 -- Archived hides a shelf from the everyday nav without deleting it (and
 -- everything on it — cards, drive files, guides, a collab link).
 ALTER TABLE categories ADD COLUMN IF NOT EXISTS archived BOOLEAN NOT NULL DEFAULT FALSE;
+
+-- ── Shelf chat: "man" (member messages) and "machine" (auto activity log) ────
+-- Both mirror to the hub the same way guides do, so every collaborator's box
+-- ends up with the same log — a message/event posted while a member's box was
+-- offline still lands once the hub is reachable again (see hub.js queue()).
+
+CREATE TABLE IF NOT EXISTS shelf_messages (
+  id             SERIAL PRIMARY KEY,
+  category_id    INT NOT NULL REFERENCES categories(id) ON DELETE CASCADE,
+  hub_message_id INT,
+  hub_user_id    INT,
+  body           TEXT NOT NULL,
+  created_at     TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE UNIQUE INDEX IF NOT EXISTS shelf_messages_hub_id ON shelf_messages (hub_message_id) WHERE hub_message_id IS NOT NULL;
+
+-- kind is a coarse tag (card_added, file_added, guide_added, ...) the "what's
+-- new" panel can use for an icon; summary is the actual one-line text shown.
+CREATE TABLE IF NOT EXISTS shelf_activity (
+  id              SERIAL PRIMARY KEY,
+  category_id     INT NOT NULL REFERENCES categories(id) ON DELETE CASCADE,
+  hub_activity_id INT,
+  hub_user_id     INT,
+  kind            TEXT NOT NULL,
+  summary         TEXT NOT NULL,
+  created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE UNIQUE INDEX IF NOT EXISTS shelf_activity_hub_id ON shelf_activity (hub_activity_id) WHERE hub_activity_id IS NOT NULL;

@@ -7,6 +7,8 @@
 // which model wrote it. The shell wears ShelfStation's retro amber-CRT terminal
 // skin: warm-black ground, amber glow, VT323 + JetBrains Mono, scanlines, flicker.
 
+import { logActivity } from './chat.js'
+
 const GITHUB_RE = /^https?:\/\/(?:www\.)?github\.com\/([^/\s#?]+)\/([^/\s#?]+)/i
 
 function esc(s) {
@@ -472,6 +474,8 @@ export function mountGuide({ app, pool, adminOnly, adminOrToken, hub }) {
         }
       }
 
+      if (id && categoryId) logActivity(pool, hub, categoryId, 'guide_added', `generated a guide: ${guide.title}`).catch(() => {})
+
       res.json({ id, title: guide.title, tagline: guide.tagline, category: guide.category, filename, chapters: guide.chapters.length, html })
     } catch (err) {
       console.error('guide error:', err.message)
@@ -545,10 +549,13 @@ export function mountGuide({ app, pool, adminOnly, adminOrToken, hub }) {
   })
 
   app.delete('/api/guides/:id', guard, async (req, res) => {
-    const { rows } = await pool.query('SELECT hub_guide_id, category_id FROM guides WHERE id=$1', [req.params.id])
+    const { rows } = await pool.query('SELECT hub_guide_id, category_id, title FROM guides WHERE id=$1', [req.params.id])
     await pool.query('DELETE FROM guides WHERE id=$1', [req.params.id])
     if (rows[0]?.hub_guide_id && hub) {
       await hub.deleteGuideRemote({ hub_guide_id: rows[0].hub_guide_id, category_id: rows[0].category_id }).catch(() => {})
+    }
+    if (rows[0]?.category_id) {
+      logActivity(pool, hub, rows[0].category_id, 'guide_removed', `removed a guide: ${rows[0].title}`).catch(() => {})
     }
     res.json({ ok: true })
   })
