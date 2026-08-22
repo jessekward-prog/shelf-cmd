@@ -6,6 +6,7 @@ import archiver from 'archiver'
 import { randomBytes } from 'crypto'
 import { mkdirSync, createReadStream, existsSync } from 'fs'
 import { unlink, readFile, stat } from 'fs/promises'
+import { Readable } from 'stream'
 import { join, extname } from 'path'
 
 const UPLOADS_DIR = process.env.UPLOADS_DIR || join(process.cwd(), 'uploads')
@@ -132,7 +133,7 @@ function cleanBlurb(raw) {
   return s.trim()
 }
 
-export function mountDrive({ app, pool, adminOnly, lmComplete }) {
+export function mountDrive({ app, pool, adminOnly, lmComplete, hub }) {
   const storage = multer.diskStorage({
     destination: (_req, _file, cb) => cb(null, UPLOADS_DIR),
     filename: (_req, file, cb) => cb(null, randomBytes(16).toString('hex') + extname(file.originalname).slice(0, 12))
@@ -192,12 +193,132 @@ export function mountDrive({ app, pool, adminOnly, lmComplete }) {
     }
   })
 
+  // A shelf you joined shows the owner's drive, not your own empty one. The
+  // files stay on their machine; only the listing crosses the wire.
   app.get('/api/categories/:id/files', adminOnly, async (req, res) => {
+    const catId = Number(req.params.id)
+    const remote = await remoteShelf(catId)
+    if (remote) {
+      try {
+        const files = await remoteCall(catId, '/files')
+        return res.json(files.map(f => ({
+          ...f,
+          remote: true,
+          thumb_url: f.has_thumb ? `/api/categories/${catId}/remote/${f.id}/thumb` : null,
+          raw_url: `/api/categories/${catId}/remote/${f.id}/raw`
+        })))
+      } catch (err) {
+        // Their box being off is ordinary, not a failure. Keep the array
+        // contract the client expects and say so in a header instead.
+        res.setHeader('X-Drive-Unreachable', err.message.slice(0, 120))
+        return res.json([])
+      }
+    }
     const { rows } = await pool.query(
       'SELECT * FROM files WHERE category_id=$1 ORDER BY created_at DESC',
-      [req.params.id]
+      [catId]
     )
     res.json(rows)
+  })
+
+  // ── Reading another instance's drive (member side) ────────────────────────
+
+  async function remoteShelf(categoryId) {
+    const { rows } = await pool.query(
+      'SELECT * FROM linked_shelves WHERE category_id=$1 AND is_owner=FALSE', [categoryId])
+    return rows[0] || null
+  }
+
+  // Fetch from the owner's box with a fresh ticket. Tickets are cheap and
+  // short-lived, so we mint one per request rather than caching a stale one.
+  async function remoteFetch(categoryId, path, { stream = false } = {}) {
+    const { ticket, origin, hubShelfId } = await hub.ticketFor(categoryId)
+    const url = `${origin}/api/shared/${hubShelfId}${path}`
+    const sep = url.includes('?') ? '&' : '?'
+    const r = await fetch(url + sep + 'ticket=' + encodeURIComponent(ticket),
+      { signal: AbortSignal.timeout(stream ? 120000 : 15000) })
+    if (!r.ok) throw new Error(`owner's shelf returned ${r.status}`)
+    return r
+  }
+
+  const remoteCall = async (categoryId, path) => (await remoteFetch(categoryId, path)).json()
+
+  // Proxy the bytes rather than redirecting: the browser holds no ticket, and
+  // this keeps the owner's address out of the page.
+  async function remoteStream(req, res, path) {
+    const catId = Number(req.params.id)
+    if (!await remoteShelf(catId)) return res.status(404).json({ error: 'not a joined shelf' })
+    try {
+      const r = await remoteFetch(catId, path, { stream: true })
+      for (const h of ['content-type', 'content-length', 'content-disposition']) {
+        const v = r.headers.get(h)
+        if (v) res.setHeader(h, v)
+      }
+      Readable.fromWeb(r.body).pipe(res)
+    } catch (err) {
+      res.status(502).json({ error: err.message })
+    }
+  }
+
+  app.get('/api/categories/:id/remote/:fileId/raw', ownerOrToken, (req, res) =>
+    remoteStream(req, res, `/files/${Number(req.params.fileId)}/raw${req.query.dl === '1' ? '?dl=1' : ''}`))
+  app.get('/api/categories/:id/remote/:fileId/thumb', ownerOrToken, (req, res) =>
+    remoteStream(req, res, `/files/${Number(req.params.fileId)}/thumb`))
+
+  // ── Serving this instance's drive to members (owner side) ─────────────────
+
+  // Redeeming costs a hub round trip, so hold the answer for the ticket's life.
+  const seen = new Map()
+  async function ticketGate(req, res, next) {
+    const ticket = String(req.query.ticket || '')
+    if (!ticket) return res.status(401).json({ error: 'ticket required' })
+    try {
+      let who = seen.get(ticket)
+      if (!who) {
+        who = await hub.redeemTicket(ticket)
+        seen.set(ticket, who)
+        setTimeout(() => seen.delete(ticket), 5 * 60 * 1000).unref?.()
+      }
+      if (who.shelf_id !== Number(req.params.shelfId)) {
+        return res.status(403).json({ error: 'ticket is for another shelf' })
+      }
+      const { rows } = await pool.query(
+        'SELECT category_id FROM linked_shelves WHERE hub_shelf_id=$1 AND is_owner=TRUE', [who.shelf_id])
+      if (!rows[0]) return res.status(404).json({ error: 'shelf not published here' })
+      req.sharedCategoryId = rows[0].category_id
+      next()
+    } catch (err) {
+      res.status(403).json({ error: err.message })
+    }
+  }
+
+  // Scoped to the shared category on purpose: a ticket for one shelf must never
+  // reach a file sitting on a different one.
+  async function sharedFile(req) {
+    const { rows } = await pool.query('SELECT * FROM files WHERE id=$1 AND category_id=$2',
+      [Number(req.params.fileId), req.sharedCategoryId])
+    return rows[0] || null
+  }
+
+  app.get('/api/shared/:shelfId/files', ticketGate, async (req, res) => {
+    const { rows } = await pool.query(
+      `SELECT id, name, mime_type, kind, size, has_thumb, blurb, status, created_at
+         FROM files WHERE category_id=$1 ORDER BY created_at DESC`,
+      [req.sharedCategoryId]
+    )
+    res.json(rows)
+  })
+
+  app.get('/api/shared/:shelfId/files/:fileId/raw', ticketGate, async (req, res) => {
+    const f = await sharedFile(req)
+    if (!f) return res.status(404).json({ error: 'not found' })
+    streamFile(res, f, req.query.dl === '1')
+  })
+
+  app.get('/api/shared/:shelfId/files/:fileId/thumb', ticketGate, async (req, res) => {
+    const f = await sharedFile(req)
+    if (!f) return res.status(404).end()
+    sendThumb(res, f.id)
   })
 
   app.get('/api/files/:id', adminOnly, async (req, res) => {

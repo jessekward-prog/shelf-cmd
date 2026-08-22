@@ -12,6 +12,10 @@ function fmtBytes(b) {
 const KIND_LABEL = { image: 'Image', video: 'Video', audio: 'Audio', pdf: 'PDF', doc: 'Document', archive: 'Archive', other: 'File' }
 
 export default function FileCard({ file, onDelete, onShare }) {
+  // A file on a shelf you joined is served through this instance's proxy, and
+  // isn't yours to share or delete.
+  const rawUrl = (dl) => file.raw_url ? api.proxiedUrl(file.raw_url, dl) : api.fileRawUrl(file.id, dl)
+  const thumbUrl = () => file.thumb_url ? api.proxiedUrl(file.thumb_url) : api.fileThumbUrl(file.id)
   const [confirm, setConfirm] = useState(false)
   const pending = file.status === 'pending'
 
@@ -26,7 +30,7 @@ export default function FileCard({ file, onDelete, onShare }) {
     >
       {/* Thumbnail — opens the file in a new tab */}
       <a
-        href={pending ? undefined : api.fileRawUrl(file.id)}
+        href={pending ? undefined : rawUrl(false)}
         target="_blank" rel="noreferrer"
         className="block relative group overflow-hidden"
         style={{ aspectRatio: '3 / 2', background: 'var(--s-surface-2)', cursor: pending ? 'default' : 'pointer' }}
@@ -37,7 +41,7 @@ export default function FileCard({ file, onDelete, onShare }) {
               style={{ width: 28, height: 28, borderRadius: '50%', border: '2px solid var(--s-border)', borderTopColor: 'var(--s-accent)' }} />
           </div>
         ) : file.has_thumb ? (
-          <img src={api.fileThumbUrl(file.id)} alt="" loading="lazy"
+          <img src={thumbUrl()} alt="" loading="lazy"
             className="absolute inset-0 w-full h-full object-cover transition-transform duration-300 group-hover:scale-105"
             style={{ filter: 'brightness(0.9)' }} />
         ) : (
@@ -72,18 +76,20 @@ export default function FileCard({ file, onDelete, onShare }) {
 
         <div className="flex items-center justify-between mt-3 pt-2" style={{ borderTop: '1px solid var(--s-surface-2)' }}>
           <div className="flex items-center gap-3">
-            <a href={pending ? undefined : api.fileRawUrl(file.id, true)}
+            <a href={pending ? undefined : rawUrl(true)}
               className="text-xs" style={{ color: pending ? 'var(--s-border)' : 'var(--s-text-3)' }}>
               download
             </a>
-            <button onClick={() => onShare(file)} disabled={pending}
-              className="text-xs" style={{ color: pending ? 'var(--s-border)' : 'var(--s-accent)' }}>
-              share
-            </button>
+            {!file.remote && (
+              <button onClick={() => onShare(file)} disabled={pending}
+                className="text-xs" style={{ color: pending ? 'var(--s-border)' : 'var(--s-accent)' }}>
+                share
+              </button>
+            )}
           </div>
 
           <AnimatePresence mode="wait">
-            {!confirm ? (
+            {file.remote ? null : !confirm ? (
               <motion.button key="del" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
                 onClick={() => setConfirm(true)} className="text-xs px-2 py-1 rounded" style={{ color: 'var(--s-text-3)' }}>
                 delete

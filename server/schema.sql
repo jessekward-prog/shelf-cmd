@@ -150,3 +150,7 @@ CREATE TABLE IF NOT EXISTS folder_share_tokens (
 INSERT INTO categories (name, icon, sort_order)
 SELECT * FROM (VALUES ('Cooking','🍳',0),('Tech','💻',1),('Music','🎵',2)) AS v(name,icon,sort_order)
 WHERE NOT EXISTS (SELECT 1 FROM categories);
+
+-- Where the shelf owner's instance lives. Drive files are never mirrored, so a
+-- member needs this to fetch them from the machine that actually holds them.
+ALTER TABLE linked_shelves ADD COLUMN IF NOT EXISTS origin TEXT;

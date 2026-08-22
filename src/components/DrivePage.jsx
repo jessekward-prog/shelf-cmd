@@ -26,7 +26,7 @@ function listing(files, path) {
   }
 }
 
-export default function DrivePage({ categoryId, subcategoryId }) {
+export default function DrivePage({ categoryId, subcategoryId, joined }) {
   const [files, setFiles] = useState([])
   const [path, setPath] = useState('')
   const [dragging, setDragging] = useState(false)
@@ -53,7 +53,7 @@ export default function DrivePage({ categoryId, subcategoryId }) {
   useEffect(() => {
     setPath('')
     api.getFiles(categoryId).then(loaded => {
-      setFiles(loaded)
+      setFiles(Array.isArray(loaded) ? loaded : [])
       loaded.filter(f => f.status === 'pending').forEach(f => poll(f.id))
     }).catch(() => setFiles([]))
     return () => { Object.values(pollers.current).forEach(clearInterval); pollers.current = {} }
@@ -141,8 +141,9 @@ export default function DrivePage({ categoryId, subcategoryId }) {
       className="px-4 pb-24 lg:px-8 lg:pb-10 relative"
       style={{ minHeight: '50vh' }}
     >
-      {/* Drop / upload bar — files or a whole folder */}
-      <div
+      {/* Drop / upload bar — files or a whole folder. Not on a joined shelf:
+          those files live on the owner's machine and are read-only here. */}
+      {!joined && <div
         onClick={() => inputRef.current?.click()}
         className="w-full rounded-xl mb-4 flex flex-col items-center justify-center gap-1 transition-colors cursor-pointer"
         style={{
@@ -162,7 +163,7 @@ export default function DrivePage({ categoryId, subcategoryId }) {
           upload a folder
         </button>
         {uploading > 0 && <span className="text-xs mt-1" style={{ color: 'var(--s-accent)' }}>uploading {uploading}…</span>}
-      </div>
+      </div>}
       <input ref={inputRef} type="file" multiple hidden
         onChange={(e) => { doUpload(fromFileList(e.target.files)); e.target.value = '' }} />
       <input ref={folderRef} type="file" multiple hidden webkitdirectory="" directory=""
@@ -191,7 +192,9 @@ export default function DrivePage({ categoryId, subcategoryId }) {
         <div className="flex flex-col items-center justify-center py-20 text-center">
           <p className="text-2xl mb-3" style={{ opacity: 0.2 }}>▤</p>
           <p className="text-sm" style={{ color: 'var(--s-border)' }}>
-            {path ? 'this folder is empty' : 'no files on this shelf yet'}
+            {path ? 'this folder is empty'
+              : joined ? "nothing here — the owner's shelf is offline or empty"
+              : 'no files on this shelf yet'}
           </p>
           <p className="text-xs mt-1" style={{ color: 'var(--s-surface-2)' }}>
             {path ? 'go back to the drive to add more' : 'drop a folder and it stays one folder'}

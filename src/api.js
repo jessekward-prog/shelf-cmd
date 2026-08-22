@@ -78,6 +78,9 @@ const tok = () => encodeURIComponent(getToken())
 export const fileThumbUrl = (id) => `${base}/files/${id}/thumb?t=${tok()}`
 export const fileRawUrl = (id, download) => `${base}/files/${id}/raw?t=${tok()}${download ? '&dl=1' : ''}`
 export const shareUrl = (token) => `${location.origin}/s/${token}`
+// Files on a shelf you joined: the server hands back a ready-made proxy path,
+// which still needs the same ?t= treatment to get past the auth gate.
+export const proxiedUrl = (path, download) => `${path}?t=${tok()}${download ? '&dl=1' : ''}`
 
 // ── Folders (a path prefix inside a shelf's drive) ───────────────────────────
 export const deleteFolder = (catId, prefix) =>

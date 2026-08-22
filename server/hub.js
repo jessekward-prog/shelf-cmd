@@ -10,6 +10,11 @@
 
 const HUB_URL = (process.env.HUB_URL || 'https://shelf-hub-production.up.railway.app').replace(/\/+$/, '')
 
+// This instance's own address, published so members can reach its drive. Unset
+// means the drive simply isn't offered — files are never mirrored, so there is
+// no fallback route to them.
+const PUBLIC_URL = (process.env.PUBLIC_URL || '').replace(/\/+$/, '')
+
 export function hubConfigured() {
   return !!HUB_URL
 }
@@ -164,6 +169,17 @@ export function makeHub(pool) {
       const meta = await call('GET', `/shelves/${shelf.hub_shelf_id}`)
       await pool.query('UPDATE categories SET name=$1, icon=COALESCE($2, icon) WHERE id=$3',
         [meta.name, meta.icon, categoryId])
+
+      // The owner advertises where its drive can be reached; everyone else
+      // records it, because that's the only way to the files.
+      if (shelf.is_owner) {
+        if (PUBLIC_URL && meta.origin !== PUBLIC_URL) {
+          await call('PATCH', `/shelves/${shelf.hub_shelf_id}`, { origin: PUBLIC_URL })
+        }
+      } else if (meta.origin !== shelf.origin) {
+        await pool.query('UPDATE linked_shelves SET origin=$1 WHERE category_id=$2',
+          [meta.origin || null, categoryId])
+      }
       for (const t of meta.tabs) {
         await pool.query(
           `INSERT INTO subcategories (category_id, name, sort_order, hub_tab_id)
@@ -328,6 +344,23 @@ export function makeHub(pool) {
     await setSetting('hub_username', username)
   }
 
+  // ── Drive access ──────────────────────────────────────────────────────────
+  // A member trades its hub token for a short-lived, single-shelf ticket. The
+  // owner's server redeems the ticket to learn who is asking, so the two
+  // instances never hand each other a credential that outlives one request.
+
+  async function ticketFor(categoryId) {
+    const { rows } = await pool.query('SELECT * FROM linked_shelves WHERE category_id=$1', [categoryId])
+    if (!rows[0]) throw new Error('not a linked shelf')
+    const out = await call('POST', `/shelves/${rows[0].hub_shelf_id}/ticket`)
+    // The hub knows the current origin even if our last sync predates it.
+    const origin = out.origin || rows[0].origin
+    if (!origin) throw new Error("that shelf's owner hasn't published a drive address")
+    return { ...out, origin, hubShelfId: rows[0].hub_shelf_id }
+  }
+
+  const redeemTicket = (ticket) => call('GET', `/tickets/${encodeURIComponent(ticket)}`)
+
   async function linkedShelf(categoryId) {
     const { rows } = await pool.query('SELECT * FROM linked_shelves WHERE category_id=$1', [categoryId])
     return rows[0] || null
@@ -348,6 +381,7 @@ export function makeHub(pool) {
     url: HUB_URL,
     publish, link, syncOne, syncAll, postCard, deleteCard, updateCard,
     flushOutbox, invite, members, linkedShelf, setUsername, startLoop,
+    ticketFor, redeemTicket, publicUrl: PUBLIC_URL,
     identity: async () => ({
       token: await hubToken(),
       user_id: await getSetting('hub_user_id'),

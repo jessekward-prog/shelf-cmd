@@ -550,7 +550,11 @@ app.get('/api/categories/:id/members', adminOnly, async (req, res) => {
 // ── Categories ───────────────────────────────────────────────────────────────
 
 app.get('/api/categories', adminOnly, async (req, res) => {
-  const { rows } = await pool.query('SELECT * FROM categories ORDER BY sort_order, id')
+  // joined = someone else's shelf, so its drive is read-only and lives remotely
+  const { rows } = await pool.query(
+    `SELECT c.*, (l.category_id IS NOT NULL AND l.is_owner = FALSE) AS joined
+       FROM categories c LEFT JOIN linked_shelves l ON l.category_id = c.id
+      ORDER BY c.sort_order, c.id`)
   res.json(rows)
 })
 
@@ -1135,7 +1139,7 @@ app.delete('/api/notes/:id', adminOnly, async (req, res) => {
 
 // Drive: file storage per shelf. lmComplete is hoisted, so the blurb generator
 // resolves fine even though it's defined further up.
-mountDrive({ app, pool, adminOnly, lmComplete })
+mountDrive({ app, pool, adminOnly, lmComplete, hub })
 
 // Unknown /api paths must not fall through to the SPA, or a stale client gets
 // HTML where it expected JSON and fails with a parse error instead of a 404.
