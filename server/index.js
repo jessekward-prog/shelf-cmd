@@ -12,6 +12,7 @@ import { YoutubeTranscript } from 'youtube-transcript'
 import { randomBytes } from 'crypto'
 import { makeHub } from './hub.js'
 import { mountDrive } from './drive.js'
+import { mountGuide } from './guide.js'
 chromium.use(StealthPlugin())
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
@@ -1140,6 +1141,7 @@ app.delete('/api/notes/:id', adminOnly, async (req, res) => {
 // Drive: file storage per shelf. lmComplete is hoisted, so the blurb generator
 // resolves fine even though it's defined further up.
 mountDrive({ app, pool, adminOnly, lmComplete, hub })
+mountGuide({ app, pool, adminOnly })
 
 // Unknown /api paths must not fall through to the SPA, or a stale client gets
 // HTML where it expected JSON and fails with a parse error instead of a 404.

@@ -12,6 +12,16 @@ function ChevronIcon({ open }) {
   )
 }
 
+function GuidesIcon() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
+      <path d="M4 5a2 2 0 0 1 2-2h8l6 6v10a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2z" />
+      <path d="M8 12h8M8 16h5" />
+    </svg>
+  )
+}
+
 function NotesIcon() {
   return (
     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
@@ -270,6 +280,10 @@ export default function Sidebar({
           <Row active={activeView === 'notes'} onClick={() => onView('notes')}>
             <NotesIcon />
             <span>Notes</span>
+          </Row>
+          <Row active={activeView === 'guides'} onClick={() => onView('guides')}>
+            <GuidesIcon />
+            <span>Guides</span>
           </Row>
           <Row muted onClick={onJoin}>
             <CollabIcon size={14} />

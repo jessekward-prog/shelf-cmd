@@ -11,6 +11,8 @@ import AddCategoryModal from './components/AddCategoryModal.jsx'
 import ThemePicker from './components/ThemePicker.jsx'
 import NotesTab from './components/NotesTab.jsx'
 import DrivePage from './components/DrivePage.jsx'
+import GuideModal from './components/GuideModal.jsx'
+import GuidesView from './components/GuidesView.jsx'
 import MiniPlayer from './components/MiniPlayer.jsx'
 import MembersBar from './components/MembersBar.jsx'
 import InviteModal from './components/InviteModal.jsx'
@@ -67,6 +69,8 @@ export default function App({ me }) {
   const [membersKey, setMembersKey] = useState(0)
   const [direction, setDirection] = useState(1)
   const [activeView, setActiveView] = useState('bookmarks')
+  const [showGuide, setShowGuide] = useState(false)
+  const [guidesKey, setGuidesKey] = useState(0)
   const [shelfMode, setShelfMode] = useState('cards') // 'cards' | 'drive', per shelf
   const [nowPlaying, setNowPlaying] = useState(null)
   const [popped, setPopped] = useState(null) // card floating in the mini-player
@@ -427,6 +431,12 @@ export default function App({ me }) {
             </div>
           )}
 
+          {activeView === 'guides' && (
+            <div className="lg:px-8 lg:pt-7">
+              <GuidesView onGenerate={() => setShowGuide(true)} refreshKey={guidesKey} />
+            </div>
+          )}
+
         </div>
       </div>
 
@@ -524,7 +534,7 @@ export default function App({ me }) {
       >
         <div className="flex items-center justify-between px-6" style={{ height: '2.75rem' }}>
           <div className="flex items-center gap-4">
-            {['bookmarks', 'notes'].map(v => (
+            {['bookmarks', 'notes', 'guides'].map(v => (
               <button
                 key={v}
                 onClick={() => setActiveView(v)}
@@ -570,6 +580,12 @@ export default function App({ me }) {
           <JoinModal
                 onLinked={handleLinked}
             onClose={() => setShowJoin(false)}
+          />
+        )}
+        {showGuide && (
+          <GuideModal
+            onClose={() => setShowGuide(false)}
+            onSaved={() => setGuidesKey(k => k + 1)}
           />
         )}
       </AnimatePresence>

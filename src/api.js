@@ -96,3 +96,19 @@ export const folderShareUrl = (token) => `${location.origin}/s/f/${token}`
 export const linkShelf = (code) => req('POST', '/link', { code })
 export const syncShelf = (catId) => req('POST', `/categories/${catId}/sync`, {})
 export const getHubStatus = () => req('GET', '/hub')
+
+// ── Guides (generated standalone HTML) ───────────────────────────────────────
+// Surfaces the server's error text, which carries the real reason a guide failed.
+export async function generateGuide(url) {
+  const res = await fetch(base + '/guide', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...(getToken() ? { Authorization: `Bearer ${getToken()}` } : {}) },
+    body: JSON.stringify({ url })
+  })
+  const data = await res.json().catch(() => ({}))
+  if (!res.ok) throw new Error(data.error || `guide → ${res.status}`)
+  return data
+}
+export const getGuides   = ()   => req('GET',    '/guides')
+export const getGuide    = (id) => req('GET',    `/guides/${id}`)
+export const deleteGuide = (id) => req('DELETE', `/guides/${id}`)
