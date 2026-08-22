@@ -147,8 +147,10 @@ async function writeChapters(digest, fallbackName) {
     'OUTPUT FORMAT — follow it exactly and output nothing before or after:\n\n' +
     '@@TITLE: <short product name>\n' +
     '@@TAGLINE: <one plain sentence saying what it is>\n' +
-    '@@CHAPTER: <chapter title>\n<body>\n' +
-    '@@CHAPTER: <chapter title>\n<body>\n\n' +
+    // Placeholders spelled out rather than <angle-bracketed>: a small model
+    // copies a bare "<body>" line into the chapter verbatim.
+    '@@CHAPTER: the chapter title\nthe chapter text\n' +
+    '@@CHAPTER: the next chapter title\nits chapter text\n\n' +
     'Body rules: use short paragraphs. Use "### " for a sub-heading inside a chapter. ' +
     'Use "- " for bullet lists and "1. " for ordered steps. Put shell commands or config ' +
     'inside triple-backtick code fences. Start a line with "NOTE:", "WARN:", or "DANGER:" ' +
