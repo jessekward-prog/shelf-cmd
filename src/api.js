@@ -112,3 +112,5 @@ export async function generateGuide(url) {
 export const getGuides   = ()   => req('GET',    '/guides')
 export const getGuide    = (id) => req('GET',    `/guides/${id}`)
 export const deleteGuide = (id) => req('DELETE', `/guides/${id}`)
+// A real link, so the browser downloads it directly — see the note on the route.
+export const guideDownloadUrl = (id) => `${base}/guides/${id}/download?t=${tok()}`

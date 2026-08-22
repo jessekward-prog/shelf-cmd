@@ -24,11 +24,6 @@ export default function GuidesView({ onGenerate, refreshKey }) {
     } catch { /* ignore */ } finally { setBusyId(null) }
   }
   const openGuide = (id) => withHtml(id, (url) => window.open(url, '_blank'))
-  const downloadGuide = (id) => withHtml(id, (url, g) => {
-    const a = document.createElement('a')
-    a.href = url; a.download = g.filename || 'guide.html'
-    document.body.appendChild(a); a.click(); a.remove()
-  })
   const removeGuide = async (id) => {
     setConfirmId(null)
     setGuides(prev => prev.filter(x => x.id !== id))
@@ -105,11 +100,12 @@ export default function GuidesView({ onGenerate, refreshKey }) {
                     onMouseLeave={e => e.currentTarget.style.borderColor = 'var(--s-border)'}>
                     {busyId === g.id ? 'opening…' : 'open'}
                   </button>
-                  <button style={btn} disabled={busyId === g.id} onClick={() => downloadGuide(g.id)}
+                  <a href={api.guideDownloadUrl(g.id)} download
+                    style={{ ...btn, textDecoration: 'none', display: 'inline-block' }}
                     onMouseEnter={e => e.currentTarget.style.borderColor = 'var(--s-accent)'}
                     onMouseLeave={e => e.currentTarget.style.borderColor = 'var(--s-border)'}>
                     download
-                  </button>
+                  </a>
                   <div style={{ flex: 1 }} />
                   {confirmId === g.id ? (
                     <button

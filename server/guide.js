@@ -285,7 +285,7 @@ function neofetch(title, src) {
   rows.push(['source', host])
   if (m.language) rows.push(['lang', m.language])
   if (m.stargazers_count != null) rows.push(['stars', String(m.stargazers_count)])
-  if (m.topics && m.topics.length) rows.push(['topics', m.topics.slice(0, 4).join(' ')])
+  if (m.topics && m.topics.length) rows.push(['topics', m.topics.slice(0, 3).join(' ')])
   if (src.files && src.files.length) rows.push(['files', String(src.files.length) + ' at root'])
   rows.push(['guide', 'generated ' + new Date().toISOString().slice(0, 10)])
   const glyph = (title.trim()[0] || '#').toUpperCase()
@@ -335,7 +335,7 @@ function renderHtml({ title, tagline, source, badges, chapters, meta, files }) {
   <header class="hero">
     <div class="hero-main">
       <div class="eyebrow">// generated guide</div>
-      <h1 class="wordmark">${wordmark}<span class="cursor" aria-hidden="true"></span></h1>
+      <h1 class="wordmark" style="font-size:clamp(34px,9vw,${Math.max(40, Math.min(96, Math.round(867 / Math.max(6, title.length))))}px)">${wordmark}<span class="cursor" aria-hidden="true"></span></h1>
       <div class="tags">${badgeHtml}</div>
       ${tagline ? `<p class="lede">${esc(tagline)}</p>` : ''}
       <div class="bootline">boot://${esc(host)} &middot; guide ready</div>
@@ -357,10 +357,12 @@ function renderHtml({ title, tagline, source, badges, chapters, meta, files }) {
 
 // ── Endpoint ─────────────────────────────────────────────────────────────────
 
-export function mountGuide({ app, pool, adminOnly }) {
+export function mountGuide({ app, pool, adminOnly, adminOrToken }) {
   // Protect the routes with the host's auth middleware when provided; the routes
   // are otherwise open, so pass your admin/auth guard in a multi-user setup.
   const guard = adminOnly || ((req, res, next) => next())
+  // Downloads are a plain link, not a fetch, so they need the ?t= guard.
+  const linkGuard = adminOrToken || guard
   ensureTable(pool).catch(e => console.error('guides table:', e.message))
 
   app.post('/api/guide', guard, async (req, res) => {
@@ -413,6 +415,18 @@ export function mountGuide({ app, pool, adminOnly }) {
     const { rows } = await pool.query('SELECT * FROM guides WHERE id=$1', [req.params.id])
     if (!rows[0]) return res.status(404).json({ error: 'not found' })
     res.json(rows[0])
+  })
+
+  // Served as a real download rather than a client-side blob: an <a download>
+  // built after an await has lost its user activation, and browsers drop that
+  // silently as an "automatic" download.
+  app.get('/api/guides/:id/download', linkGuard, async (req, res) => {
+    const { rows } = await pool.query('SELECT filename, html FROM guides WHERE id=$1', [req.params.id])
+    if (!rows[0]) return res.status(404).send('not found')
+    const name = (rows[0].filename || 'guide.html').replace(/[^\w.-]/g, '')
+    res.setHeader('Content-Type', 'text/html; charset=utf-8')
+    res.setHeader('Content-Disposition', `attachment; filename="${name}"`)
+    res.send(rows[0].html)
   })
 
   app.delete('/api/guides/:id', guard, async (req, res) => {
@@ -471,9 +485,10 @@ const SHELL_CSS = `
   /* ── Hero ── */
   .hero { display:grid; grid-template-columns:1.1fr .9fr; gap:clamp(24px,4vw,48px); align-items:center;
     min-height:78vh; padding:clamp(40px,8vh,90px) 0 clamp(30px,5vh,60px); }
+  .hero > * { min-width:0; }
   @media (max-width:820px){ .hero { grid-template-columns:1fr; min-height:auto; } }
   .eyebrow { font-family:var(--crt); font-size:20px; letter-spacing:.24em; text-transform:uppercase; color:var(--amber); opacity:.8; margin-bottom:14px; }
-  .wordmark { font-family:var(--mono); font-weight:700; font-size:clamp(46px,9vw,96px); line-height:.92; letter-spacing:-.03em; display:flex; align-items:baseline; flex-wrap:wrap; }
+  .wordmark { font-family:var(--mono); font-weight:700; font-size:clamp(46px,9vw,96px); line-height:.92; letter-spacing:-.03em; display:flex; align-items:baseline; flex-wrap:wrap; overflow-wrap:anywhere; }
   .wordmark .a { color:var(--amber-bright); text-shadow:var(--glow); }
   .wordmark .b { color:var(--text-3); }
   .cursor { display:inline-block; width:.5ch; height:.82em; background:var(--amber); margin-left:.12em; box-shadow:var(--glow); animation:blink 1.1s steps(1) infinite; }
@@ -494,7 +509,7 @@ const SHELL_CSS = `
   .term pre code { background:none; border:0; padding:0; color:inherit; font-size:inherit; }
   .term .c { color:var(--text-3); }
   .hero-term { margin:0; }
-  .neo { display:grid; grid-template-columns:auto 1fr; gap:0 22px; padding:22px 22px 26px; align-items:center; }
+  .neo { display:grid; grid-template-columns:auto minmax(0,1fr); gap:0 22px; padding:22px 22px 26px; align-items:center; }
   .neo-glyph { font-family:var(--crt); font-size:120px; line-height:.8; color:var(--amber); text-shadow:var(--glow); }
   .neo-body { font-family:var(--crt); font-size:19px; line-height:1.35; color:var(--text-2); white-space:pre; }
   .neo-body .k { color:var(--amber); } .neo-body .v { color:var(--text-2); }

@@ -41,6 +41,17 @@ app.use(async (req, res, next) => {
 const adminOnly = (req, res, next) =>
   req.user?.is_admin ? next() : res.status(403).json({ error: 'admin only' })
 
+// A plain <a download> can't send a bearer header, so let the token ride as ?t=
+// the way the drive's raw/thumb links already do.
+const adminOrToken = async (req, res, next) => {
+  if (req.user?.is_admin) return next()
+  if (req.query.t) {
+    const { rows } = await pool.query('SELECT is_admin FROM users WHERE token=$1', [req.query.t])
+    if (rows[0]?.is_admin) return next()
+  }
+  res.status(403).json({ error: 'admin only' })
+}
+
 async function initDb() {
   const schema = await readFile(join(__dirname, 'schema.sql'), 'utf8')
   await pool.query(schema)
@@ -1141,7 +1152,7 @@ app.delete('/api/notes/:id', adminOnly, async (req, res) => {
 // Drive: file storage per shelf. lmComplete is hoisted, so the blurb generator
 // resolves fine even though it's defined further up.
 mountDrive({ app, pool, adminOnly, lmComplete, hub })
-mountGuide({ app, pool, adminOnly })
+mountGuide({ app, pool, adminOnly, adminOrToken })
 
 // Unknown /api paths must not fall through to the SPA, or a stale client gets
 // HTML where it expected JSON and fails with a parse error instead of a 404.

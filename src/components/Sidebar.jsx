@@ -1,6 +1,15 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { motion, AnimatePresence, Reorder } from 'framer-motion'
 import { CollabIcon } from './MembersBar.jsx'
+
+function StarIcon({ filled }) {
+  return (
+    <svg width="12" height="12" viewBox="0 0 24 24" fill={filled ? 'currentColor' : 'none'}
+      stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
+      <polygon points="12 2 15.1 8.6 22 9.3 17 14.1 18.2 21 12 17.8 5.8 21 7 14.1 2 9.3 8.9 8.6 12 2" />
+    </svg>
+  )
+}
 
 function ChevronIcon({ open }) {
   return (
@@ -101,11 +110,26 @@ export default function Sidebar({
   onJoin, activeView, onView, cardCount
 }) {
   const [reordering, setReordering] = useState(false)
+  const [favorites, setFavorites] = useState(() => {
+    try { return JSON.parse(localStorage.getItem('shelf_favorites')) || [] } catch { return [] }
+  })
+  const [collapsed, setCollapsed] = useState(() => {
+    try { return JSON.parse(localStorage.getItem('shelf_shelves_collapsed')) || false } catch { return false }
+  })
+  useEffect(() => { localStorage.setItem('shelf_favorites', JSON.stringify(favorites)) }, [favorites])
+  useEffect(() => { localStorage.setItem('shelf_shelves_collapsed', JSON.stringify(collapsed)) }, [collapsed])
+  const toggleFav = (id) =>
+    setFavorites(f => f.includes(id) ? f.filter(x => x !== id) : [...f, id])
   const [confirmSub, setConfirmSub] = useState(null)
   const [hoverSub, setHoverSub] = useState(null)
   const [hoverCat, setHoverCat] = useState(null)
 
   const inShelves = activeView === 'bookmarks'
+
+  // Favourites sit at the top and survive collapsing; everything else hides.
+  const favCats = categories.filter(c => favorites.includes(c.id))
+  const restCats = categories.filter(c => !favorites.includes(c.id))
+  const visibleCats = collapsed ? favCats : [...favCats, ...restCats]
 
   return (
     <aside
@@ -119,7 +143,19 @@ export default function Sidebar({
     >
       <nav className="flex-1 overflow-y-auto py-4 px-2">
         <div className="flex items-center justify-between" style={{ padding: '0 12px', marginBottom: 6 }}>
-          <span style={{ ...sectionLabel, padding: 0, marginBottom: 0 }}>SHELVES</span>
+          <button
+            onClick={() => setCollapsed(c => !c)}
+            title={collapsed ? 'Show all shelves' : 'Collapse to favourites'}
+            className="glow-focus"
+            style={{
+              display: 'flex', alignItems: 'center', gap: 6, padding: 0,
+              fontSize: 13, letterSpacing: '0.12em', fontFamily: 'inherit',
+              color: 'var(--s-text-0)', background: 'transparent'
+            }}
+          >
+            <ChevronIcon open={!collapsed} />
+            <span>SHELVES</span>
+          </button>
           <button
             onClick={() => setReordering(r => !r)}
             title={reordering ? 'Done reordering' : 'Reorder shelves'}
@@ -136,12 +172,13 @@ export default function Sidebar({
         <Reorder.Group
           as="div"
           axis="y"
-          values={categories}
-          onReorder={onReorderCats}
+          values={visibleCats}
+          onReorder={(next) => onReorderCats(collapsed ? [...next, ...restCats] : next)}
           style={{ listStyle: 'none', margin: 0, padding: 0 }}
         >
-          {categories.map((cat) => {
+          {visibleCats.map((cat) => {
             const active = inShelves && cat.id === activeCatId
+            const isFav = favorites.includes(cat.id)
             return (
               <Reorder.Item
                 key={cat.id}
@@ -162,7 +199,7 @@ export default function Sidebar({
                     active={active}
                     onClick={() => { if (!reordering) { onView('bookmarks'); onSelectCat(cat.id) } }}
                     title={cat.name}
-                    style={{ paddingRight: hoverCat === cat.id ? 30 : undefined }}
+                    style={{ paddingRight: hoverCat === cat.id ? 52 : (isFav ? 26 : undefined) }}
                   >
                     {cat.icon
                       ? <span style={{ fontSize: 14, lineHeight: 1, width: 14, textAlign: 'center', flexShrink: 0 }}>{cat.icon}</span>
@@ -172,12 +209,26 @@ export default function Sidebar({
                     {active && <ChevronIcon open />}
                   </Row>
 
+                  {(isFav || hoverCat === cat.id) && !reordering && (
+                    <button
+                      onClick={(e) => { e.stopPropagation(); toggleFav(cat.id) }}
+                      title={isFav ? 'Remove from favourites' : 'Add to favourites'}
+                      style={{
+                        position: 'absolute', right: 6, top: '50%', transform: 'translateY(-50%)',
+                        display: 'flex', padding: 3, borderRadius: 4,
+                        color: isFav ? 'var(--s-accent)' : 'var(--s-text-3)'
+                      }}
+                    >
+                      <StarIcon filled={isFav} />
+                    </button>
+                  )}
+
                   {hoverCat === cat.id && !reordering && (
                     <button
                       onClick={(e) => { e.stopPropagation(); onShareCat(cat.id) }}
                       title="Get a code to share this shelf"
                       style={{
-                        position: 'absolute', right: 6, top: '50%', transform: 'translateY(-50%)',
+                        position: 'absolute', right: 28, top: '50%', transform: 'translateY(-50%)',
                         display: 'flex', padding: 3, borderRadius: 4, color: 'var(--s-accent)'
                       }}
                     >

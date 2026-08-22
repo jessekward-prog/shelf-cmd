@@ -117,7 +117,7 @@ export default function GuideModal({ onClose, onSaved }) {
                 open
               </a>
               <a
-                href={blobUrl} download={result.filename}
+                href={result.id ? api.guideDownloadUrl(result.id) : blobUrl} download={result.filename}
                 className="flex-1 py-2 rounded-lg text-sm font-medium text-center"
                 style={{ background: 'var(--s-accent)', color: 'var(--s-bg)', textDecoration: 'none' }}
               >
