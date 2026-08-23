@@ -111,31 +111,36 @@ export function mountChat({ app, pool, adminOnly, adminOrToken, hub, lmComplete 
     const question = String(req.body.question || '').trim().slice(0, 500)
     if (!question) return res.status(400).json({ error: 'empty question' })
 
+    const ACTIVITY_LIMIT = 200, CARDS_LIMIT = 100, FILES_LIMIT = 100, GUIDES_LIMIT = 50
     const [activity, cards, files, guides] = await Promise.all([
       pool.query(
         `SELECT a.kind, a.summary, a.created_at, hu.username
            FROM shelf_activity a LEFT JOIN hub_users hu ON hu.id = a.hub_user_id
-          WHERE a.category_id=$1 ORDER BY a.created_at DESC LIMIT 200`,
-        [categoryId]
+          WHERE a.category_id=$1 ORDER BY a.created_at DESC LIMIT $2`,
+        [categoryId, ACTIVITY_LIMIT]
       ),
-      pool.query('SELECT title, created_at FROM cards WHERE category_id=$1 ORDER BY created_at DESC LIMIT 100', [categoryId]),
-      pool.query('SELECT name, created_at FROM files WHERE category_id=$1 ORDER BY created_at DESC LIMIT 100', [categoryId]),
-      pool.query('SELECT title, created_at FROM guides WHERE category_id=$1 ORDER BY created_at DESC LIMIT 50', [categoryId])
+      pool.query('SELECT title, created_at FROM cards WHERE category_id=$1 ORDER BY created_at DESC LIMIT $2', [categoryId, CARDS_LIMIT]),
+      pool.query('SELECT name, created_at FROM files WHERE category_id=$1 ORDER BY created_at DESC LIMIT $2', [categoryId, FILES_LIMIT]),
+      pool.query('SELECT title, created_at FROM guides WHERE category_id=$1 ORDER BY created_at DESC LIMIT $2', [categoryId, GUIDES_LIMIT])
     ])
 
     // Keep full timestamps (not just the date) — otherwise the model has no
-    // way to answer "what time" questions at all.
+    // way to answer "what time" questions at all. Everything is stored and
+    // shown in UTC, regardless of which member's browser is asking.
     const ts = (d) => d.toISOString().slice(0, 16).replace('T', ' ') + ' UTC'
     const fmt = (rows, pick) => rows.map(pick).join('\n') || '(none)'
+    // A list sitting exactly at its query LIMIT might be truncated — flag it
+    // so the model doesn't state a count as exhaustive when it may not be.
+    const label = (title, rows, limit) => `\n${title}${rows.length >= limit ? ` (showing the most recent ${limit} — there may be more not listed here)` : ''}:`
     const context = [
       `Current date and time: ${ts(new Date())}`,
-      `\nActivity log (newest first):`,
+      label('Activity log (newest first)', activity.rows, ACTIVITY_LIMIT),
       fmt(activity.rows, a => `${ts(a.created_at)} — ${a.username || 'someone'}: ${a.summary}`),
-      `\nCards currently on the shelf:`,
+      label('Cards currently on the shelf', cards.rows, CARDS_LIMIT),
       fmt(cards.rows, c => `${ts(c.created_at)} — ${c.title || '(untitled)'}`),
-      `\nFiles currently on the shelf:`,
+      label('Files currently on the shelf', files.rows, FILES_LIMIT),
       fmt(files.rows, f => `${ts(f.created_at)} — ${f.name}`),
-      `\nGuides currently on the shelf:`,
+      label('Guides currently on the shelf', guides.rows, GUIDES_LIMIT),
       fmt(guides.rows, g => `${ts(g.created_at)} — ${g.title}`)
     ].join('\n')
 
@@ -143,7 +148,9 @@ export function mountChat({ app, pool, adminOnly, adminOrToken, hub, lmComplete 
       const raw = await lmComplete([
         {
           role: 'system',
-          content: 'You answer questions about the history and contents of a shared bookmark shelf, using only the data given below. Be concise — a sentence or two, or a short list. If the data doesn\'t answer the question, say so plainly instead of guessing. ' +
+          content: 'You answer questions about the history and contents of a shared bookmark shelf, using only the data given below — never your own outside knowledge about videos, creators, products, or anything else. Be concise — a sentence or two, or a short list. If the data doesn\'t answer the question, say so plainly instead of guessing. ' +
+            'All timestamps are UTC. When the question uses relative time ("last week", "yesterday", "this month"), work it out relative to the "Current date and time" given below. ' +
+            'If a list is marked as showing only its most recent items, treat any count from it as a lower bound, not an exact total, and say so. ' +
             'Do not show any thinking process, step-by-step analysis, or scratchpad — go straight to the answer. ' +
             'End your reply with a line that says exactly "FINAL ANSWER:" followed by the answer and nothing else after it.\n\n' + context
         },
