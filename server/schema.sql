@@ -85,6 +85,11 @@ ALTER TABLE cards ADD COLUMN IF NOT EXISTS hub_card_id INT;
 ALTER TABLE cards ADD COLUMN IF NOT EXISTS hub_user_id INT;
 ALTER TABLE subcategories ADD COLUMN IF NOT EXISTS hub_tab_id INT;
 
+-- One of the same five buckets guides use (speed/thinking/design/tools/
+-- reference) — same taxonomy, same legend, so a shelf reads consistently
+-- whether you're looking at its cards or its guides.
+ALTER TABLE cards ADD COLUMN IF NOT EXISTS category TEXT;
+
 -- Names of people who exist on the hub but have no account here. Refreshed on
 -- every sync, and bylines resolve THROUGH this table rather than storing the
 -- name on the card — otherwise someone renaming themselves would leave stale

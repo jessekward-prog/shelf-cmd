@@ -1,6 +1,7 @@
 import { useState, useCallback } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import * as api from '../api.js'
+import { CATEGORY_COLOR } from './GuidesView.jsx'
 
 const PLATFORM_LABELS = {
   youtube: 'YouTube', tiktok: 'TikTok', vimeo: 'Vimeo',
@@ -41,7 +42,7 @@ function PopButton({ onClick }) {
     <button
       onClick={(e) => { e.stopPropagation(); onClick() }}
       title="Pop out — keep playing while you browse"
-      className="absolute top-2 right-2 z-20 flex items-center justify-center w-7 h-7 rounded transition-opacity"
+      className="absolute top-2 right-2 z-20 flex items-center justify-center w-7 h-7 rounded opacity-0 group-hover:opacity-100 transition-opacity"
       style={{ background: 'rgba(0,0,0,0.6)', color: 'var(--s-text-1)' }}
     >
       <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2">
@@ -315,7 +316,7 @@ export default function Card({ card, onDelete, onUpdate, nowPlayingId, onPlay, o
       exit={{ opacity: 0, scale: 0.95 }}
       whileHover={{ scale: 1.03, zIndex: 5 }}
       transition={{ type: 'spring', damping: 24, stiffness: 320 }}
-      className="rounded-xl overflow-hidden relative"
+      className="rounded-xl overflow-hidden relative group"
       style={{ background: 'var(--s-surface)', border: '1px solid var(--s-border)' }}
     >
       {hasMedia && (
@@ -338,8 +339,14 @@ export default function Card({ card, onDelete, onUpdate, nowPlayingId, onPlay, o
           </p>
         )}
         {card.title && (
-          <p className="text-sm font-medium leading-snug mb-1 line-clamp-2" style={{ color: 'var(--s-text-0)' }}>
-            {card.title}
+          <p className="flex items-start gap-1.5 text-sm font-medium leading-snug mb-1" style={{ color: 'var(--s-text-0)' }}>
+            {card.category && (
+              <span
+                title={card.category}
+                style={{ width: 6, height: 6, borderRadius: '50%', background: CATEGORY_COLOR[card.category] || CATEGORY_COLOR.reference, flexShrink: 0, marginTop: 6 }}
+              />
+            )}
+            <span className="line-clamp-2">{card.title}</span>
           </p>
         )}
         {card.description && (

@@ -6,16 +6,18 @@ function host(u) { try { return new URL(u).hostname.replace(/^www\./, '') } catc
 
 // PlayStation face-button colors, kept subtle (low-alpha) so they tint rather
 // than fight the active ShelfStation theme. Mirrors server/guide.js CATEGORIES.
-const CATEGORIES = [
+// Exported so any other view sorting content into the same five buckets (e.g.
+// cards) reuses this one taxonomy instead of drifting into a second one.
+export const CATEGORIES = [
   { id: 'speed',     label: 'Speed',     color: '#4f8fe0' }, // ✕ blue
   { id: 'tools',     label: 'Tools',     color: '#e0564f' }, // ○ red
   { id: 'thinking',  label: 'Thinking',  color: '#3fb37f' }, // △ green
   { id: 'design',    label: 'Design',    color: '#e0559c' }, // □ pink
   { id: 'reference', label: 'Reference', color: '#8f8f8f' }, // neutral
 ]
-const CATEGORY_COLOR = Object.fromEntries(CATEGORIES.map(c => [c.id, c.color]))
+export const CATEGORY_COLOR = Object.fromEntries(CATEGORIES.map(c => [c.id, c.color]))
 
-function Legend() {
+export function Legend() {
   return (
     <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px 14px', marginBottom: 14 }}>
       {CATEGORIES.map(c => (

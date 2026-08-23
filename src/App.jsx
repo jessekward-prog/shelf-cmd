@@ -12,7 +12,7 @@ import ThemePicker from './components/ThemePicker.jsx'
 import NotesTab from './components/NotesTab.jsx'
 import DrivePage from './components/DrivePage.jsx'
 import GuideModal from './components/GuideModal.jsx'
-import GuidesView from './components/GuidesView.jsx'
+import GuidesView, { Legend } from './components/GuidesView.jsx'
 import MiniPlayer from './components/MiniPlayer.jsx'
 import MembersBar from './components/MembersBar.jsx'
 import InviteModal from './components/InviteModal.jsx'
@@ -436,6 +436,12 @@ export default function App({ me }) {
               {shelfMode === 'cards' && cards.length > 0 && (
                 <div className="px-4 lg:hidden">
                   <SearchBar value={search} onChange={setSearch} />
+                </div>
+              )}
+
+              {shelfMode === 'cards' && cards.length > 0 && (
+                <div className="px-4 lg:px-8">
+                  <Legend />
                 </div>
               )}
 

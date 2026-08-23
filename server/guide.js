@@ -154,7 +154,7 @@ function digestOf(src) {
 
 // Five fixed buckets a guide gets auto-sorted into — kept in sync with the
 // legend colors in GuidesView.jsx (PlayStation face-button colors).
-const CATEGORIES = ['speed', 'thinking', 'design', 'tools', 'reference']
+export const CATEGORIES = ['speed', 'thinking', 'design', 'tools', 'reference']
 
 async function writeChapters(digest, fallbackName) {
   const system =

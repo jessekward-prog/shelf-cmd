@@ -11,7 +11,7 @@ import { YoutubeTranscript } from 'youtube-transcript'
 import { randomBytes } from 'crypto'
 import { makeHub } from './hub.js'
 import { mountDrive } from './drive.js'
-import { mountGuide } from './guide.js'
+import { mountGuide, CATEGORIES } from './guide.js'
 import { mountChat, logActivity } from './chat.js'
 chromium.use(StealthPlugin())
 
@@ -686,9 +686,11 @@ async function processCard(card) {
     console.error('processCard error:', err.message)
   }
 
+  const category = await classifyCard({ title, description, type })
+
   await pool.query(
-    `UPDATE cards SET type=$1, title=$2, description=$3, thumbnail_url=$4, youtube_id=$5, metadata=$6, status='ready' WHERE id=$7`,
-    [type, title, description, thumbnail_url, youtube_id, JSON.stringify(metadata), card.id]
+    `UPDATE cards SET type=$1, title=$2, description=$3, thumbnail_url=$4, youtube_id=$5, metadata=$6, category=$7, status='ready' WHERE id=$8`,
+    [type, title, description, thumbnail_url, youtube_id, JSON.stringify(metadata), category, card.id]
   )
 
   // Only the `prepared` path used to reach the hub, so a card added the ordinary
@@ -767,7 +769,13 @@ app.post('/api/cards', async (req, res) => {
          type, youtube_id, JSON.stringify(metadata), req.user.id, hubCardId]
       )
       logActivity(pool, hub, category_id, 'card_added', `added a card: ${title || url}`).catch(() => {})
-      return res.json({ ...rows[0], author: collab ? req.user.username : null, queued })
+      res.json({ ...rows[0], author: collab ? req.user.username : null, queued })
+      // Classifying isn't worth delaying the response for — a prepared card is
+      // already 'ready' and shown, this just fills in the legend dot shortly after.
+      classifyCard({ title, description, type })
+        .then(cat => cat && pool.query('UPDATE cards SET category=$1 WHERE id=$2', [cat, rows[0].id]))
+        .catch(() => {})
+      return
     }
 
     const { rows } = await pool.query(
@@ -869,6 +877,22 @@ async function ownedCard(req, res) {
 app.get('/api/cards/:id', async (req, res) => {
   const card = await ownedCard(req, res)
   if (card) res.json(card)
+})
+
+// Backfills the legend category on cards that predate the column (or came in
+// through a path that skipped classification). Mirrors guide.js's own backfill.
+app.post('/api/cards/backfill-categories', adminOnly, async (req, res) => {
+  const { rows } = await pool.query(
+    "SELECT id, title, description, type FROM cards WHERE category IS NULL AND status='ready'"
+  )
+  let updated = 0
+  for (const row of rows) {
+    const category = await classifyCard(row)
+    if (!category) continue
+    await pool.query('UPDATE cards SET category=$1 WHERE id=$2', [category, row.id])
+    updated++
+  }
+  res.json({ checked: rows.length, updated })
 })
 
 app.put('/api/cards/:id', async (req, res) => {
@@ -1054,6 +1078,29 @@ async function lmComplete(messages, { maxTokens = 800, temperature = 0.4, timeou
   const msg = data.choices?.[0]?.message
   if (strict) return (msg?.content || '').trim()
   return (msg?.content?.trim() || msg?.reasoning_content?.trim() || '')
+}
+
+// Sorts a card into the same five buckets guides use (see guide.js's
+// CATEGORIES), so the two features share one taxonomy and one legend instead
+// of drifting into separate systems. Cheap and capped like guide.js's own
+// writeBlurb — this only ever needs one word back.
+async function classifyCard({ title, description, type }) {
+  const user =
+    `Title: ${title || '(none)'}\n` +
+    `Type: ${type || 'link'}\n` +
+    (description ? `Description: ${description}\n` : '') +
+    '\nReply with exactly one word, no preamble: ' +
+    'speed, thinking, design, tools, or reference — ' +
+    'speed = performance/CLI/low-level utilities, thinking = AI/algorithms/data/logic, ' +
+    'design = UI/CSS/visual/creative, tools = general dev libraries/frameworks/infra, ' +
+    'reference = docs/curated lists/learning material.'
+  try {
+    const raw = await lmComplete([{ role: 'user', content: user }], { maxTokens: 400, temperature: 0.3, timeout: 45000 })
+    const word = raw.trim().toLowerCase().match(/speed|thinking|design|tools|reference/)?.[0]
+    return CATEGORIES.includes(word) ? word : 'reference'
+  } catch {
+    return null // LM Studio unreachable — leave uncategorized rather than guessing
+  }
 }
 
 async function extractTools(plan) {
