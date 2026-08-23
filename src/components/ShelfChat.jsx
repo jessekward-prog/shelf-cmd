@@ -25,11 +25,10 @@ function timeAgo(iso) {
 
 const lastSeenKey = (catId) => `shelf_chat_lastseen_${catId}`
 
-// Fixed amber, not var(--s-accent) — the chat should read as the same thing
-// no matter which theme is active, rather than blending into it.
-const AMBER = '#e8840a'
-const AMBER_BORDER = 'rgba(232,132,10,0.4)'
-const AMBER_FAINT = 'rgba(232,132,10,0.12)'
+// A fixed amber border — not var(--s-accent) — is the only thing that doesn't
+// follow the active theme. It's what makes the panel read as "the chat" at a
+// glance; everything inside it still uses the theme's own colors normally.
+const AMBER_BORDER = 'rgba(232,132,10,0.55)'
 
 // Floating per-shelf chat: "man" is member-to-member messages, "machine" is an
 // auto-generated activity log. Mounted once per shelf at the App level (not
@@ -100,8 +99,9 @@ export default function ShelfChat({ categoryId, isLinked }) {
         className="fixed z-40 flex items-center justify-center rounded-full"
         style={{
           right: 20, bottom: 'calc(3.5rem + env(safe-area-inset-bottom) + 80px)',
-          width: 52, height: 52, background: AMBER, color: '#1a1000',
-          boxShadow: '0 2px 12px rgba(232,132,10,0.3), 0 4px 16px rgba(0,0,0,0.4)'
+          width: 52, height: 52, background: 'var(--s-surface)', color: 'var(--s-text-0)',
+          border: `2px solid ${AMBER_BORDER}`,
+          boxShadow: '0 4px 16px rgba(0,0,0,0.4)'
         }}
         title="Shelf chat"
       >
@@ -132,15 +132,15 @@ export default function ShelfChat({ categoryId, isLinked }) {
               boxShadow: '0 20px 60px rgba(0,0,0,0.5)'
             }}
           >
-            <div className="flex" style={{ borderBottom: `1px solid ${AMBER_BORDER}` }}>
+            <div className="flex" style={{ borderBottom: '1px solid var(--s-border)' }}>
               {[['man', 'man'], ['machine', "what's new"]].map(([id, label]) => (
                 <button
                   key={id}
                   onClick={() => switchTab(id)}
                   style={{
                     flex: 1, padding: '10px 0', fontSize: 12, fontWeight: 600, letterSpacing: '0.06em',
-                    textTransform: 'uppercase', color: tab === id ? AMBER : 'var(--s-text-3)',
-                    borderBottom: tab === id ? `2px solid ${AMBER}` : '2px solid transparent',
+                    textTransform: 'uppercase', color: tab === id ? 'var(--s-accent)' : 'var(--s-text-3)',
+                    borderBottom: tab === id ? '2px solid var(--s-accent)' : '2px solid transparent',
                     background: 'transparent'
                   }}
                 >
@@ -166,7 +166,7 @@ export default function ShelfChat({ categoryId, isLinked }) {
                           {m.username || 'someone'} · {timeAgo(m.created_at)}
                         </div>
                         <div style={{
-                          background: 'var(--s-surface-2)', borderLeft: `2px solid ${AMBER_BORDER}`,
+                          background: 'var(--s-surface-2)', border: '1px solid var(--s-border)',
                           padding: '7px 10px', fontSize: 13, color: 'var(--s-text-0)',
                           wordBreak: 'break-word'
                         }}>
@@ -175,7 +175,7 @@ export default function ShelfChat({ categoryId, isLinked }) {
                       </div>
                     ))}
                   </div>
-                  <form onSubmit={send} className="flex gap-2 p-2" style={{ borderTop: `1px solid ${AMBER_BORDER}` }}>
+                  <form onSubmit={send} className="flex gap-2 p-2" style={{ borderTop: '1px solid var(--s-border)' }}>
                     <input
                       value={input}
                       onChange={(e) => setInput(e.target.value)}
@@ -190,7 +190,7 @@ export default function ShelfChat({ categoryId, isLinked }) {
                       disabled={!input.trim() || sending}
                       style={{
                         padding: '7px 14px', fontSize: 12, fontWeight: 500,
-                        background: AMBER, color: '#1a1000', opacity: input.trim() ? 1 : 0.4
+                        background: 'var(--s-accent)', color: 'var(--s-bg)', opacity: input.trim() ? 1 : 0.4
                       }}
                     >
                       send
@@ -206,9 +206,9 @@ export default function ShelfChat({ categoryId, isLinked }) {
                 {activity.map(a => (
                   <div key={a.id} style={{
                     display: 'flex', gap: 8, alignItems: 'flex-start', padding: '7px 8px',
-                    background: a.created_at > lastSeen ? AMBER_FAINT : 'transparent'
+                    background: a.created_at > lastSeen ? 'var(--s-accent-faint)' : 'transparent'
                   }}>
-                    <span style={{ fontSize: 13, color: AMBER, flexShrink: 0, width: 14, textAlign: 'center' }}>
+                    <span style={{ fontSize: 13, color: 'var(--s-accent)', flexShrink: 0, width: 14, textAlign: 'center' }}>
                       {ACTIVITY_ICON[a.kind] || '•'}
                     </span>
                     <div style={{ minWidth: 0, flex: 1 }}>
