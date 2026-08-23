@@ -29,6 +29,10 @@ const lastSeenKey = (catId) => `shelf_chat_lastseen_${catId}`
 // follow the active theme. It's what makes the panel read as "the chat" at a
 // glance; everything inside it still uses the theme's own colors normally.
 const AMBER_BORDER = 'rgba(232,132,10,0.55)'
+// The rail's vertical extent — clears the topbar and the mobile bottom nav.
+// The panel matches this exactly, so opening it reads as dragging out of the rail.
+const RAIL_TOP = '90px'
+const RAIL_BOTTOM = 'calc(3.5rem + env(safe-area-inset-bottom) + 20px)'
 
 // Floating per-shelf chat: "man" is member-to-member messages, "machine" is an
 // auto-generated activity log. Mounted once per shelf at the App level (not
@@ -93,22 +97,36 @@ export default function ShelfChat({ categoryId, isLinked }) {
 
   return (
     <>
+      {/* A persistent rail flush to the edge — always there, not just when the
+          panel's open — so the panel reads as dragging out FROM it. Its height
+          is what the open panel matches. The button is a notch IN the rail,
+          not a separate circle floating near it: same flush right edge, just
+          rounded out to the left to make room for the icon. */}
+      <div
+        className="fixed z-30"
+        style={{
+          right: 0, top: RAIL_TOP, bottom: RAIL_BOTTOM, width: 2,
+          background: AMBER_BORDER, pointerEvents: 'none'
+        }}
+      />
+
       <motion.button
         onClick={() => (open ? setOpen(false) : openPanel())}
         whileTap={{ scale: 0.92 }}
-        className="fixed z-40 flex items-center justify-center rounded-full"
+        className="fixed z-40 flex items-center justify-center"
         style={{
-          right: 20, bottom: 'calc(3.5rem + env(safe-area-inset-bottom) + 80px)',
-          width: 52, height: 52, background: 'var(--s-surface)', color: 'var(--s-text-0)',
-          border: `2px solid ${AMBER_BORDER}`,
-          boxShadow: '0 4px 16px rgba(0,0,0,0.4)'
+          right: 0, bottom: `calc(${RAIL_BOTTOM} + 10px)`,
+          width: 48, height: 48, background: 'var(--s-surface)', color: 'var(--s-text-0)',
+          border: `2px solid ${AMBER_BORDER}`, borderRight: 'none',
+          borderRadius: '24px 0 0 24px',
+          boxShadow: '-4px 4px 16px rgba(0,0,0,0.4)'
         }}
         title="Shelf chat"
       >
         <EnvelopeIcon />
         {!open && unseen > 0 && (
           <span style={{
-            position: 'absolute', top: -2, right: -2, width: 16, height: 16, borderRadius: '50%',
+            position: 'absolute', top: -2, left: 2, width: 16, height: 16, borderRadius: '50%',
             background: '#c0392b', color: '#fff', fontSize: 10, fontWeight: 700,
             display: 'flex', alignItems: 'center', justifyContent: 'center', border: '2px solid var(--s-bg)'
           }}>
@@ -126,8 +144,8 @@ export default function ShelfChat({ categoryId, isLinked }) {
             transition={{ type: 'spring', damping: 26, stiffness: 340 }}
             className="fixed z-40 flex flex-col overflow-hidden"
             style={{
-              right: 20, bottom: 'calc(3.5rem + env(safe-area-inset-bottom) + 140px)',
-              width: 'min(360px, calc(100vw - 40px))', height: 'min(480px, calc(100vh - 160px))',
+              right: 0, top: RAIL_TOP, bottom: RAIL_BOTTOM,
+              width: 'min(360px, calc(100vw - 20px))',
               background: 'var(--s-surface)', border: `1px solid ${AMBER_BORDER}`, borderRadius: 0,
               boxShadow: '0 20px 60px rgba(0,0,0,0.5)'
             }}
