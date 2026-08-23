@@ -385,8 +385,14 @@ export function mountDrive({ app, pool, adminOnly, lmComplete, hub }) {
   })
 
   // Zip a folder subtree. Used by the owner's download and the public share link.
+  // A folder on a joined (non-owned) shelf has no local files rows or bytes —
+  // its content only exists on the owner's box — so it has to go through the
+  // same ticket proxy the single-file remote routes use.
   async function streamZip(res, categoryId, prefix) {
-    const files = await folderFiles(categoryId, prefix)
+    const remote = await remoteShelf(categoryId)
+    const files = remote
+      ? (await remoteCall(categoryId, '/files')).filter(f => f.name.startsWith(prefix + '/'))
+      : await folderFiles(categoryId, prefix)
     if (!files.length) return res.status(404).send('Folder is empty or no longer available.')
     const base = prefix.split('/').pop() || 'folder'
     res.setHeader('Content-Type', 'application/zip')
@@ -395,9 +401,18 @@ export function mountDrive({ app, pool, adminOnly, lmComplete, hub }) {
     const archive = archiver('zip', { zlib: { level: 6 } })
     archive.on('error', () => res.destroy())
     archive.pipe(res)
-    for (const f of files) {
-      const p = join(UPLOADS_DIR, f.stored_name)
-      if (existsSync(p)) archive.file(p, { name: f.name.slice(prefix.length + 1) })
+    if (remote) {
+      for (const f of files) {
+        try {
+          const r = await remoteFetch(categoryId, `/files/${f.id}/raw`, { stream: true })
+          archive.append(Readable.fromWeb(r.body), { name: f.name.slice(prefix.length + 1) })
+        } catch { /* owner's box unreachable for this file — skip it, zip the rest */ }
+      }
+    } else {
+      for (const f of files) {
+        const p = join(UPLOADS_DIR, f.stored_name)
+        if (existsSync(p)) archive.file(p, { name: f.name.slice(prefix.length + 1) })
+      }
     }
     archive.finalize()
   }
