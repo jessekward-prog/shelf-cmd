@@ -161,6 +161,26 @@ export default function ShelfChat({ categoryId, isLinked }) {
         )}
       </motion.button>
 
+      {/* Reverse-vignette backdrop: dims toward the edges, stays clear right
+          behind the panel, so the panel reads as lit rather than just another
+          layer on the page. Doesn't intercept clicks — browsing still works
+          with the chat open. */}
+      <AnimatePresence>
+        {open && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.25 }}
+            className="fixed inset-0 z-[35]"
+            style={{
+              pointerEvents: 'none',
+              background: 'radial-gradient(ellipse 70% 65% at bottom right, transparent 0%, rgba(0,0,0,0.55) 70%, rgba(0,0,0,0.55) 100%)'
+            }}
+          />
+        )}
+      </AnimatePresence>
+
       <AnimatePresence>
         {open && (
           <motion.div
