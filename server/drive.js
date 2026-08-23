@@ -389,10 +389,19 @@ export function mountDrive({ app, pool, adminOnly, lmComplete, hub }) {
   // its content only exists on the owner's box — so it has to go through the
   // same ticket proxy the single-file remote routes use.
   async function streamZip(res, categoryId, prefix) {
-    const remote = await remoteShelf(categoryId)
-    const files = remote
-      ? (await remoteCall(categoryId, '/files')).filter(f => f.name.startsWith(prefix + '/'))
-      : await folderFiles(categoryId, prefix)
+    // Everything that can fail before a byte is written happens up front, so a
+    // dead hub/owner box gets a real error response instead of a hung request
+    // (neither caller of streamZip awaits it or catches a rejection).
+    let remote, files, ticket, origin, hubShelfId
+    try {
+      remote = await remoteShelf(categoryId)
+      files = remote
+        ? (await remoteCall(categoryId, '/files')).filter(f => f.name.startsWith(prefix + '/'))
+        : await folderFiles(categoryId, prefix)
+      if (remote && files.length) ({ ticket, origin, hubShelfId } = await hub.ticketFor(categoryId))
+    } catch (err) {
+      return res.status(502).send(`could not reach the owner's shelf — ${err.message}`)
+    }
     if (!files.length) return res.status(404).send('Folder is empty or no longer available.')
     const base = prefix.split('/').pop() || 'folder'
     res.setHeader('Content-Type', 'application/zip')
@@ -402,9 +411,13 @@ export function mountDrive({ app, pool, adminOnly, lmComplete, hub }) {
     archive.on('error', () => res.destroy())
     archive.pipe(res)
     if (remote) {
+      // One ticket for the whole zip, not one per file — the owner's box caches
+      // a redeemed ticket for 5 minutes for exactly this reason (see ticketGate).
       for (const f of files) {
         try {
-          const r = await remoteFetch(categoryId, `/files/${f.id}/raw`, { stream: true })
+          const r = await fetch(`${origin}/api/shared/${hubShelfId}/files/${f.id}/raw?ticket=${encodeURIComponent(ticket)}`,
+            { signal: AbortSignal.timeout(120000) })
+          if (!r.ok) throw new Error(`owner's shelf returned ${r.status}`)
           archive.append(Readable.fromWeb(r.body), { name: f.name.slice(prefix.length + 1) })
         } catch { /* owner's box unreachable for this file — skip it, zip the rest */ }
       }
