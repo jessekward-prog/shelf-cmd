@@ -45,6 +45,11 @@ function stripReasoning(text) {
   if (open !== -1) t = t.slice(0, open)
   t = t.replace(/<\/?think>/gi, '')
   t = t.replace(/<\/?s>|<\|?(?:end_of_turn|eot_id|eos|im_(?:start|end)|turn|assistant|user)\|?>/gi, '')
+  // gemma also sometimes writes its scratchpad as plain numbered text ("Thinking
+  // Process: 1. Analyze the request...") instead of <think> tags — pull out
+  // only what follows the FINAL ANSWER: marker the ask prompt asks it to use.
+  const marker = t.search(/final answer\s*:/i)
+  if (marker !== -1) t = t.slice(marker).replace(/^final answer\s*:/i, '')
   return t.trim()
 }
 
@@ -133,7 +138,12 @@ export function mountChat({ app, pool, adminOnly, adminOrToken, hub, lmComplete 
 
     try {
       const raw = await lmComplete([
-        { role: 'system', content: 'You answer questions about the history and contents of a shared bookmark shelf, using only the data given below. Be concise — a sentence or two, or a short list. If the data doesn\'t answer the question, say so plainly instead of guessing.\n\n' + context },
+        {
+          role: 'system',
+          content: 'You answer questions about the history and contents of a shared bookmark shelf, using only the data given below. Be concise — a sentence or two, or a short list. If the data doesn\'t answer the question, say so plainly instead of guessing. ' +
+            'Do not show any thinking process, step-by-step analysis, or scratchpad — go straight to the answer. ' +
+            'End your reply with a line that says exactly "FINAL ANSWER:" followed by the answer and nothing else after it.\n\n' + context
+        },
         { role: 'user', content: question }
       ], { maxTokens: 500 })
       res.json({ answer: stripReasoning(raw) || "couldn't find an answer to that." })
