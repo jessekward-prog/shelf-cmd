@@ -35,6 +35,8 @@ const AMBER_BORDER = 'rgba(232,132,10,0.55)'
 const RAIL_BOTTOM = 'calc(3.5rem + env(safe-area-inset-bottom) + 20px)'
 const PANEL_HEIGHT = 'min(340px, 46vh)'
 const RAIL_HEIGHT = `calc(${PANEL_HEIGHT} + 46px)`
+// The notch's one fixed spot — same whether the panel's open or closed.
+const NOTCH_BOTTOM = `calc(${RAIL_BOTTOM} - 8px)`
 
 // Floating per-shelf chat: "man" is member-to-member messages, "machine" is an
 // auto-generated activity log. Mounted once per shelf at the App level (not
@@ -109,14 +111,15 @@ export default function ShelfChat({ categoryId, isLinked }) {
         }}
       />
 
-      {/* z-50, above the panel — this stays visible and clickable (to close/
-          minimise) even once the panel's open sitting right behind it. */}
+      {/* One fixed notch, same spot whether open or closed — it doesn't move
+          with the panel, it just toggles it. z-50 keeps it above the panel
+          so it's still there to click closed once open. */}
       <motion.button
         onClick={() => (open ? setOpen(false) : openPanel())}
         whileTap={{ scale: 0.92 }}
         className="fixed z-50 flex items-center justify-center"
         style={{
-          right: 0, bottom: `calc(${RAIL_BOTTOM} + 10px)`,
+          right: 0, bottom: NOTCH_BOTTOM,
           width: 36, height: 36, background: 'var(--s-surface)', color: 'var(--s-text-0)',
           border: `2px solid ${AMBER_BORDER}`, borderRight: 'none',
           borderRadius: '8px 0 0 8px',
@@ -143,15 +146,17 @@ export default function ShelfChat({ categoryId, isLinked }) {
             animate={{ opacity: 1, x: 0 }}
             exit={{ opacity: 0, x: 60 }}
             transition={{ type: 'spring', damping: 26, stiffness: 340 }}
-            className="fixed z-40 flex flex-col overflow-hidden"
+            className="fixed z-40"
             style={{
               right: 0, bottom: `calc(${RAIL_BOTTOM} + 10px)`, height: PANEL_HEIGHT,
-              width: 'min(340px, calc(100vw - 20px))',
+              width: 'min(340px, calc(100vw - 20px))'
+            }}
+          >
+            <div className="flex flex-col overflow-hidden h-full" style={{
               background: 'var(--s-surface)', border: `1px solid ${AMBER_BORDER}`,
               borderRadius: '14px 0 0 14px',
               boxShadow: '0 24px 48px -12px rgba(0,0,0,0.65)'
-            }}
-          >
+            }}>
             <div className="flex" style={{ borderBottom: '1px solid var(--s-border)' }}>
               {[['man', 'man'], ['machine', "what's new"]].map(([id, label]) => (
                 <button
@@ -239,6 +244,7 @@ export default function ShelfChat({ categoryId, isLinked }) {
                 ))}
               </div>
             )}
+            </div>
           </motion.div>
         )}
       </AnimatePresence>
