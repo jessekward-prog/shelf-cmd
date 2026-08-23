@@ -53,7 +53,7 @@ export default function ShelfChat({ categoryId, isLinked }) {
   const [sending, setSending] = useState(false)
   const [question, setQuestion] = useState('')
   const [asking, setAsking] = useState(false)
-  const [answer, setAnswer] = useState(null)
+  const [qaLog, setQaLog] = useState([])
   const [lastSeen, setLastSeen] = useState(() => localStorage.getItem(lastSeenKey(categoryId)) || new Date(0).toISOString())
   const listRef = useRef(null)
   const esRef = useRef(null)
@@ -77,7 +77,7 @@ export default function ShelfChat({ categoryId, isLinked }) {
 
   useEffect(() => {
     if (listRef.current) listRef.current.scrollTop = listRef.current.scrollHeight
-  }, [messages, tab, open])
+  }, [messages, qaLog, tab, open])
 
   const markSeen = useCallback(() => {
     const now = new Date().toISOString()
@@ -108,13 +108,15 @@ export default function ShelfChat({ categoryId, isLinked }) {
     e.preventDefault()
     const q = question.trim()
     if (!q || asking) return
+    const id = Date.now()
+    setQuestion('')
     setAsking(true)
-    setAnswer(null)
+    setQaLog(prev => [...prev, { id, question: q, answer: null }])
     try {
       const { answer } = await api.askMachine(categoryId, q)
-      setAnswer(answer)
+      setQaLog(prev => prev.map(x => x.id === id ? { ...x, answer } : x))
     } catch (err) {
-      setAnswer(`couldn't reach the machine — ${err.message}`)
+      setQaLog(prev => prev.map(x => x.id === id ? { ...x, answer: `couldn't reach the machine — ${err.message}` } : x))
     }
     setAsking(false)
   }
@@ -245,23 +247,37 @@ export default function ShelfChat({ categoryId, isLinked }) {
               )
             ) : tab === 'machine' ? (
               <>
-                <div className="flex-1 overflow-y-auto px-3 py-3" style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                  {!answer && !asking && (
+                <div ref={listRef} className="flex-1 overflow-y-auto px-3 py-3" style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                  {qaLog.length === 0 && (
                     <div style={{ textAlign: 'center', color: 'var(--s-text-3)', fontSize: 11, marginTop: 20 }}>
                       ask about this shelf's history — "what cards were added last week?"
                     </div>
                   )}
-                  {asking && (
-                    <div style={{ textAlign: 'center', color: 'var(--s-text-3)', fontSize: 11, marginTop: 20 }}>thinking…</div>
-                  )}
-                  {answer && (
-                    <div style={{
-                      background: 'var(--s-surface-2)', border: '1px solid var(--s-border)',
-                      padding: '9px 11px', fontSize: 13, color: 'var(--s-text-0)', whiteSpace: 'pre-wrap'
-                    }}>
-                      {answer}
+                  {qaLog.map(qa => (
+                    <div key={qa.id} style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                      <div style={{ maxWidth: '85%', alignSelf: 'flex-end' }}>
+                        <div style={{
+                          background: 'var(--s-accent)', color: 'var(--s-bg)',
+                          padding: '7px 10px', fontSize: 13, wordBreak: 'break-word'
+                        }}>
+                          {qa.question}
+                        </div>
+                      </div>
+                      <div style={{ maxWidth: '85%', alignSelf: 'flex-start' }}>
+                        {qa.answer === null ? (
+                          <div style={{ color: 'var(--s-text-3)', fontSize: 12, padding: '2px 2px' }}>thinking…</div>
+                        ) : (
+                          <div style={{
+                            background: 'var(--s-surface-2)', border: '1px solid var(--s-border)',
+                            padding: '7px 10px', fontSize: 13, color: 'var(--s-text-0)',
+                            whiteSpace: 'pre-wrap', wordBreak: 'break-word'
+                          }}>
+                            {qa.answer}
+                          </div>
+                        )}
+                      </div>
                     </div>
-                  )}
+                  ))}
                 </div>
                 <form onSubmit={ask} className="flex gap-2 p-2" style={{ borderTop: '1px solid var(--s-border)' }}>
                   <input
