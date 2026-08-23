@@ -123,17 +123,20 @@ export function mountChat({ app, pool, adminOnly, adminOrToken, hub, lmComplete 
       pool.query('SELECT title, created_at FROM guides WHERE category_id=$1 ORDER BY created_at DESC LIMIT 50', [categoryId])
     ])
 
+    // Keep full timestamps (not just the date) — otherwise the model has no
+    // way to answer "what time" questions at all.
+    const ts = (d) => d.toISOString().slice(0, 16).replace('T', ' ') + ' UTC'
     const fmt = (rows, pick) => rows.map(pick).join('\n') || '(none)'
     const context = [
-      `Today's date: ${new Date().toISOString().slice(0, 10)}`,
+      `Current date and time: ${ts(new Date())}`,
       `\nActivity log (newest first):`,
-      fmt(activity.rows, a => `${a.created_at.toISOString().slice(0, 10)} — ${a.username || 'someone'}: ${a.summary}`),
+      fmt(activity.rows, a => `${ts(a.created_at)} — ${a.username || 'someone'}: ${a.summary}`),
       `\nCards currently on the shelf:`,
-      fmt(cards.rows, c => `${c.created_at.toISOString().slice(0, 10)} — ${c.title || '(untitled)'}`),
+      fmt(cards.rows, c => `${ts(c.created_at)} — ${c.title || '(untitled)'}`),
       `\nFiles currently on the shelf:`,
-      fmt(files.rows, f => `${f.created_at.toISOString().slice(0, 10)} — ${f.name}`),
+      fmt(files.rows, f => `${ts(f.created_at)} — ${f.name}`),
       `\nGuides currently on the shelf:`,
-      fmt(guides.rows, g => `${g.created_at.toISOString().slice(0, 10)} — ${g.title}`)
+      fmt(guides.rows, g => `${ts(g.created_at)} — ${g.title}`)
     ].join('\n')
 
     try {
