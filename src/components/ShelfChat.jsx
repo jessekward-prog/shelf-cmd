@@ -33,8 +33,10 @@ const AMBER_BORDER = 'rgba(232,132,10,0.55)'
 // mobile bottom nav. The panel's height is fixed rather than spanning up to
 // the topbar — a card, not a full-height drawer.
 const RAIL_BOTTOM = 'calc(3.5rem + env(safe-area-inset-bottom) + 20px)'
+// Rail and panel share one height so the panel fills the rail exactly,
+// rather than the rail poking out past the panel's top and bottom.
 const PANEL_HEIGHT = 'min(340px, 46vh)'
-const RAIL_HEIGHT = `calc(${PANEL_HEIGHT} + 46px)`
+const RAIL_HEIGHT = PANEL_HEIGHT
 // The notch's one fixed spot — same whether the panel's open or closed.
 const NOTCH_BOTTOM = `calc(${RAIL_BOTTOM} - 8px)`
 
@@ -106,7 +108,7 @@ export default function ShelfChat({ categoryId, isLinked }) {
       <div
         className="fixed z-30"
         style={{
-          right: 0, bottom: RAIL_BOTTOM, height: RAIL_HEIGHT, width: 2,
+          right: 0, bottom: `calc(${RAIL_BOTTOM} + 10px)`, height: RAIL_HEIGHT, width: 2,
           background: AMBER_BORDER, pointerEvents: 'none'
         }}
       />
