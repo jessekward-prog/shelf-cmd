@@ -317,7 +317,10 @@ export default function Card({ card, onDelete, onUpdate, nowPlayingId, onPlay, o
       whileHover={{ scale: 1.03, zIndex: 5 }}
       transition={{ type: 'spring', damping: 24, stiffness: 320 }}
       className="rounded-xl overflow-hidden relative group"
-      style={{ background: 'var(--s-surface)', border: '1px solid var(--s-border)' }}
+      style={{
+        background: 'var(--s-surface)',
+        border: `1px solid ${card.category ? (CATEGORY_COLOR[card.category] || CATEGORY_COLOR.reference) + '55' : 'var(--s-border)'}`
+      }}
     >
       {hasMedia && (
         <MediaEmbed
