@@ -145,7 +145,7 @@ export function mountChat({ app, pool, adminOnly, adminOrToken, hub, lmComplete 
             'End your reply with a line that says exactly "FINAL ANSWER:" followed by the answer and nothing else after it.\n\n' + context
         },
         { role: 'user', content: question }
-      ], { maxTokens: 500 })
+      ], { maxTokens: 1500, strict: true })
       res.json({ answer: stripReasoning(raw) || "couldn't find an answer to that." })
     } catch (err) {
       res.status(500).json({ error: err.message })

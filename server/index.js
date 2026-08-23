@@ -1034,7 +1034,10 @@ app.post('/api/cards/:id/scrape', adminOnly, async (req, res) => {
 
 // ── Plan generation ──────────────────────────────────────────────────────────
 
-async function lmComplete(messages, { maxTokens = 800, temperature = 0.4, timeout = 180000 } = {}) {
+// strict: true never falls back to reasoning_content — for callers (like
+// MACHINE's ask endpoint) where leaking the model's scratchpad to the user
+// would be worse than an empty/short answer.
+async function lmComplete(messages, { maxTokens = 800, temperature = 0.4, timeout = 180000, strict = false } = {}) {
   const lmUrl = process.env.LM_STUDIO_URL || 'http://localhost:1234'
   const res = await fetch(`${lmUrl}/v1/chat/completions`, {
     method: 'POST',
@@ -1050,6 +1053,7 @@ async function lmComplete(messages, { maxTokens = 800, temperature = 0.4, timeou
   if (!res.ok) throw new Error(`LM Studio ${res.status}`)
   const data = await res.json()
   const msg = data.choices?.[0]?.message
+  if (strict) return (msg?.content || '').trim()
   return (msg?.content?.trim() || msg?.reasoning_content?.trim() || '')
 }
 
