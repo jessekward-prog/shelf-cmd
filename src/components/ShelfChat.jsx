@@ -25,6 +25,12 @@ function timeAgo(iso) {
 
 const lastSeenKey = (catId) => `shelf_chat_lastseen_${catId}`
 
+// Fixed amber, not var(--s-accent) — the chat should read as the same thing
+// no matter which theme is active, rather than blending into it.
+const AMBER = '#e8840a'
+const AMBER_BORDER = 'rgba(232,132,10,0.4)'
+const AMBER_FAINT = 'rgba(232,132,10,0.12)'
+
 // Floating per-shelf chat: "man" is member-to-member messages, "machine" is an
 // auto-generated activity log. Mounted once per shelf at the App level (not
 // inside CardGrid/DrivePage/GuidesView) so it survives switching between a
@@ -94,8 +100,8 @@ export default function ShelfChat({ categoryId, isLinked }) {
         className="fixed z-40 flex items-center justify-center rounded-full"
         style={{
           right: 20, bottom: 'calc(3.5rem + env(safe-area-inset-bottom) + 80px)',
-          width: 52, height: 52, background: 'var(--s-accent)', color: 'var(--s-bg)',
-          boxShadow: '0 0 20px var(--s-accent-glow), 0 4px 16px rgba(0,0,0,0.4)'
+          width: 52, height: 52, background: AMBER, color: '#1a1000',
+          boxShadow: '0 2px 12px rgba(232,132,10,0.3), 0 4px 16px rgba(0,0,0,0.4)'
         }}
         title="Shelf chat"
       >
@@ -114,27 +120,27 @@ export default function ShelfChat({ categoryId, isLinked }) {
       <AnimatePresence>
         {open && (
           <motion.div
-            initial={{ opacity: 0, y: 20, scale: 0.96 }}
-            animate={{ opacity: 1, y: 0, scale: 1 }}
-            exit={{ opacity: 0, y: 20, scale: 0.96 }}
-            transition={{ type: 'spring', damping: 24, stiffness: 320 }}
+            initial={{ opacity: 0, x: 60 }}
+            animate={{ opacity: 1, x: 0 }}
+            exit={{ opacity: 0, x: 60 }}
+            transition={{ type: 'spring', damping: 26, stiffness: 340 }}
             className="fixed z-40 flex flex-col overflow-hidden"
             style={{
               right: 20, bottom: 'calc(3.5rem + env(safe-area-inset-bottom) + 140px)',
               width: 'min(360px, calc(100vw - 40px))', height: 'min(480px, calc(100vh - 160px))',
-              background: 'var(--s-surface)', border: '1px solid var(--s-border)', borderRadius: 14,
+              background: 'var(--s-surface)', border: `1px solid ${AMBER_BORDER}`, borderRadius: 0,
               boxShadow: '0 20px 60px rgba(0,0,0,0.5)'
             }}
           >
-            <div className="flex" style={{ borderBottom: '1px solid var(--s-border)' }}>
+            <div className="flex" style={{ borderBottom: `1px solid ${AMBER_BORDER}` }}>
               {[['man', 'man'], ['machine', "what's new"]].map(([id, label]) => (
                 <button
                   key={id}
                   onClick={() => switchTab(id)}
                   style={{
                     flex: 1, padding: '10px 0', fontSize: 12, fontWeight: 600, letterSpacing: '0.06em',
-                    textTransform: 'uppercase', color: tab === id ? 'var(--s-accent)' : 'var(--s-text-3)',
-                    borderBottom: tab === id ? '2px solid var(--s-accent)' : '2px solid transparent',
+                    textTransform: 'uppercase', color: tab === id ? AMBER : 'var(--s-text-3)',
+                    borderBottom: tab === id ? `2px solid ${AMBER}` : '2px solid transparent',
                     background: 'transparent'
                   }}
                 >
@@ -160,8 +166,8 @@ export default function ShelfChat({ categoryId, isLinked }) {
                           {m.username || 'someone'} · {timeAgo(m.created_at)}
                         </div>
                         <div style={{
-                          background: 'var(--s-surface-2)', border: '1px solid var(--s-border)',
-                          borderRadius: 10, padding: '7px 10px', fontSize: 13, color: 'var(--s-text-0)',
+                          background: 'var(--s-surface-2)', borderLeft: `2px solid ${AMBER_BORDER}`,
+                          padding: '7px 10px', fontSize: 13, color: 'var(--s-text-0)',
                           wordBreak: 'break-word'
                         }}>
                           {m.body}
@@ -169,22 +175,22 @@ export default function ShelfChat({ categoryId, isLinked }) {
                       </div>
                     ))}
                   </div>
-                  <form onSubmit={send} className="flex gap-2 p-2" style={{ borderTop: '1px solid var(--s-border)' }}>
+                  <form onSubmit={send} className="flex gap-2 p-2" style={{ borderTop: `1px solid ${AMBER_BORDER}` }}>
                     <input
                       value={input}
                       onChange={(e) => setInput(e.target.value)}
                       placeholder="message this shelf…"
                       style={{
                         flex: 1, background: 'var(--s-bg)', border: '1px solid var(--s-border)',
-                        borderRadius: 8, padding: '7px 10px', fontSize: 13, color: 'var(--s-text-0)', outline: 'none'
+                        padding: '7px 10px', fontSize: 13, color: 'var(--s-text-0)', outline: 'none'
                       }}
                     />
                     <button
                       type="submit"
                       disabled={!input.trim() || sending}
                       style={{
-                        padding: '7px 14px', borderRadius: 8, fontSize: 12, fontWeight: 500,
-                        background: 'var(--s-accent)', color: 'var(--s-bg)', opacity: input.trim() ? 1 : 0.4
+                        padding: '7px 14px', fontSize: 12, fontWeight: 500,
+                        background: AMBER, color: '#1a1000', opacity: input.trim() ? 1 : 0.4
                       }}
                     >
                       send
@@ -199,10 +205,10 @@ export default function ShelfChat({ categoryId, isLinked }) {
                 )}
                 {activity.map(a => (
                   <div key={a.id} style={{
-                    display: 'flex', gap: 8, alignItems: 'flex-start', padding: '7px 8px', borderRadius: 8,
-                    background: a.created_at > lastSeen ? 'var(--s-accent-faint)' : 'transparent'
+                    display: 'flex', gap: 8, alignItems: 'flex-start', padding: '7px 8px',
+                    background: a.created_at > lastSeen ? AMBER_FAINT : 'transparent'
                   }}>
-                    <span style={{ fontSize: 13, color: 'var(--s-accent)', flexShrink: 0, width: 14, textAlign: 'center' }}>
+                    <span style={{ fontSize: 13, color: AMBER, flexShrink: 0, width: 14, textAlign: 'center' }}>
                       {ACTIVITY_ICON[a.kind] || '•'}
                     </span>
                     <div style={{ minWidth: 0, flex: 1 }}>
