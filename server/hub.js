@@ -261,10 +261,10 @@ export function makeHub(pool) {
       const { activity, seq: actSeq } = await call('GET', `/shelves/${shelf.hub_shelf_id}/activity?since=${shelf.last_seq}`)
       for (const a of activity) {
         await pool.query(
-          `INSERT INTO shelf_activity (category_id, hub_activity_id, kind, summary, created_at)
-           VALUES ($1,$2,$3,$4,$5)
+          `INSERT INTO shelf_activity (category_id, hub_activity_id, hub_user_id, kind, summary, created_at)
+           VALUES ($1,$2,$3,$4,$5,$6)
            ON CONFLICT (hub_activity_id) WHERE hub_activity_id IS NOT NULL DO NOTHING`,
-          [categoryId, a.id, a.kind, a.summary, a.created_at]
+          [categoryId, a.id, a.user_id, a.kind, a.summary, a.created_at]
         )
       }
 
@@ -397,13 +397,13 @@ export function makeHub(pool) {
       const categoryId = await categoryIdFor(a.shelf_id)
       if (!categoryId) return
       const { rows } = await pool.query(
-        `INSERT INTO shelf_activity (category_id, hub_activity_id, kind, summary, created_at)
-         VALUES ($1,$2,$3,$4,$5)
+        `INSERT INTO shelf_activity (category_id, hub_activity_id, hub_user_id, kind, summary, created_at)
+         VALUES ($1,$2,$3,$4,$5,$6)
          ON CONFLICT (hub_activity_id) WHERE hub_activity_id IS NOT NULL DO NOTHING
          RETURNING *`,
-        [categoryId, a.id, a.kind, a.summary, a.created_at]
+        [categoryId, a.id, a.user_id, a.kind, a.summary, a.created_at]
       )
-      events.emit('activity', { categoryId, row: rows[0] || a })
+      events.emit('activity', { categoryId, row: rows[0] ? { ...rows[0], username: a.username } : { ...a, username: a.username } })
     })
 
     return socket

@@ -51,6 +51,9 @@ export default function ShelfChat({ categoryId, isLinked }) {
   const [activity, setActivity] = useState([])
   const [input, setInput] = useState('')
   const [sending, setSending] = useState(false)
+  const [question, setQuestion] = useState('')
+  const [asking, setAsking] = useState(false)
+  const [answer, setAnswer] = useState(null)
   const [lastSeen, setLastSeen] = useState(() => localStorage.getItem(lastSeenKey(categoryId)) || new Date(0).toISOString())
   const listRef = useRef(null)
   const esRef = useRef(null)
@@ -87,9 +90,9 @@ export default function ShelfChat({ categoryId, isLinked }) {
 
   const openPanel = () => {
     setOpen(true)
-    if (tab === 'machine') markSeen()
+    if (tab === 'whatsnew') markSeen()
   }
-  const switchTab = (t) => { setTab(t); if (t === 'machine') markSeen() }
+  const switchTab = (t) => { setTab(t); if (t === 'whatsnew') markSeen() }
 
   const send = async (e) => {
     e.preventDefault()
@@ -99,6 +102,21 @@ export default function ShelfChat({ categoryId, isLinked }) {
     setSending(true)
     try { await api.sendMessage(categoryId, body) } catch { /* queued or failed — it'll show up once synced */ }
     setSending(false)
+  }
+
+  const ask = async (e) => {
+    e.preventDefault()
+    const q = question.trim()
+    if (!q || asking) return
+    setAsking(true)
+    setAnswer(null)
+    try {
+      const { answer } = await api.askMachine(categoryId, q)
+      setAnswer(answer)
+    } catch (err) {
+      setAnswer(`couldn't reach the machine — ${err.message}`)
+    }
+    setAsking(false)
   }
 
   return (
@@ -160,7 +178,7 @@ export default function ShelfChat({ categoryId, isLinked }) {
               boxShadow: '0 24px 48px -12px rgba(0,0,0,0.65)'
             }}>
             <div className="flex" style={{ borderBottom: '1px solid var(--s-border)' }}>
-              {[['man', 'man'], ['machine', "what's new"]].map(([id, label]) => (
+              {[['man', 'man'], ['machine', 'machine'], ['whatsnew', "what's new"]].map(([id, label]) => (
                 <button
                   key={id}
                   onClick={() => switchTab(id)}
@@ -225,6 +243,48 @@ export default function ShelfChat({ categoryId, isLinked }) {
                   </form>
                 </>
               )
+            ) : tab === 'machine' ? (
+              <>
+                <div className="flex-1 overflow-y-auto px-3 py-3" style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                  {!answer && !asking && (
+                    <div style={{ textAlign: 'center', color: 'var(--s-text-3)', fontSize: 11, marginTop: 20 }}>
+                      ask about this shelf's history — "what cards were added last week?"
+                    </div>
+                  )}
+                  {asking && (
+                    <div style={{ textAlign: 'center', color: 'var(--s-text-3)', fontSize: 11, marginTop: 20 }}>thinking…</div>
+                  )}
+                  {answer && (
+                    <div style={{
+                      background: 'var(--s-surface-2)', border: '1px solid var(--s-border)',
+                      padding: '9px 11px', fontSize: 13, color: 'var(--s-text-0)', whiteSpace: 'pre-wrap'
+                    }}>
+                      {answer}
+                    </div>
+                  )}
+                </div>
+                <form onSubmit={ask} className="flex gap-2 p-2" style={{ borderTop: '1px solid var(--s-border)' }}>
+                  <input
+                    value={question}
+                    onChange={(e) => setQuestion(e.target.value)}
+                    placeholder="ask the machine…"
+                    style={{
+                      flex: 1, background: 'var(--s-bg)', border: '1px solid var(--s-border)',
+                      padding: '7px 10px', fontSize: 13, color: 'var(--s-text-0)', outline: 'none'
+                    }}
+                  />
+                  <button
+                    type="submit"
+                    disabled={!question.trim() || asking}
+                    style={{
+                      padding: '7px 14px', fontSize: 12, fontWeight: 500,
+                      background: 'var(--s-accent)', color: 'var(--s-bg)', opacity: question.trim() ? 1 : 0.4
+                    }}
+                  >
+                    ask
+                  </button>
+                </form>
+              </>
             ) : (
               <div className="flex-1 overflow-y-auto px-3 py-3" style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
                 {activity.length === 0 && (

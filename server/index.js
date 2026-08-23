@@ -619,6 +619,7 @@ app.post('/api/categories/:id/subcategories', adminOnly, async (req, res) => {
     'INSERT INTO subcategories (category_id, name) VALUES ($1, $2) RETURNING *',
     [req.params.id, name]
   )
+  logActivity(pool, hub, Number(req.params.id), 'tab_added', `added a tab: ${name}`).catch(() => {})
   res.json(rows[0])
 })
 
@@ -631,7 +632,9 @@ app.put('/api/subcategories/reorder', adminOnly, async (req, res) => {
 })
 
 app.delete('/api/subcategories/:id', adminOnly, async (req, res) => {
+  const { rows } = await pool.query('SELECT category_id, name FROM subcategories WHERE id=$1', [req.params.id])
   await pool.query('DELETE FROM subcategories WHERE id=$1', [req.params.id])
+  if (rows[0]) logActivity(pool, hub, rows[0].category_id, 'tab_removed', `removed a tab: ${rows[0].name}`).catch(() => {})
   res.json({ ok: true })
 })
 
@@ -878,6 +881,11 @@ app.put('/api/cards/:id', async (req, res) => {
     'UPDATE cards SET title=$1, description=$2, notes=$3 WHERE id=$4 RETURNING *',
     [title, description, notes, req.params.id]
   )
+  // Notes autosave on every keystroke, so only log title/description changes —
+  // otherwise the activity log would be mostly note-typing noise.
+  if (title !== existing.title || description !== existing.description) {
+    logActivity(pool, hub, existing.category_id, 'card_edited', `edited a card: ${title || existing.title}`).catch(() => {})
+  }
   res.json(rows[0])
 })
 
@@ -1126,6 +1134,7 @@ app.post('/api/cards/:id/plan', adminOnly, async (req, res) => {
       'UPDATE cards SET metadata=$1 WHERE id=$2 RETURNING *',
       [JSON.stringify(metadata), card.id]
     )
+    logActivity(pool, hub, card.category_id, 'plan_regenerated', `generated a tutorial plan for: ${card.title || card.url}`).catch(() => {})
     res.json(rows[0])
   } catch (err) {
     console.error('plan error:', err.message)
@@ -1158,7 +1167,7 @@ app.delete('/api/notes/:id', adminOnly, async (req, res) => {
 // resolves fine even though it's defined further up.
 mountDrive({ app, pool, adminOnly, lmComplete, hub })
 mountGuide({ app, pool, adminOnly, adminOrToken, hub })
-mountChat({ app, pool, adminOnly, adminOrToken, hub })
+mountChat({ app, pool, adminOnly, adminOrToken, hub, lmComplete })
 
 // Unknown /api paths must not fall through to the SPA, or a stale client gets
 // HTML where it expected JSON and fails with a parse error instead of a 404.
