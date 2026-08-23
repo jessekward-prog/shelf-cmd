@@ -39,6 +39,10 @@ const PANEL_HEIGHT = 'min(850px, 85vh)'
 const RAIL_HEIGHT = PANEL_HEIGHT
 // The notch's one fixed spot — same whether the panel's open or closed.
 const NOTCH_BOTTOM = `calc(${RAIL_BOTTOM} - 8px)`
+// The notch pokes up into the panel's bottom-right corner by this much —
+// the send/ask forms need at least this much bottom clearance so their
+// buttons don't sit underneath it.
+const NOTCH_OVERLAP = 20
 
 // Floating per-shelf chat: "man" is member-to-member messages, "machine" is an
 // auto-generated activity log. Mounted once per shelf at the App level (not
@@ -161,26 +165,6 @@ export default function ShelfChat({ categoryId, isLinked }) {
         )}
       </motion.button>
 
-      {/* Reverse-vignette backdrop: dims toward the edges, stays clear right
-          behind the panel, so the panel reads as lit rather than just another
-          layer on the page. Doesn't intercept clicks — browsing still works
-          with the chat open. */}
-      <AnimatePresence>
-        {open && (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            transition={{ duration: 0.25 }}
-            className="fixed inset-0 z-[35]"
-            style={{
-              pointerEvents: 'none',
-              background: 'radial-gradient(ellipse 70% 65% at bottom right, transparent 0%, rgba(0,0,0,0.55) 70%, rgba(0,0,0,0.55) 100%)'
-            }}
-          />
-        )}
-      </AnimatePresence>
-
       <AnimatePresence>
         {open && (
           <motion.div
@@ -197,7 +181,10 @@ export default function ShelfChat({ categoryId, isLinked }) {
             <div className="flex flex-col overflow-hidden h-full" style={{
               background: 'var(--s-surface)', border: `1px solid ${AMBER_BORDER}`,
               borderRadius: '14px 0 0 14px',
-              boxShadow: '0 24px 48px -12px rgba(0,0,0,0.65)'
+              // A shadow that hugs the panel and tapers off within ~2cm, rather
+              // than a full-screen dim — makes the panel pop without darkening
+              // the rest of the page.
+              boxShadow: '0 0 70px 18px rgba(0,0,0,0.55), 0 24px 48px -12px rgba(0,0,0,0.65)'
             }}>
             <div className="flex" style={{ borderBottom: '1px solid var(--s-border)' }}>
               {[['man', 'man'], ['machine', 'machine'], ['whatsnew', "what's new"]].map(([id, label]) => (
@@ -242,7 +229,7 @@ export default function ShelfChat({ categoryId, isLinked }) {
                       </div>
                     ))}
                   </div>
-                  <form onSubmit={send} className="flex gap-2 p-2" style={{ borderTop: '1px solid var(--s-border)' }}>
+                  <form onSubmit={send} className="flex gap-2 p-2" style={{ borderTop: '1px solid var(--s-border)', paddingBottom: NOTCH_OVERLAP }}>
                     <input
                       value={input}
                       onChange={(e) => setInput(e.target.value)}
@@ -299,7 +286,7 @@ export default function ShelfChat({ categoryId, isLinked }) {
                     </div>
                   ))}
                 </div>
-                <form onSubmit={ask} className="flex gap-2 p-2" style={{ borderTop: '1px solid var(--s-border)' }}>
+                <form onSubmit={ask} className="flex gap-2 p-2" style={{ borderTop: '1px solid var(--s-border)', paddingBottom: NOTCH_OVERLAP }}>
                   <input
                     value={question}
                     onChange={(e) => setQuestion(e.target.value)}
