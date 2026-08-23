@@ -84,6 +84,7 @@ export default function App({ me }) {
   const [guidesKey, setGuidesKey] = useState(0)
   const [shelfMode, setShelfMode] = useState('cards') // 'cards' | 'drive' | 'guides', per shelf
   const [recoloring, setRecoloring] = useState(false)
+  const [recolorResult, setRecolorResult] = useState(null)
   const [nowPlaying, setNowPlaying] = useState(null)
   const [popped, setPopped] = useState(null) // card floating in the mini-player
   const pollTimers = useRef({})
@@ -122,12 +123,21 @@ export default function App({ me }) {
   // Classification runs server-side after a card's created, so a card added
   // from elsewhere (or before this shipped) shows no dot until this backfills
   // it and this shelf's cards are reloaded — same pattern as Guides' own sync.
+  // Success and "nothing to do" look identical with no dots changing, so this
+  // has to report what actually happened rather than fail silently either way.
   const recolorCards = () => {
     setRecoloring(true)
+    setRecolorResult(null)
     api.backfillCardCategories()
-      .then(() => loadCards(activeCatRef.current, activeSubcatRef.current))
-      .catch(() => {})
-      .finally(() => setRecoloring(false))
+      .then(({ updated }) => {
+        setRecolorResult(updated > 0 ? `+${updated}` : 'up to date')
+        return loadCards(activeCatRef.current, activeSubcatRef.current)
+      })
+      .catch(() => setRecolorResult('failed — check LM Studio'))
+      .finally(() => {
+        setRecoloring(false)
+        setTimeout(() => setRecolorResult(null), 3000)
+      })
   }
 
   useEffect(() => {
@@ -469,6 +479,11 @@ export default function App({ me }) {
                       <path d="M21 12a9 9 0 1 1-2.64-6.36" /><path d="M21 3v6h-6" />
                     </svg>
                   </button>
+                  {recolorResult && (
+                    <span style={{ fontSize: 10, letterSpacing: '0.08em', color: 'var(--s-text-3)', marginBottom: 14 }}>
+                      {recolorResult}
+                    </span>
+                  )}
                 </div>
               )}
 
