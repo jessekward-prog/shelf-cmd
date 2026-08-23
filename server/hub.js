@@ -390,7 +390,7 @@ export function makeHub(pool) {
          RETURNING *`,
         [categoryId, m.id, m.user_id, m.body, m.created_at]
       )
-      events.emit('message', { categoryId, row: rows[0] ? { ...rows[0], username: m.username } : { ...m, username: m.username } })
+      if (rows[0]) events.emit('message', { categoryId, row: { ...rows[0], username: m.username } })
     })
 
     socket.on('activity:new', async (a) => {
