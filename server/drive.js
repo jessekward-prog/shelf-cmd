@@ -134,7 +134,7 @@ function cleanBlurb(raw) {
   return s.trim()
 }
 
-export function mountDrive({ app, pool, adminOnly, lmComplete, hub }) {
+export function mountDrive({ app, pool, adminOnly, adminOrToken, lmComplete, hub }) {
   const storage = multer.diskStorage({
     destination: (_req, _file, cb) => cb(null, UPLOADS_DIR),
     filename: (_req, file, cb) => cb(null, randomBytes(16).toString('hex') + extname(file.originalname).slice(0, 12))
@@ -262,9 +262,9 @@ export function mountDrive({ app, pool, adminOnly, lmComplete, hub }) {
     }
   }
 
-  app.get('/api/categories/:id/remote/:fileId/raw', ownerOrToken, (req, res) =>
+  app.get('/api/categories/:id/remote/:fileId/raw', adminOrToken, (req, res) =>
     remoteStream(req, res, `/files/${Number(req.params.fileId)}/raw${req.query.dl === '1' ? '?dl=1' : ''}`))
-  app.get('/api/categories/:id/remote/:fileId/thumb', ownerOrToken, (req, res) =>
+  app.get('/api/categories/:id/remote/:fileId/thumb', adminOrToken, (req, res) =>
     remoteStream(req, res, `/files/${Number(req.params.fileId)}/thumb`))
 
   // ── Serving this instance's drive to members (owner side) ─────────────────
@@ -430,7 +430,7 @@ export function mountDrive({ app, pool, adminOnly, lmComplete, hub }) {
     archive.finalize()
   }
 
-  app.get('/api/categories/:id/folder/zip', ownerOrToken, (req, res) =>
+  app.get('/api/categories/:id/folder/zip', adminOrToken, (req, res) =>
     streamZip(res, req.params.id, String(req.query.prefix || '')))
 
   app.get('/s/f/:token', async (req, res) => {
@@ -440,18 +440,10 @@ export function mountDrive({ app, pool, adminOnly, lmComplete, hub }) {
     streamZip(res, rows[0].category_id, rows[0].prefix)
   })
 
-  // Auth-gated bytes for the owner's own UI. <img>/<a> can't send a bearer
-  // header, so these also accept the admin token as ?t= (unguessable capability).
-  async function ownerOrToken(req, res, next) {
-    if (req.user?.is_admin) return next()
-    if (req.query.t) {
-      const { rows } = await pool.query('SELECT is_admin FROM users WHERE token=$1', [req.query.t])
-      if (rows[0]?.is_admin) return next()
-    }
-    res.status(403).json({ error: 'admin only' })
-  }
-  app.get('/api/files/:id/raw', ownerOrToken, (req, res) => sendFile(res, req.params.id, req.query.dl === '1'))
-  app.get('/api/files/:id/thumb', ownerOrToken, (req, res) => sendThumb(res, req.params.id))
+  // adminOrToken (passed in) covers the owner's own UI too: <img>/<a> can't
+  // send a bearer header, so it also accepts the admin token as ?t=.
+  app.get('/api/files/:id/raw', adminOrToken, (req, res) => sendFile(res, req.params.id, req.query.dl === '1'))
+  app.get('/api/files/:id/thumb', adminOrToken, (req, res) => sendThumb(res, req.params.id))
 
   app.post('/api/files/:id/share', adminOnly, async (req, res) => {
     const { rows: have } = await pool.query('SELECT token FROM file_share_tokens WHERE file_id=$1 LIMIT 1', [req.params.id])

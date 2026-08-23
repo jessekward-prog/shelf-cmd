@@ -5,7 +5,6 @@ import pg from 'pg'
 import { readFile } from 'fs/promises'
 import { fileURLToPath } from 'url'
 import { dirname, join } from 'path'
-import { chromium as chromiumBase } from 'playwright'
 import { chromium } from 'playwright-extra'
 import StealthPlugin from 'puppeteer-extra-plugin-stealth'
 import { YoutubeTranscript } from 'youtube-transcript'
@@ -1169,7 +1168,7 @@ app.delete('/api/notes/:id', adminOnly, async (req, res) => {
 
 // Drive: file storage per shelf. lmComplete is hoisted, so the blurb generator
 // resolves fine even though it's defined further up.
-mountDrive({ app, pool, adminOnly, lmComplete, hub })
+mountDrive({ app, pool, adminOnly, adminOrToken, lmComplete, hub })
 mountGuide({ app, pool, adminOnly, adminOrToken, hub })
 mountChat({ app, pool, adminOnly, adminOrToken, hub, lmComplete })
 

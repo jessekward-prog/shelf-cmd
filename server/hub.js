@@ -536,11 +536,11 @@ export function makeHub(pool) {
 
   return {
     url: HUB_URL,
-    publish, link, syncOne, syncAll, postCard, deleteCard, updateCard,
+    publish, link, syncOne, postCard, deleteCard, updateCard,
     postGuide, deleteGuideRemote,
     postMessage, postActivity, joinShelfRoom, events,
-    flushOutbox, invite, members, linkedShelf, setUsername, startLoop,
-    ticketFor, redeemTicket, publicUrl: PUBLIC_URL,
+    invite, members, linkedShelf, setUsername, startLoop,
+    ticketFor, redeemTicket,
     identity: async () => ({
       token: await hubToken(),
       user_id: await getSetting('hub_user_id'),
