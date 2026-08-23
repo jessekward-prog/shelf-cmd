@@ -1,6 +1,6 @@
 import { motion } from 'framer-motion'
 
-import { CollabIcon } from './MembersBar.jsx'
+import { CollabIcon, LinkIcon } from './MembersBar.jsx'
 import ShelfIcon from './ShelfIcons.jsx'
 
 export default function CategoryNav({ categories, activeId, onSelect, onAdd, onJoin, onShare, onManage }) {
@@ -22,7 +22,7 @@ export default function CategoryNav({ categories, activeId, onSelect, onAdd, onJ
           >
             <ShelfIcon name={cat.icon} size={16} />
             <span>{cat.name}</span>
-            {cat.is_collab && <CollabIcon size={11} />}
+            {cat.is_collab && <LinkIcon size={11} />}
             {active && (
               <motion.div
                 layoutId="cat-indicator"

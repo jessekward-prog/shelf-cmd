@@ -263,6 +263,20 @@ html.theme-paper body::after {
   box-sizing: border-box;
 }
 
+/* Covers the CSS-transition hover/press feedback used throughout (Sidebar
+   rows, buttons, PinGate's numpad). framer-motion's own animations (page
+   transitions, drag-reorder, the mini-player) are driven in JS and aren't
+   reachable from CSS — those still need a per-component reduced-motion check
+   if this ever needs to go further. */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    scroll-behavior: auto !important;
+  }
+}
+
 html, body, #root {
   height: 100%;
   height: 100dvh;

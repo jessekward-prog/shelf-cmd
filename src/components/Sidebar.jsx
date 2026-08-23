@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { motion, AnimatePresence, Reorder } from 'framer-motion'
-import { CollabIcon } from './MembersBar.jsx'
+import { CollabIcon, LinkIcon } from './MembersBar.jsx'
 import ShelfIcon from './ShelfIcons.jsx'
 
 function StarIcon({ filled }) {
@@ -210,7 +210,7 @@ export default function Sidebar({
                   >
                     <ShelfIcon name={cat.icon} />
                     <span className="truncate flex-1">{cat.name}</span>
-                    {cat.is_collab && <CollabIcon size={11} />}
+                    {cat.is_collab && <LinkIcon size={11} />}
                     {active && <ChevronIcon open />}
                   </Row>
 

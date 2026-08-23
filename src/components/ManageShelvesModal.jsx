@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { motion, Reorder } from 'framer-motion'
 import ShelfIcon from './ShelfIcons.jsx'
-import { CollabIcon } from './MembersBar.jsx'
+import { LinkIcon } from './MembersBar.jsx'
 
 function DragHandle() {
   return (
@@ -92,7 +92,7 @@ export default function ManageShelvesModal({ categories, onClose, onReorder, onR
                 <span style={{ color: 'var(--s-text-3)', touchAction: 'none' }}><DragHandle /></span>
                 <ShelfIcon name={cat.icon} />
                 <span className="truncate flex-1" style={{ fontSize: 13, color: 'var(--s-text-0)' }}>{cat.name}</span>
-                {cat.is_collab && <CollabIcon size={11} />}
+                {cat.is_collab && <LinkIcon size={11} />}
                 <button
                   style={{ ...iconBtn, color: favorites.includes(cat.id) ? 'var(--s-accent)' : 'var(--s-text-3)' }}
                   title={favorites.includes(cat.id) ? 'Remove from favourites' : 'Add to favourites'}
