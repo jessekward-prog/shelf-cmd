@@ -35,7 +35,7 @@ const AMBER_BORDER = 'rgba(232,132,10,0.55)'
 const RAIL_BOTTOM = 'calc(3.5rem + env(safe-area-inset-bottom) + 20px)'
 // Rail and panel share one height so the panel fills the rail exactly,
 // rather than the rail poking out past the panel's top and bottom.
-const PANEL_HEIGHT = 'min(340px, 46vh)'
+const PANEL_HEIGHT = 'min(850px, 85vh)'
 const RAIL_HEIGHT = PANEL_HEIGHT
 // The notch's one fixed spot — same whether the panel's open or closed.
 const NOTCH_BOTTOM = `calc(${RAIL_BOTTOM} - 8px)`
