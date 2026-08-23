@@ -247,25 +247,31 @@ export function makeHub(pool) {
       }
 
       // Live delivery is the socket above; this pull just backstops anything
-      // missed while offline or before a chat panel was ever opened.
+      // missed while offline or before a chat panel was ever opened — it has
+      // to emit the same way the socket does, or a chat panel that's open
+      // right now never learns the backstop found something.
       const { messages, seq: msgSeq } = await call('GET', `/shelves/${shelf.hub_shelf_id}/messages?since=${shelf.last_seq}`)
       for (const m of messages) {
-        await pool.query(
+        const { rows } = await pool.query(
           `INSERT INTO shelf_messages (category_id, hub_message_id, hub_user_id, body, created_at)
            VALUES ($1,$2,$3,$4,$5)
-           ON CONFLICT (hub_message_id) WHERE hub_message_id IS NOT NULL DO NOTHING`,
+           ON CONFLICT (hub_message_id) WHERE hub_message_id IS NOT NULL DO NOTHING
+           RETURNING *`,
           [categoryId, m.id, m.user_id, m.body, m.created_at]
         )
+        if (rows[0]) events.emit('message', { categoryId, row: { ...rows[0], username: m.username } })
       }
 
       const { activity, seq: actSeq } = await call('GET', `/shelves/${shelf.hub_shelf_id}/activity?since=${shelf.last_seq}`)
       for (const a of activity) {
-        await pool.query(
+        const { rows } = await pool.query(
           `INSERT INTO shelf_activity (category_id, hub_activity_id, hub_user_id, kind, summary, created_at)
            VALUES ($1,$2,$3,$4,$5,$6)
-           ON CONFLICT (hub_activity_id) WHERE hub_activity_id IS NOT NULL DO NOTHING`,
+           ON CONFLICT (hub_activity_id) WHERE hub_activity_id IS NOT NULL DO NOTHING
+           RETURNING *`,
           [categoryId, a.id, a.user_id, a.kind, a.summary, a.created_at]
         )
+        if (rows[0]) events.emit('activity', { categoryId, row: { ...rows[0], username: a.username } })
       }
 
       await pool.query(

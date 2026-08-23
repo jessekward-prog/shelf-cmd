@@ -89,6 +89,10 @@ export default function App({ me }) {
   const latestCats = useRef([])
   const latestSubs = useRef([])
   const searchRef = useRef(null)
+  const activeCatRef = useRef(null)
+  const activeSubcatRef = useRef(null)
+  useEffect(() => { activeCatRef.current = activeCatId }, [activeCatId])
+  useEffect(() => { activeSubcatRef.current = activeSubcatId }, [activeSubcatId])
 
   const startPolling = useCallback((id) => {
     if (pollTimers.current[id]) return
@@ -134,8 +138,18 @@ export default function App({ me }) {
     setActiveSubcatId(null)
     setSearch('')
     setShelfMode('cards')
-    api.getSubcategories(activeCatId).then(setSubcategories).catch(() => setSubcategories([]))
-    loadCards(activeCatId, null)
+    const catId = activeCatId
+    api.getSubcategories(catId).then(setSubcategories).catch(() => setSubcategories([]))
+    loadCards(catId, null)
+    // Fire-and-forget: pull anything missed since the last background poll.
+    // Local data is already showing, so this just patches it in once it
+    // lands rather than blocking the shelf on a hub round trip. A no-op for
+    // a shelf that isn't hub-linked.
+    api.syncShelf(catId).then(() => {
+      if (activeCatRef.current !== catId) return
+      api.getSubcategories(catId).then(setSubcategories).catch(() => {})
+      loadCards(catId, activeSubcatRef.current)
+    }).catch(() => {})
   }, [activeCatId])
 
   useEffect(() => {
