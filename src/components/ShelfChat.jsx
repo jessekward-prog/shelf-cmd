@@ -184,7 +184,7 @@ export default function ShelfChat({ categoryId, isLinked }) {
               // A shadow that hugs the panel and tapers off within ~2cm, rather
               // than a full-screen dim — makes the panel pop without darkening
               // the rest of the page.
-              boxShadow: '0 0 80px 26px rgba(0,0,0,0.75), 0 24px 48px -12px rgba(0,0,0,0.75)'
+              boxShadow: '0 0 85px 30px rgba(0,0,0,0.82), 0 24px 48px -12px rgba(0,0,0,0.8)'
             }}>
             <div className="flex" style={{ borderBottom: '1px solid var(--s-border)' }}>
               {[['man', 'man'], ['machine', 'machine'], ['whatsnew', "what's new"]].map(([id, label]) => (

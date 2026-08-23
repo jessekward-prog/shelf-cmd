@@ -53,7 +53,7 @@ export default function MiniPlayer({ card, onClose }) {
           maxWidth: 'calc(100vw - 2rem)',
           background: 'var(--s-surface)',
           border: '1px solid var(--s-accent)',
-          boxShadow: '0 0 24px var(--s-accent-glow), 0 12px 32px rgba(0,0,0,0.5)'
+          boxShadow: '0 0 24px var(--s-accent-glow), 0 0 85px 30px rgba(0,0,0,0.82), 0 12px 32px rgba(0,0,0,0.5)'
         }}
       >
         {/* Drag handle / title bar */}
