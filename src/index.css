@@ -2,6 +2,12 @@
 @tailwind components;
 @tailwind utilities;
 
+/* Shared by any spinning-refresh icon (Guides' sync button, Cards' recolor
+   button, ...) so it's defined once instead of per-component. */
+@keyframes spin {
+  to { transform: rotate(360deg) }
+}
+
 /* ── Shelf design tokens (phosphor default) ─────────────────────────────── */
 :root {
   --s-font:    'JetBrains Mono', 'Fira Mono', monospace;

@@ -83,6 +83,7 @@ export default function App({ me }) {
   const [guideModalCatId, setGuideModalCatId] = useState(null)
   const [guidesKey, setGuidesKey] = useState(0)
   const [shelfMode, setShelfMode] = useState('cards') // 'cards' | 'drive' | 'guides', per shelf
+  const [recoloring, setRecoloring] = useState(false)
   const [nowPlaying, setNowPlaying] = useState(null)
   const [popped, setPopped] = useState(null) // card floating in the mini-player
   const pollTimers = useRef({})
@@ -117,6 +118,17 @@ export default function App({ me }) {
       loaded.filter(c => c.status === 'pending').forEach(c => startPolling(c.id))
     })
   }, [startPolling])
+
+  // Classification runs server-side after a card's created, so a card added
+  // from elsewhere (or before this shipped) shows no dot until this backfills
+  // it and this shelf's cards are reloaded — same pattern as Guides' own sync.
+  const recolorCards = () => {
+    setRecoloring(true)
+    api.backfillCardCategories()
+      .then(() => loadCards(activeCatRef.current, activeSubcatRef.current))
+      .catch(() => {})
+      .finally(() => setRecoloring(false))
+  }
 
   useEffect(() => {
     applyTheme(theme)
@@ -440,8 +452,23 @@ export default function App({ me }) {
               )}
 
               {shelfMode === 'cards' && cards.length > 0 && (
-                <div className="px-4 lg:px-8">
+                <div className="px-4 lg:px-8 flex items-center gap-2">
                   <Legend />
+                  <button
+                    onClick={recolorCards}
+                    disabled={recoloring}
+                    title="Classify any card missing a category, and pull in anything new"
+                    className="glow-focus"
+                    style={{
+                      display: 'flex', padding: 4, borderRadius: 6, marginBottom: 14,
+                      color: 'var(--s-text-3)', opacity: recoloring ? 0.5 : 1
+                    }}
+                  >
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
+                      style={{ width: 13, height: 13, animation: recoloring ? 'spin 0.8s linear infinite' : 'none' }}>
+                      <path d="M21 12a9 9 0 1 1-2.64-6.36" /><path d="M21 3v6h-6" />
+                    </svg>
+                  </button>
                 </div>
               )}
 

@@ -39,6 +39,7 @@ export const updateCard = (id, data) => req('PUT', `/cards/${id}`, data)
 export const deleteCard = (id) => req('DELETE', `/cards/${id}`)
 export const scrapeCard = (id) => req('POST', `/cards/${id}/scrape`, {})
 export const generatePlan = (id) => req('POST', `/cards/${id}/plan`, {})
+export const backfillCardCategories = () => req('POST', '/cards/backfill-categories', {})
 
 export const getNotes    = ()           => req('GET',    '/notes')
 export const createNote  = (data)       => req('POST',   '/notes', data)
