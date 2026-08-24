@@ -9,6 +9,19 @@ function fmtBytes(b) {
   return `${(b / Math.pow(k, i)).toFixed(i ? 1 : 0)} ${s[i]}`
 }
 
+function timeAgo(iso) {
+  const s = Math.max(0, (Date.now() - new Date(iso).getTime()) / 1000)
+  if (s < 60) return 'just now'
+  if (s < 3600) return `${Math.floor(s / 60)}m ago`
+  if (s < 86400) return `${Math.floor(s / 3600)}h ago`
+  return `${Math.floor(s / 86400)}d ago`
+}
+
+// The PlayStation triangle-button green — a deliberate one-off accent for
+// this one piece of metadata, not a theme color, so it stays put across
+// every CRT/clean palette instead of shifting with var(--s-accent).
+const PS_GREEN = '#1FAA8C'
+
 const KIND_LABEL = { image: 'Image', video: 'Video', audio: 'Audio', pdf: 'PDF', doc: 'Document', archive: 'Archive', other: 'File' }
 
 export default function FileCard({ file, onDelete, onShare }) {
@@ -72,6 +85,10 @@ export default function FileCard({ file, onDelete, onShare }) {
           <p className="text-xs leading-relaxed" style={{ color: 'var(--s-text-2)' }}>{file.blurb}</p>
         ) : (
           <p className="text-xs" style={{ color: 'var(--s-text-3)' }}>{KIND_LABEL[file.kind] || 'File'}</p>
+        )}
+
+        {!pending && file.created_at && (
+          <p className="text-xs mt-1" style={{ color: PS_GREEN }}>updated {timeAgo(file.created_at)}</p>
         )}
 
         <div className="flex items-center justify-between mt-3 pt-2" style={{ borderTop: '1px solid var(--s-surface-2)' }}>

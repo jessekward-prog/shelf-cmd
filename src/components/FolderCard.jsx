@@ -9,6 +9,19 @@ function fmtBytes(b) {
   return `${(b / Math.pow(k, i)).toFixed(i ? 1 : 0)} ${s[i]}`
 }
 
+function timeAgo(iso) {
+  const s = Math.max(0, (Date.now() - new Date(iso).getTime()) / 1000)
+  if (s < 60) return 'just now'
+  if (s < 3600) return `${Math.floor(s / 60)}m ago`
+  if (s < 86400) return `${Math.floor(s / 3600)}h ago`
+  return `${Math.floor(s / 86400)}d ago`
+}
+
+// The PlayStation triangle-button green — a deliberate one-off accent for
+// this one piece of metadata, not a theme color, so it stays put across
+// every CRT/clean palette instead of shifting with var(--s-accent).
+const PS_GREEN = '#1FAA8C'
+
 export default function FolderCard({ folder, onOpen, onDelete, onShare }) {
   const [confirm, setConfirm] = useState(false)
 
@@ -45,8 +58,14 @@ export default function FolderCard({ folder, onOpen, onDelete, onShare }) {
           style={{ color: 'var(--s-text-0)' }} title={folder.name}>
           {folder.name}
         </p>
-        <p className="text-xs" style={{ color: 'var(--s-text-2)', fontVariantNumeric: 'tabular-nums' }}>
+        <p className="text-xs flex items-center gap-1.5" style={{ color: 'var(--s-text-2)', fontVariantNumeric: 'tabular-nums' }}>
           {fmtBytes(folder.size)}
+          {folder.updatedAt && (
+            <>
+              <span style={{ color: 'var(--s-border)' }}>·</span>
+              <span style={{ color: PS_GREEN }}>updated {timeAgo(folder.updatedAt)}</span>
+            </>
+          )}
         </p>
 
         <div className="flex items-center justify-between mt-3 pt-2" style={{ borderTop: '1px solid var(--s-surface-2)' }}>

@@ -16,8 +16,9 @@ function listing(files, path) {
     const slash = rest.indexOf('/')
     if (slash === -1) { here.push(f); continue }
     const dir = rest.slice(0, slash)
-    const agg = folders.get(dir) || { name: dir, prefix: prefix + dir, count: 0, size: 0 }
+    const agg = folders.get(dir) || { name: dir, prefix: prefix + dir, count: 0, size: 0, updatedAt: null }
     agg.count++; agg.size += Number(f.size) || 0
+    if (!agg.updatedAt || f.created_at > agg.updatedAt) agg.updatedAt = f.created_at
     folders.set(dir, agg)
   }
   return {
