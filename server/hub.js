@@ -94,7 +94,7 @@ export function makeHub(pool) {
         tab_local_id: c.subcategory_id ? String(c.subcategory_id) : null,
         type: c.type, url: c.url, title: c.title, description: c.description,
         thumbnail_url: c.thumbnail_url, media_id: c.youtube_id, notes: c.notes,
-        metadata: c.metadata || {}
+        metadata: c.metadata || {}, category: c.category
       }))
     }
     if (!existing) payload.username = username?.trim() || 'shelf owner'
@@ -218,13 +218,14 @@ export function makeHub(pool) {
         )
         await pool.query(
           `INSERT INTO cards (category_id, subcategory_id, hub_card_id, hub_user_id, type, url, title,
-                              description, thumbnail_url, youtube_id, notes, metadata, status)
-           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,'ready')
+                              description, thumbnail_url, youtube_id, notes, metadata, category, status)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,'ready')
            ON CONFLICT (hub_card_id) WHERE hub_card_id IS NOT NULL
            DO UPDATE SET subcategory_id=$2, hub_user_id=$4, title=$7, description=$8,
-                         thumbnail_url=$9, notes=$11, metadata=$12`,
+                         thumbnail_url=$9, notes=$11, metadata=$12,
+                         category=COALESCE($13, cards.category)`,
           [categoryId, tab[0]?.id || null, c.id, c.user_id, c.type, c.url, c.title, c.description,
-           c.thumbnail_url, c.media_id, c.notes, JSON.stringify(c.metadata || {})]
+           c.thumbnail_url, c.media_id, c.notes, JSON.stringify(c.metadata || {}), c.category || null]
         )
       }
 
@@ -320,7 +321,8 @@ export function makeHub(pool) {
       thumbnail_url: card.thumbnail_url,
       media_id: card.youtube_id || null,
       notes: card.notes || null,
-      metadata: card.metadata || {}
+      metadata: card.metadata || {},
+      category: card.category || null
     }
 
     try {

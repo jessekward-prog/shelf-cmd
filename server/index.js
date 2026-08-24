@@ -145,6 +145,23 @@ function lmHeaders() {
   return { 'Content-Type': 'application/json', ...(key && { Authorization: `Bearer ${key}` }) }
 }
 
+const LM_URL = () => process.env.LM_STUDIO_URL || 'http://localhost:1234'
+
+// Which model the server-side AI (descriptions, scrape, plans, guides, the
+// legend classifier) uses. Env sets the default; picking one in the UI stores it
+// and overrides, per instance — a collaborator running their own shelf shouldn't
+// have to edit a .env to point at a model they actually have loaded.
+// ponytail: the pick is republished into process.env rather than threaded
+// through every call site, so the existing `process.env.LM_STUDIO_MODEL` reads
+// here and in guide.js honour it unchanged. Ceiling: one model per process,
+// which is exactly one instance. Upgrade path is passing it per call.
+const ENV_LM_MODEL = process.env.LM_STUDIO_MODEL || ''
+
+async function applyLmModel() {
+  const { rows } = await pool.query("SELECT value FROM settings WHERE key='lm_model'")
+  process.env.LM_STUDIO_MODEL = rows[0]?.value || ENV_LM_MODEL
+}
+
 // Reasoning models leak their scratchpad into `content`, or spend the whole budget thinking
 // and never answer. Treat anything that doesn't look like the 1-2 sentences we asked for as
 // no answer at all, so callers fall back to the page's own description.
@@ -476,6 +493,34 @@ app.post('/api/pin/verify', async (req, res) => {
   res.json({ ok: true, token: admin.token, username: admin.username })
 })
 
+// ── Server-side AI model ─────────────────────────────────────────────────────
+
+// Lists what this instance's own endpoint actually has loaded, so the picker
+// offers real ids instead of asking someone to type one from memory.
+app.get('/api/lm', adminOnly, async (req, res) => {
+  const { rows } = await pool.query("SELECT value FROM settings WHERE key='lm_model'")
+  const out = { url: LM_URL(), selected: rows[0]?.value || '', env_default: ENV_LM_MODEL, models: [] }
+  try {
+    const r = await fetch(`${LM_URL()}/v1/models`, { headers: lmHeaders(), signal: AbortSignal.timeout(8000) })
+    if (!r.ok) throw new Error(`endpoint returned ${r.status}`)
+    const data = await r.json()
+    out.models = (data.data || []).map(m => m.id).filter(Boolean)
+  } catch (err) {
+    out.error = err.message
+  }
+  res.json(out)
+})
+
+app.put('/api/lm', adminOnly, async (req, res) => {
+  const model = (req.body.model || '').trim()
+  await pool.query(
+    "INSERT INTO settings (key, value) VALUES ('lm_model', $1) ON CONFLICT (key) DO UPDATE SET value=$1",
+    [model]
+  )
+  await applyLmModel()
+  res.json({ selected: process.env.LM_STUDIO_MODEL || '' })
+})
+
 // ── Users, invites, membership ───────────────────────────────────────────────
 
 app.get('/api/me', (req, res) => {
@@ -717,7 +762,7 @@ async function processCard(card) {
     try {
       const remote = await hub.postCard(card.category_id, {
         subcategory_id: card.subcategory_id, type, url, title, description,
-        thumbnail_url, youtube_id, notes: card.notes, metadata
+        thumbnail_url, youtube_id, notes: card.notes, metadata, category
       })
       await pool.query('UPDATE cards SET hub_card_id=$1 WHERE id=$2', [remote.id, card.id])
     } catch (err) {
@@ -790,7 +835,13 @@ app.post('/api/cards', async (req, res) => {
       // Classifying isn't worth delaying the response for — a prepared card is
       // already 'ready' and shown, this just fills in the legend dot shortly after.
       classifyCard({ title, description, type })
-        .then(cat => cat && pool.query('UPDATE cards SET category=$1 WHERE id=$2', [cat, rows[0].id]))
+        .then(async (cat) => {
+          if (!cat) return
+          await pool.query('UPDATE cards SET category=$1 WHERE id=$2', [cat, rows[0].id])
+          // The hub post above ran before this finished, so the legend colour has
+          // to follow separately or collaborators mirror a card with no category.
+          if (hubCardId) await hub.updateCard({ ...rows[0], hub_card_id: hubCardId }, { category: cat })
+        })
         .catch(() => {})
       return
     }
@@ -867,7 +918,13 @@ app.post('/api/prepare', async (req, res) => {
 // On a linked shelf, a card belongs to whoever posted it — on whichever instance.
 // Editing someone else's copy locally would silently diverge from the hub, which
 // would reject the write anyway, so refuse it here.
-async function ownedCard(req, res) {
+//
+// `enrich` is the exception: re-scraping or re-generating a plan makes a card
+// better for the whole shelf rather than claiming it, so any member may do it
+// to any card and the hub accepts the result (see cardRole in shelf-hub). The
+// push back to the hub is what keeps it — the next pull would otherwise
+// overwrite the improvement with the stale copy.
+async function ownedCard(req, res, { enrich = false } = {}) {
   const { rows } = await pool.query(
     `SELECT c.*, CASE WHEN cat.is_collab THEN COALESCE(u.username, hu.username) END AS author
      FROM cards c
@@ -879,7 +936,7 @@ async function ownedCard(req, res) {
   )
   if (!rows[0]) { res.status(404).json({ error: 'not found' }); return null }
   const card = rows[0]
-  if (card.hub_card_id) {
+  if (card.hub_card_id && !enrich) {
     const me = await hub.identity()
     const shelf = await hub.linkedShelf(card.category_id)
     const mine = card.hub_user_id != null && String(card.hub_user_id) === me.user_id
@@ -909,7 +966,18 @@ app.post('/api/cards/backfill-categories', adminOnly, async (req, res) => {
     await pool.query('UPDATE cards SET category=$1 WHERE id=$2', [category, row.id])
     updated++
   }
-  res.json({ checked: rows.length, updated })
+
+  // Categories only started federating after this, so every card already on the
+  // hub is up there with a null one — collaborators mirror it and get no tint.
+  // hub_user_id IS NULL means this instance posted it, which is the only card a
+  // member is allowed to PATCH anyway.
+  const { rows: mine } = await pool.query(
+    `SELECT c.* FROM cards c JOIN linked_shelves ls ON ls.category_id = c.category_id
+      WHERE c.hub_card_id IS NOT NULL AND c.hub_user_id IS NULL AND c.category IS NOT NULL`
+  )
+  for (const row of mine) await hub.updateCard(row, { category: row.category }).catch(() => {})
+
+  res.json({ checked: rows.length, updated, pushed: mine.length })
 })
 
 app.put('/api/cards/:id', async (req, res) => {
@@ -1041,8 +1109,7 @@ async function scrapeAndUpdate(card, html) {
 
 app.post('/api/cards/:id/scrape', adminOnly, async (req, res) => {
   try {
-    // Re-scraping rewrites the card, so the same ownership rule applies as an edit
-    const card = await ownedCard(req, res)
+    const card = await ownedCard(req, res, { enrich: true })
     if (!card) return
     if (!card.url) return res.status(400).json({ error: 'no url' })
 
@@ -1065,6 +1132,7 @@ app.post('/api/cards/:id/scrape', adminOnly, async (req, res) => {
       `UPDATE cards SET title=$1, thumbnail_url=$2, description=$3, metadata=$4 WHERE id=$5 RETURNING *`,
       [updates.title, updates.thumbnail_url, updates.description, JSON.stringify(updates.metadata), card.id]
     )
+    if (card.hub_card_id) await hub.updateCard(card, updates).catch(() => {})
     res.json(rows[0])
   } catch (err) {
     console.error('scrape error:', err.message)
@@ -1170,7 +1238,7 @@ function injectLinks(plan, resources) {
 
 app.post('/api/cards/:id/plan', adminOnly, async (req, res) => {
   try {
-    const card = await ownedCard(req, res)
+    const card = await ownedCard(req, res, { enrich: true })
     if (!card) return
     if (card.type !== 'youtube' || !card.youtube_id) return res.status(400).json({ error: 'not a youtube card' })
 
@@ -1201,6 +1269,7 @@ app.post('/api/cards/:id/plan', adminOnly, async (req, res) => {
       'UPDATE cards SET metadata=$1 WHERE id=$2 RETURNING *',
       [JSON.stringify(metadata), card.id]
     )
+    if (card.hub_card_id) await hub.updateCard(card, { metadata }).catch(() => {})
     logActivity(pool, hub, card.category_id, 'plan_regenerated', `generated a tutorial plan for: ${card.title || card.url}`).catch(() => {})
     res.json(rows[0])
   } catch (err) {
@@ -1243,7 +1312,8 @@ app.use('/api', (req, res) => res.status(404).json({ error: 'no such endpoint' }
 app.use(express.static(join(__dirname, '../dist')))
 app.get('*', (req, res) => res.sendFile(join(__dirname, '../dist/index.html')))
 
-initDb().then(() => {
+initDb().then(async () => {
+  await applyLmModel()
   app.listen(PORT, () => console.log(`shelf-cmd running on :${PORT}`))
   // Pull linked shelves and flush anything queued while the hub was unreachable
   if (process.env.HUB_SYNC !== 'off') hub.startLoop(Number(process.env.HUB_SYNC_MS) || 30000)

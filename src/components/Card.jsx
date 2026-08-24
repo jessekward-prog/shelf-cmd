@@ -422,9 +422,9 @@ export default function Card({ card, onDelete, onUpdate, nowPlayingId, onPlay, o
           </div>
         )}
 
-        {/* Card footer actions — hidden on other people's cards, which you can't change anyway */}
-        {canEdit && <div className="flex items-center justify-between mt-3 pt-2" style={{ borderTop: '1px solid var(--s-surface-2)' }}>
-          {/* scrape and plan run on the server's AI account, so they stay with the owner */}
+        {/* Card footer actions. Scrape and plan improve a card for the whole shelf,
+            so anyone on it may run them; delete stays with whoever posted it. */}
+        {(canEdit || canServerAI) && <div className="flex items-center justify-between mt-3 pt-2" style={{ borderTop: '1px solid var(--s-surface-2)' }}>
           <div className="flex items-center gap-2">
             {canServerAI && <button
               onClick={handleScrape}
@@ -449,7 +449,7 @@ export default function Card({ card, onDelete, onUpdate, nowPlayingId, onPlay, o
             )}
           </div>
 
-          <AnimatePresence mode="wait">
+          {canEdit && <AnimatePresence mode="wait">
             {!confirmDelete ? (
               <motion.button
                 key="del"
@@ -471,7 +471,7 @@ export default function Card({ card, onDelete, onUpdate, nowPlayingId, onPlay, o
                 confirm delete
               </motion.button>
             )}
-          </AnimatePresence>
+          </AnimatePresence>}
         </div>}
       </div>
     </motion.div>

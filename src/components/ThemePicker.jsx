@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { THEMES, FONTS, applyTheme, applyIntensity, applyFont, applyOverlay, getSavedIntensity, getSavedFont, getSavedOverlay } from '../themes.js'
 import * as api from '../api.js'
@@ -134,6 +134,65 @@ const inputStyle = {
 
 const labelStyle = { fontSize: 10, color: 'var(--s-text-3)', letterSpacing: '0.12em' }
 
+// The model this instance's own server uses for scraping, plans, guides and the
+// legend classifier — listed straight off its endpoint, so you pick something
+// you actually have loaded instead of guessing at an id in a .env.
+function ServerModel() {
+  const [lm, setLm] = useState(null)
+  const [open, setOpen] = useState(false)
+  const [saved, setSaved] = useState(false)
+
+  useEffect(() => {
+    if (open && !lm) api.getLm().then(setLm).catch(err => setLm({ models: [], error: err.message }))
+  }, [open, lm])
+
+  const pick = async (model) => {
+    const { selected } = await api.setLmModel(model)
+    setLm(prev => ({ ...prev, selected }))
+    setSaved(true)
+    setTimeout(() => setSaved(false), 1500)
+  }
+
+  return (
+    <>
+      <button
+        onClick={() => setOpen(v => !v)}
+        style={{
+          background: 'none', border: 'none', padding: 0, cursor: 'pointer',
+          fontFamily: 'inherit', textAlign: 'left', ...labelStyle,
+          color: lm?.selected ? 'var(--s-accent)' : 'var(--s-text-3)'
+        }}
+      >
+        {open ? '− ' : '+ '}THIS SHELF'S AI
+      </button>
+
+      {open && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
+          <span style={{ fontSize: 9, color: 'var(--s-text-3)', lineHeight: 1.4 }}>
+            {lm ? lm.url : 'loading…'} — used by scrape, plans, guides and the legend.
+          </span>
+          {lm?.error && (
+            <span style={{ fontSize: 9, color: 'var(--s-text-2)', lineHeight: 1.4 }}>
+              can't reach it: {lm.error}. Set LM_STUDIO_URL and restart.
+            </span>
+          )}
+          {lm && !lm.error && (
+            <select
+              value={lm.selected || ''}
+              onChange={(e) => pick(e.target.value)}
+              style={inputStyle}
+            >
+              <option value="">{lm.env_default ? `default (${lm.env_default})` : 'endpoint default'}</option>
+              {lm.models.map(id => <option key={id} value={id}>{id}</option>)}
+            </select>
+          )}
+          {saved && <span style={{ fontSize: 9, color: 'var(--s-accent)' }}>model set</span>}
+        </div>
+      )}
+    </>
+  )
+}
+
 function Identity({ user, onRenamed }) {
   const [name, setName] = useState(user.username)
   const [saved, setSaved] = useState(false)
@@ -229,6 +288,8 @@ function Identity({ user, onRenamed }) {
           {testing && <span style={{ fontSize: 9, color: 'var(--s-text-2)', lineHeight: 1.4 }}>{testing}</span>}
         </div>
       )}
+
+      {user.is_admin && <ServerModel />}
     </div>
   )
 }
