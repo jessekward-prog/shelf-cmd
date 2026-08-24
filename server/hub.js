@@ -341,6 +341,23 @@ export function makeHub(pool) {
     }
   }
 
+  async function postTab(categoryId, tab) {
+    const { rows: ls } = await pool.query('SELECT * FROM linked_shelves WHERE category_id=$1', [categoryId])
+    if (!ls[0]) throw new Error('not a linked shelf')
+    // Tabs are owner-controlled on the hub (see syncOne) — a member's local tab
+    // has nowhere to go and would just 403 forever.
+    if (!ls[0].is_owner) return null
+
+    const payload = { shelf_id: ls[0].hub_shelf_id, name: tab.name, sort_order: tab.sort_order || 0 }
+    try {
+      return await call('POST', `/shelves/${ls[0].hub_shelf_id}/tabs`, payload)
+    } catch (err) {
+      await queue(categoryId, 'tab_create', payload)
+      err.queued = true
+      throw err
+    }
+  }
+
   async function postGuide(categoryId, guide) {
     const { rows: ls } = await pool.query('SELECT * FROM linked_shelves WHERE category_id=$1', [categoryId])
     if (!ls[0]) throw new Error('not a linked shelf')
@@ -464,6 +481,7 @@ export function makeHub(pool) {
           const { hub_card_id, ...patch } = item.payload
           await call('PATCH', `/cards/${hub_card_id}`, patch)
         }
+        if (item.op === 'tab_create') await call('POST', `/shelves/${item.payload.shelf_id}/tabs`, item.payload)
         if (item.op === 'guide_create') await call('POST', '/guides', item.payload)
         if (item.op === 'guide_delete') await call('DELETE', `/guides/${item.payload.hub_guide_id}`)
         if (item.op === 'message_create') await call('POST', '/messages', item.payload)
@@ -537,7 +555,7 @@ export function makeHub(pool) {
   return {
     url: HUB_URL,
     publish, link, syncOne, postCard, deleteCard, updateCard,
-    postGuide, deleteGuideRemote,
+    postTab, postGuide, deleteGuideRemote,
     postMessage, postActivity, joinShelfRoom, events,
     invite, members, linkedShelf, setUsername, startLoop,
     ticketFor, redeemTicket,

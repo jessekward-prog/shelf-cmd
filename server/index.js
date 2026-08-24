@@ -614,12 +614,29 @@ app.get('/api/categories/:id/subcategories', adminOnly, async (req, res) => {
 
 app.post('/api/categories/:id/subcategories', adminOnly, async (req, res) => {
   const { name } = req.body
+  const categoryId = Number(req.params.id)
   const { rows } = await pool.query(
     'INSERT INTO subcategories (category_id, name) VALUES ($1, $2) RETURNING *',
-    [req.params.id, name]
+    [categoryId, name]
   )
-  logActivity(pool, hub, Number(req.params.id), 'tab_added', `added a tab: ${name}`).catch(() => {})
-  res.json(rows[0])
+  const sub = rows[0]
+
+  // Same gap the card path had (see the note in processCard): without this,
+  // a tab added after a shelf is shared stays invisible to every collaborator.
+  if (await hub.linkedShelf(categoryId)) {
+    try {
+      const remote = await hub.postTab(categoryId, sub)
+      if (remote) {
+        await pool.query('UPDATE subcategories SET hub_tab_id=$1 WHERE id=$2', [remote.id, sub.id])
+        sub.hub_tab_id = remote.id
+      }
+    } catch (err) {
+      if (!err.queued) console.error('hub post tab failed:', err.message)
+    }
+  }
+
+  logActivity(pool, hub, categoryId, 'tab_added', `added a tab: ${name}`).catch(() => {})
+  res.json(sub)
 })
 
 app.put('/api/subcategories/reorder', adminOnly, async (req, res) => {
