@@ -69,19 +69,42 @@ export default function MembersBar({ shelfId, onInvite, refreshKey }) {
             transition={{ duration: 0.16 }}
             style={{ overflow: 'hidden' }}
           >
-            <div style={{ padding: '4px 16px 10px', display: 'flex', flexDirection: 'column', gap: 5 }}>
+            <div style={{ padding: '4px 16px 8px', display: 'flex', flexDirection: 'column', gap: 7 }}>
               {members.map(m => (
-                <span key={m.id} style={{ fontSize: 11, color: m.is_me ? 'var(--s-accent)' : 'var(--s-text-2)' }}>
-                  {m.username}{m.is_owner ? ' · owner' : ''}{m.is_me ? ' · you' : ''}
-                </span>
+                <div key={m.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+                  <span style={{ fontSize: 11, color: m.is_me ? 'var(--s-accent)' : 'var(--s-text-2)' }}>
+                    {m.username}
+                  </span>
+                  {(m.is_owner || m.is_me) && (
+                    <span style={{ display: 'flex', gap: 4, flexShrink: 0 }}>
+                      {m.is_owner && (
+                        <span style={{
+                          fontSize: 9, letterSpacing: '0.08em', padding: '1px 5px', borderRadius: 3,
+                          background: 'var(--s-surface-2)', color: 'var(--s-text-3)'
+                        }}>
+                          OWNER
+                        </span>
+                      )}
+                      {m.is_me && (
+                        <span style={{
+                          fontSize: 9, letterSpacing: '0.08em', padding: '1px 5px', borderRadius: 3,
+                          background: 'var(--s-accent-faint)', color: 'var(--s-accent)'
+                        }}>
+                          YOU
+                        </span>
+                      )}
+                    </span>
+                  )}
+                </div>
               ))}
 
               <button
                   onClick={() => onInvite(shelfId)}
                   style={{
-                    alignSelf: 'flex-start', marginTop: 4, background: 'none', border: 'none',
-                    cursor: 'pointer', fontFamily: 'inherit', fontSize: 10,
-                    letterSpacing: '0.14em', color: 'var(--s-accent)'
+                    alignSelf: 'flex-start', marginTop: 6, paddingTop: 7, width: '100%', textAlign: 'left',
+                    background: 'none', border: 'none', borderTop: '1px solid var(--s-surface-2)',
+                    cursor: 'pointer', fontFamily: 'inherit',
+                    fontSize: 10, letterSpacing: '0.14em', color: 'var(--s-accent)'
                   }}
                 >
                   + INVITE SOMEONE

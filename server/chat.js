@@ -35,6 +35,24 @@ export async function logActivity(pool, hub, categoryId, kind, summary) {
   } catch (e) { console.error('activity log:', e.message) }
 }
 
+// A garbage/absent IANA zone from the client falls back to UTC rather than
+// throwing — Intl.DateTimeFormat rejects unknown zone names.
+function safeTimezone(tz) {
+  if (!tz) return 'UTC'
+  try { new Intl.DateTimeFormat('en-US', { timeZone: tz }); return tz } catch { return 'UTC' }
+}
+
+function tsFormatter(timezone) {
+  const fmt = new Intl.DateTimeFormat('en-US', {
+    timeZone: timezone, year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit', hour12: false
+  })
+  return (d) => {
+    const p = fmt.formatToParts(d).reduce((o, x) => (o[x.type] = x.value, o), {})
+    return `${p.year}-${p.month}-${p.day} ${p.hour}:${p.minute}`
+  }
+}
+
 // Same scrubbing guide.js's writer uses — gemma leaks a <think> scratchpad.
 function stripReasoning(text) {
   let t = text || ''
@@ -111,6 +129,12 @@ export function mountChat({ app, pool, adminOnly, adminOrToken, hub, lmComplete 
     const question = String(req.body.question || '').trim().slice(0, 500)
     if (!question) return res.status(400).json({ error: 'empty question' })
 
+    // The model can't be trusted to convert UTC to the asker's timezone
+    // itself (small local models get this arithmetic wrong) — so timestamps
+    // are pre-formatted in their zone here and it never has to do the math.
+    const timezone = safeTimezone(req.body.timezone)
+    const ts = tsFormatter(timezone)
+
     const ACTIVITY_LIMIT = 200, CARDS_LIMIT = 100, FILES_LIMIT = 100, GUIDES_LIMIT = 50
     const [activity, cards, files, guides] = await Promise.all([
       pool.query(
@@ -124,10 +148,6 @@ export function mountChat({ app, pool, adminOnly, adminOrToken, hub, lmComplete 
       pool.query('SELECT title, created_at FROM guides WHERE category_id=$1 ORDER BY created_at DESC LIMIT $2', [categoryId, GUIDES_LIMIT])
     ])
 
-    // Keep full timestamps (not just the date) — otherwise the model has no
-    // way to answer "what time" questions at all. Everything is stored and
-    // shown in UTC, regardless of which member's browser is asking.
-    const ts = (d) => d.toISOString().slice(0, 16).replace('T', ' ') + ' UTC'
     const fmt = (rows, pick) => rows.map(pick).join('\n') || '(none)'
     // A list sitting exactly at its query LIMIT might be truncated — flag it
     // so the model doesn't state a count as exhaustive when it may not be.
@@ -149,7 +169,7 @@ export function mountChat({ app, pool, adminOnly, adminOrToken, hub, lmComplete 
         {
           role: 'system',
           content: 'You answer questions about the history and contents of a shared bookmark shelf, using only the data given below — never your own outside knowledge about videos, creators, products, or anything else. Be concise — a sentence or two, or a short list. If the data doesn\'t answer the question, say so plainly instead of guessing. ' +
-            'All timestamps are UTC. When the question uses relative time ("last week", "yesterday", "this month"), work it out relative to the "Current date and time" given below. ' +
+            `All timestamps below are already in the asker's local timezone (${timezone}) — repeat them as-is, don't convert or relabel them. When the question uses relative time ("last week", "yesterday", "this month"), work it out relative to the "Current date and time" given below. ` +
             'If a list is marked as showing only its most recent items, treat any count from it as a lower bound, not an exact total, and say so. ' +
             'Do not show any thinking process, step-by-step analysis, or scratchpad — go straight to the answer. ' +
             'End your reply with a line that says exactly "FINAL ANSWER:" followed by the answer and nothing else after it.\n\n' + context

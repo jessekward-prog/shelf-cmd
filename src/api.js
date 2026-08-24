@@ -131,6 +131,8 @@ export async function sendMessage(categoryId, body) {
 }
 export const getMessages = (categoryId) => req('GET', `/categories/${categoryId}/messages`)
 export const getActivity = (categoryId) => req('GET', `/categories/${categoryId}/activity`)
-export const askMachine  = (categoryId, question) => req('POST', `/categories/${categoryId}/ask`, { question })
+export const askMachine  = (categoryId, question) => req('POST', `/categories/${categoryId}/ask`, {
+  question, timezone: Intl.DateTimeFormat().resolvedOptions().timeZone
+})
 // EventSource can't set headers, so the token rides as ?t= like the download link.
 export const chatStreamUrl = (categoryId) => `${base}/categories/${categoryId}/chat/stream?t=${tok()}`
