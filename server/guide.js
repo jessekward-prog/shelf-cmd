@@ -60,7 +60,7 @@ function stripReasoning(text) {
   return t.trim()
 }
 
-async function ensureTable(pool) {
+export async function ensureGuideTable(pool) {
   await pool.query(`CREATE TABLE IF NOT EXISTS guides (
     id SERIAL PRIMARY KEY,
     title TEXT NOT NULL,
@@ -425,7 +425,6 @@ export function mountGuide({ app, pool, adminOnly, adminOrToken, hub }) {
   const guard = adminOnly || ((req, res, next) => next())
   // Downloads are a plain link, not a fetch, so they need the ?t= guard.
   const linkGuard = adminOrToken || guard
-  ensureTable(pool).catch(e => console.error('guides table:', e.message))
 
   app.post('/api/guide', guard, async (req, res) => {
     try {

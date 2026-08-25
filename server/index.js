@@ -11,7 +11,7 @@ import { YoutubeTranscript } from 'youtube-transcript'
 import { randomBytes } from 'crypto'
 import { makeHub } from './hub.js'
 import { mountDrive } from './drive.js'
-import { mountGuide, CATEGORIES } from './guide.js'
+import { mountGuide, ensureGuideTable, CATEGORIES } from './guide.js'
 import { mountChat, logActivity } from './chat.js'
 chromium.use(StealthPlugin())
 
@@ -55,6 +55,9 @@ const adminOrToken = async (req, res, next) => {
 async function initDb() {
   const schema = await readFile(join(__dirname, 'schema.sql'), 'utf8')
   await pool.query(schema)
+  // Guides live in a module that owns its own migrations, but the FK back to
+  // categories means this must run AFTER schema.sql, not on module mount.
+  await ensureGuideTable(pool)
   // The PIN holder is a real user row so their posts carry a name like everyone else's
   await pool.query(
     "INSERT INTO users (username, token, is_admin) SELECT 'admin', $1, TRUE WHERE NOT EXISTS (SELECT 1 FROM users WHERE is_admin)",
