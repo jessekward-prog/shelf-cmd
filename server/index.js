@@ -168,7 +168,7 @@ async function applyLmModel() {
 // Reasoning models leak their scratchpad into `content`, or spend the whole budget thinking
 // and never answer. Treat anything that doesn't look like the 1-2 sentences we asked for as
 // no answer at all, so callers fall back to the page's own description.
-// ponytail: a marker/length heuristic, not a parser. Mirrored in src/ai.js for collab posts.
+// ponytail: a marker/length heuristic, not a parser.
 const REASONING_TELLS = /^\s*(<think>|thinking process|let me think|okay,? (so )?(the user|i need)|first,? i)/i
 
 function usableDescription(text) {
@@ -758,9 +758,8 @@ async function processCard(card) {
     [type, title, description, thumbnail_url, youtube_id, JSON.stringify(metadata), category, card.id]
   )
 
-  // Only the `prepared` path used to reach the hub, so a card added the ordinary
-  // way stayed local and no collaborator ever saw it. Push here, once the card
-  // is finished, and adopt the id the hub hands back.
+  // On a linked shelf the hub is authoritative — push once the card is
+  // finished, and adopt the id the hub hands back.
   if (!card.hub_card_id && await hub.linkedShelf(card.category_id)) {
     try {
       const remote = await hub.postCard(card.category_id, {
@@ -787,7 +786,7 @@ async function applyPlanLinks(rawPlan, tools) {
 
 app.post('/api/cards', async (req, res) => {
   try {
-    const { subcategory_id, url, prepared } = req.body
+    const { subcategory_id, url } = req.body
     const { title = '', description = null, notes = null, thumbnail_url = null } = req.body
 
     // Derive the category from the tab so a collaborator can't write into an arbitrary one
@@ -805,50 +804,6 @@ app.post('/api/cards', async (req, res) => {
     // One person owns this instance, so every write here is theirs
     if (!req.user?.is_admin) return res.status(403).json({ error: 'admin only' })
 
-    // `prepared` means the poster's own browser already did the AI work — store it as-is.
-    if (prepared) {
-      const { type = 'link', youtube_id = null, plan_raw = null, plan_tools = [] } = req.body
-      const metadata = { ...(req.body.metadata || {}) }
-      if (plan_raw) metadata.plan = await applyPlanLinks(plan_raw, plan_tools)
-
-      // On a published shelf the hub is the source of truth, so write there first
-      // and adopt the id it hands back. If the hub is unreachable the post is
-      // queued and still lands locally, so the link is never lost.
-      let hubCardId = null, queued = false
-      if (await hub.linkedShelf(category_id)) {
-        try {
-          const remote = await hub.postCard(category_id, {
-            subcategory_id, type, url, title, description, thumbnail_url, youtube_id, notes, metadata
-          })
-          hubCardId = remote.id
-        } catch (err) {
-          queued = !!err.queued
-          if (!queued) throw err
-        }
-      }
-
-      const { rows } = await pool.query(
-        `INSERT INTO cards (category_id, subcategory_id, url, title, description, notes, thumbnail_url, type, youtube_id, metadata, user_id, hub_card_id, status)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,'ready') RETURNING *`,
-        [category_id, subcategory_id || null, url || null, title, description, notes, thumbnail_url,
-         type, youtube_id, JSON.stringify(metadata), req.user.id, hubCardId]
-      )
-      logActivity(pool, hub, category_id, 'card_added', `added a card: ${title || url}`).catch(() => {})
-      res.json({ ...rows[0], author: collab ? req.user.username : null, queued })
-      // Classifying isn't worth delaying the response for — a prepared card is
-      // already 'ready' and shown, this just fills in the legend dot shortly after.
-      classifyCard({ title, description, type })
-        .then(async (cat) => {
-          if (!cat) return
-          await pool.query('UPDATE cards SET category=$1 WHERE id=$2', [cat, rows[0].id])
-          // The hub post above ran before this finished, so the legend colour has
-          // to follow separately or collaborators mirror a card with no category.
-          if (hubCardId) await hub.updateCard({ ...rows[0], hub_card_id: hubCardId }, { category: cat })
-        })
-        .catch(() => {})
-      return
-    }
-
     const { rows } = await pool.query(
       `INSERT INTO cards (category_id, subcategory_id, url, title, description, notes, thumbnail_url, user_id, status)
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'pending') RETURNING *`,
@@ -860,60 +815,6 @@ app.post('/api/cards', async (req, res) => {
     if (url) processCard(card).catch(err => console.error('processCard failed:', err.message))
   } catch (err) {
     console.error('POST /api/cards error:', err.message)
-    res.status(500).json({ error: err.message })
-  }
-})
-
-// Everything the poster's browser needs to run the AI pass itself: no model calls here.
-app.post('/api/prepare', async (req, res) => {
-  try {
-    const url = req.body.url?.trim()
-    if (!url) return res.status(400).json({ error: 'url required' })
-
-    const platform = await resolvePlatform(url) || { type: 'link' }
-    const out = {
-      type: platform.type,
-      youtube_id: platform.media_id || null,
-      title: platform.title || '',
-      thumbnail_url: platform.thumbnail_url || null,
-      og_description: platform.og_description || null,
-      metadata: { embed_url: platform.embed_url || null, aspect: platform.aspect || null },
-      image_candidates: [],
-      transcript: null
-    }
-    if (platform.price) out.metadata.price = platform.price
-    if (platform.currency) out.metadata.currency = platform.currency
-
-    // Only spin up a browser when oEmbed/OG left us short — YouTube et al. already gave us everything
-    if (!out.title || !out.thumbnail_url) {
-      const browser = await chromium.launch({ headless: true })
-      try {
-        const page = await browser.newPage()
-        await page.setExtraHTTPHeaders({ 'Accept-Language': 'en-US,en;q=0.9' })
-        await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 20000 })
-        await page.waitForTimeout(2000)
-        const scraped = extractFromHtml(await page.content())
-        out.title = out.title || scraped.title
-        out.thumbnail_url = out.thumbnail_url || scraped.image
-        out.og_description = out.og_description || scraped.ogDescription
-        out.image_candidates = scraped.imgCandidates
-        if (scraped.price) { out.metadata.price = scraped.price; out.metadata.currency = scraped.currency }
-      } finally {
-        await browser.close()
-      }
-    }
-    if (/facebook\.com|fb\.watch/.test(url)) out.title = cleanFacebookTitle(out.title)
-
-    if (out.type === 'youtube' && out.youtube_id) {
-      try {
-        const segments = await YoutubeTranscript.fetchTranscript(out.youtube_id)
-        out.transcript = segments.map(s => s.text).join(' ').slice(0, 10000)
-      } catch { /* no captions — the card just gets no plan */ }
-    }
-
-    res.json(out)
-  } catch (err) {
-    console.error('prepare error:', err.message)
     res.status(500).json({ error: err.message })
   }
 })

@@ -2,7 +2,6 @@ import { useState, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { THEMES, FONTS, applyTheme, applyIntensity, applyFont, applyOverlay, getSavedIntensity, getSavedFont, getSavedOverlay } from '../themes.js'
 import * as api from '../api.js'
-import { getAI, saveAI, testAI } from '../ai.js'
 
 const CRT_THEMES   = THEMES.filter(t => t.group === 'crt')
 const CLEAN_THEMES = THEMES.filter(t => t.group === 'clean')
@@ -134,10 +133,9 @@ const inputStyle = {
 
 const labelStyle = { fontSize: 10, color: 'var(--s-text-3)', letterSpacing: '0.12em' }
 
-// The model THIS instance's own server uses for scraping, plans, guides and the
-// legend classifier — every shelf-cmd has its own, nothing is shared. Listed
-// straight off the endpoint, so you pick a model you actually have loaded
-// instead of guessing at an id in a .env.
+// The AI this instance runs everything through — scraping, descriptions, plans,
+// guides, the legend classifier. Listed straight off the endpoint, so you pick a
+// model you actually have loaded instead of guessing at an id in a .env.
 function ServerModel() {
   const [lm, setLm] = useState(null)
   const [open, setOpen] = useState(false)
@@ -164,13 +162,13 @@ function ServerModel() {
           color: lm?.selected ? 'var(--s-accent)' : 'var(--s-text-3)'
         }}
       >
-        {open ? '− ' : '+ '}MY SERVER AI
+        {open ? '− ' : '+ '}MY AI
       </button>
 
       {open && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
           <span style={{ fontSize: 9, color: 'var(--s-text-3)', lineHeight: 1.4 }}>
-            {lm ? lm.url : 'loading…'} — your instance's own endpoint, used by scrape, plans, guides and the legend on cards you host. Not shared with anyone.
+            {lm ? lm.url : 'loading…'} — used by scrape, plans, guides and the legend.
           </span>
           {lm?.error && (
             <span style={{ fontSize: 9, color: 'var(--s-text-2)', lineHeight: 1.4 }}>
@@ -197,9 +195,6 @@ function ServerModel() {
 function Identity({ user, onRenamed }) {
   const [name, setName] = useState(user.username)
   const [saved, setSaved] = useState(false)
-  const [ai, setAi] = useState(() => getAI())
-  const [aiOpen, setAiOpen] = useState(false)
-  const [testing, setTesting] = useState(null)
 
   const commitName = async () => {
     const next = name.trim()
@@ -207,23 +202,6 @@ function Identity({ user, onRenamed }) {
     onRenamed(await api.setUsername(next))
     setSaved(true)
     setTimeout(() => setSaved(false), 1500)
-  }
-
-  const updateAi = (patch) => {
-    const next = { ...ai, ...patch }
-    setAi(next)
-    saveAI(next)
-  }
-
-  const runTest = async () => {
-    setTesting('testing…')
-    try {
-      await testAI()
-      setTesting('works')
-    } catch (err) {
-      setTesting(err.message)
-    }
-    setTimeout(() => setTesting(null), 3000)
   }
 
   return (
@@ -239,56 +217,6 @@ function Identity({ user, onRenamed }) {
         style={inputStyle}
       />
       {saved && <span style={{ fontSize: 9, color: 'var(--s-accent)' }}>name updated everywhere</span>}
-
-      <button
-        onClick={() => setAiOpen(v => !v)}
-        style={{
-          background: 'none', border: 'none', padding: 0, cursor: 'pointer',
-          fontFamily: 'inherit', textAlign: 'left',
-          ...labelStyle, color: ai.url ? 'var(--s-accent)' : 'var(--s-text-3)'
-        }}
-      >
-        {aiOpen ? '− ' : '+ '}YOUR AI {ai.url ? '· SET' : '· NOT SET'}
-      </button>
-
-      {aiOpen && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
-          <span style={{ fontSize: 9, color: 'var(--s-text-3)', lineHeight: 1.4 }}>
-            Any OpenAI-compatible endpoint. Used for your posts in shared tabs, and never sent to the shelf.
-          </span>
-          <input
-            value={ai.url || ''}
-            onChange={(e) => updateAi({ url: e.target.value })}
-            placeholder="https://api.openai.com"
-            style={inputStyle}
-          />
-          <input
-            type="password"
-            value={ai.key || ''}
-            onChange={(e) => updateAi({ key: e.target.value })}
-            placeholder="api key"
-            style={inputStyle}
-          />
-          <input
-            value={ai.model || ''}
-            onChange={(e) => updateAi({ model: e.target.value })}
-            placeholder="model (optional)"
-            style={inputStyle}
-          />
-          <button
-            onClick={runTest}
-            disabled={!ai.url}
-            style={{
-              alignSelf: 'flex-start', background: 'none', border: 'none', padding: 0,
-              cursor: ai.url ? 'pointer' : 'default', fontFamily: 'inherit',
-              ...labelStyle, color: ai.url ? 'var(--s-accent)' : 'var(--s-border)'
-            }}
-          >
-            TEST
-          </button>
-          {testing && <span style={{ fontSize: 9, color: 'var(--s-text-2)', lineHeight: 1.4 }}>{testing}</span>}
-        </div>
-      )}
 
       {user.is_admin && <ServerModel />}
     </div>

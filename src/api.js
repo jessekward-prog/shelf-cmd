@@ -54,7 +54,6 @@ export const getMe = () => req('GET', '/me')
 export const setUsername = (username) => req('PUT', '/me', { username })
 export const getInvite = (catId) => req('POST', `/categories/${catId}/invite`, {})
 export const getMembers = (catId) => req('GET', `/categories/${catId}/members`)
-export const prepare = (url) => req('POST', '/prepare', { url })
 
 // ── Drive: files stored on a shelf ───────────────────────────────────────────
 

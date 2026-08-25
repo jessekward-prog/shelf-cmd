@@ -20,7 +20,6 @@ import JoinModal from './components/JoinModal.jsx'
 import ManageShelvesModal from './components/ManageShelvesModal.jsx'
 import ShelfChat from './components/ShelfChat.jsx'
 import * as api from './api.js'
-import { hasAI, buildCard } from './ai.js'
 import { getSavedTheme, applyTheme, getSavedIntensity, applyIntensity } from './themes.js'
 
 // Aesthetic [ Cards | Drive ] switch, shown for the active shelf in every tab.
@@ -58,7 +57,6 @@ function ModeToggle({ mode, onMode }) {
 export default function App({ me }) {
   const [user, setUser] = useState(me)
   const [theme, setTheme] = useState(getSavedTheme)
-  const [building, setBuilding] = useState(null)
   const [categories, setCategories] = useState([])
   const [activeCatId, setActiveCatId] = useState(null)
   const [subcategories, setSubcategories] = useState([])
@@ -221,28 +219,6 @@ export default function App({ me }) {
 
   const handleAddCard = async (data) => {
     const targetSub = data.subcategory_id || activeSubcatId || null
-    const isCollabTarget = !!activeShelfId
-
-    // Collab posts do the whole scrape + describe + plan pass in *this* browser against
-    // *this* user's AI account, and only hit the shelf once it's a finished card.
-    if (isCollabTarget && hasAI()) {
-      setBuilding('starting')
-      try {
-        const built = await buildCard(data.url, setBuilding)
-        const card = await api.createCard({
-          ...built,
-          category_id: activeCatId,
-          subcategory_id: targetSub,
-          thumbnail_url: data.thumbnail_url || built.thumbnail_url
-        })
-        setCards(prev => [card, ...prev])
-      } catch (err) {
-        window.alert(`could not post that link — ${err.message}`)
-      }
-      setBuilding(null)
-      return
-    }
-
     api.createCard({ ...data, category_id: activeCatId, subcategory_id: targetSub })
       .then(card => {
         setCards(prev => [card, ...prev])
@@ -575,33 +551,6 @@ export default function App({ me }) {
         <ShelfChat key={activeCatId} categoryId={activeCatId} isLinked={!!activeCat?.is_collab} />
       )}
 
-      {/* Collab posts run the whole AI pass before they exist, so show the user where it's up to */}
-      <AnimatePresence>
-        {building && (
-          <motion.div
-            initial={{ y: 20, opacity: 0 }}
-            animate={{ y: 0, opacity: 1 }}
-            exit={{ y: 20, opacity: 0 }}
-            className="fixed z-40 flex items-center gap-2 px-4 py-2 rounded-full"
-            style={{
-              left: '50%',
-              transform: 'translateX(-50%)',
-              bottom: 'var(--s-dock)',
-              maxWidth: 'calc(100vw - 2rem)',
-              background: 'var(--s-surface)',
-              border: '1px solid var(--s-accent)',
-              boxShadow: '0 0 16px var(--s-accent-glow)'
-            }}
-          >
-            <motion.span
-              animate={{ opacity: [1, 0.3, 1] }}
-              transition={{ duration: 1.2, repeat: Infinity }}
-              style={{ width: 6, height: 6, borderRadius: '50%', background: 'var(--s-accent)', flexShrink: 0 }}
-            />
-            <span className="text-xs truncate" style={{ color: 'var(--s-text-2)' }}>{building}…</span>
-          </motion.div>
-        )}
-      </AnimatePresence>
 
       {/* Pop-out mini-player — floats in the corner, survives navigation */}
       <AnimatePresence>
