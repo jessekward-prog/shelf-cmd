@@ -134,9 +134,10 @@ const inputStyle = {
 
 const labelStyle = { fontSize: 10, color: 'var(--s-text-3)', letterSpacing: '0.12em' }
 
-// The model this instance's own server uses for scraping, plans, guides and the
-// legend classifier — listed straight off its endpoint, so you pick something
-// you actually have loaded instead of guessing at an id in a .env.
+// The model THIS instance's own server uses for scraping, plans, guides and the
+// legend classifier — every shelf-cmd has its own, nothing is shared. Listed
+// straight off the endpoint, so you pick a model you actually have loaded
+// instead of guessing at an id in a .env.
 function ServerModel() {
   const [lm, setLm] = useState(null)
   const [open, setOpen] = useState(false)
@@ -163,13 +164,13 @@ function ServerModel() {
           color: lm?.selected ? 'var(--s-accent)' : 'var(--s-text-3)'
         }}
       >
-        {open ? '− ' : '+ '}THIS SHELF'S AI
+        {open ? '− ' : '+ '}MY SERVER AI
       </button>
 
       {open && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
           <span style={{ fontSize: 9, color: 'var(--s-text-3)', lineHeight: 1.4 }}>
-            {lm ? lm.url : 'loading…'} — used by scrape, plans, guides and the legend.
+            {lm ? lm.url : 'loading…'} — your instance's own endpoint, used by scrape, plans, guides and the legend on cards you host. Not shared with anyone.
           </span>
           {lm?.error && (
             <span style={{ fontSize: 9, color: 'var(--s-text-2)', lineHeight: 1.4 }}>
