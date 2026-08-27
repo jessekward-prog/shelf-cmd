@@ -10,6 +10,7 @@
 // chromium is the playwright-extra singleton index.js already wires up with
 // StealthPlugin at module load — reused here rather than re-registered.
 import { chromium } from 'playwright-extra'
+import { randomBytes } from 'crypto'
 import { logActivity } from './chat.js'
 
 const GITHUB_RE = /^https?:\/\/(?:www\.)?github\.com\/([^/\s#?]+)\/([^/\s#?]+)/i
@@ -83,6 +84,13 @@ export async function ensureGuideTable(pool) {
   // pull recognise it instead of duplicating it, same as cards' hub_card_id.
   await pool.query('ALTER TABLE guides ADD COLUMN IF NOT EXISTS hub_guide_id INT')
   await pool.query('CREATE UNIQUE INDEX IF NOT EXISTS guides_hub_id ON guides (hub_guide_id) WHERE hub_guide_id IS NOT NULL')
+  // Mirrors files' own share tokens — a public, no-auth link straight to the
+  // guide's already-standalone HTML.
+  await pool.query(`CREATE TABLE IF NOT EXISTS guide_share_tokens (
+    token      TEXT PRIMARY KEY,
+    guide_id   INT NOT NULL REFERENCES guides(id) ON DELETE CASCADE,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+  )`)
 }
 
 // ── Source material ──────────────────────────────────────────────────────────
@@ -631,6 +639,28 @@ export function mountGuide({ app, pool, adminOnly, adminOrToken, hub }) {
     const name = (rows[0].filename || 'guide.html').replace(/[^\w.-]/g, '')
     res.setHeader('Content-Type', 'text/html; charset=utf-8')
     res.setHeader('Content-Disposition', `attachment; filename="${name}"`)
+    res.send(rows[0].html)
+  })
+
+  app.post('/api/guides/:id/share', guard, async (req, res) => {
+    const { rows: exists } = await pool.query('SELECT id FROM guides WHERE id=$1', [req.params.id])
+    if (!exists[0]) return res.status(404).json({ error: 'not found' })
+    const { rows: have } = await pool.query('SELECT token FROM guide_share_tokens WHERE guide_id=$1 LIMIT 1', [req.params.id])
+    if (have[0]) return res.json({ token: have[0].token })
+    const token = randomBytes(18).toString('hex')
+    await pool.query('INSERT INTO guide_share_tokens (token, guide_id) VALUES ($1,$2)', [token, req.params.id])
+    res.json({ token })
+  })
+
+  // Public read-only link — no auth. The guide's HTML is already a complete
+  // standalone page, so this just serves it straight rather than forcing a
+  // download the way /download (which needs the owner's own token) does.
+  app.get('/s/g/:token', async (req, res) => {
+    const { rows } = await pool.query(
+      'SELECT g.html FROM guide_share_tokens t JOIN guides g ON g.id = t.guide_id WHERE t.token=$1', [req.params.token]
+    )
+    if (!rows[0]) return res.status(404).send('This link has expired or was revoked.')
+    res.setHeader('Content-Type', 'text/html; charset=utf-8')
     res.send(rows[0].html)
   })
 

@@ -428,13 +428,6 @@ export default function Card({ card, onDelete, onUpdate, nowPlayingId, onPlay, o
             so anyone on it may run them; delete stays with whoever posted it. */}
         {(canEdit || canServerAI) && <div className="flex items-center justify-between mt-3 pt-2" style={{ borderTop: '1px solid var(--s-surface-2)' }}>
           <div className="flex items-center gap-2">
-            <button
-              onClick={(e) => { e.stopPropagation(); setSharing(true) }}
-              className="text-xs px-2 py-1 rounded"
-              style={{ color: 'var(--s-text-3)', background: 'transparent' }}
-            >
-              share
-            </button>
             {canServerAI && <button
               onClick={handleScrape}
               disabled={scraping}
@@ -458,29 +451,47 @@ export default function Card({ card, onDelete, onUpdate, nowPlayingId, onPlay, o
             )}
           </div>
 
-          {canEdit && <AnimatePresence mode="wait">
-            {!confirmDelete ? (
-              <motion.button
-                key="del"
-                initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-                onClick={() => setConfirmDelete(true)}
-                className="text-xs px-2 py-1 rounded"
-                style={{ color: 'var(--s-text-3)' }}
-              >
-                delete
-              </motion.button>
-            ) : (
-              <motion.button
-                key="confirm"
-                initial={{ scale: 0.85, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ opacity: 0 }}
-                onClick={() => onDelete(card.id)}
-                className="text-xs px-2 py-1 rounded font-medium"
-                style={{ background: 'rgba(180,40,0,0.85)', color: '#fff' }}
-              >
-                confirm delete
-              </motion.button>
-            )}
-          </AnimatePresence>}
+          <div className="flex items-center gap-1">
+            {canEdit && <AnimatePresence mode="wait">
+              {!confirmDelete ? (
+                <motion.button
+                  key="del"
+                  initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+                  onClick={() => setConfirmDelete(true)}
+                  className="text-xs px-2 py-1 rounded"
+                  style={{ color: 'var(--s-text-3)' }}
+                >
+                  delete
+                </motion.button>
+              ) : (
+                <motion.button
+                  key="confirm"
+                  initial={{ scale: 0.85, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ opacity: 0 }}
+                  onClick={() => onDelete(card.id)}
+                  className="text-xs px-2 py-1 rounded font-medium"
+                  style={{ background: 'rgba(180,40,0,0.85)', color: '#fff' }}
+                >
+                  confirm delete
+                </motion.button>
+              )}
+            </AnimatePresence>}
+            <button
+              onClick={(e) => { e.stopPropagation(); setSharing(true) }}
+              title="Share"
+              className="p-1.5 rounded"
+              style={{ color: 'var(--s-text-3)', background: 'transparent' }}
+              onMouseEnter={e => e.currentTarget.style.color = 'var(--s-accent)'}
+              onMouseLeave={e => e.currentTarget.style.color = 'var(--s-text-3)'}
+            >
+              <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <circle cx="18" cy="5" r="3" />
+                <circle cx="6" cy="12" r="3" />
+                <circle cx="18" cy="19" r="3" />
+                <line x1="8.59" y1="13.51" x2="15.42" y2="17.49" />
+                <line x1="15.41" y1="6.51" x2="8.59" y2="10.49" />
+              </svg>
+            </button>
+          </div>
         </div>}
       </div>
 
@@ -492,6 +503,7 @@ export default function Card({ card, onDelete, onUpdate, nowPlayingId, onPlay, o
               const { token } = await api.shareCard(card.id)
               return api.cardShareUrl(token)
             }}
+            title="share this card"
             note="Anyone with this link can view this card."
             onClose={() => setSharing(false)}
           />

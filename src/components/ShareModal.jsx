@@ -2,8 +2,8 @@ import { useState, useEffect } from 'react'
 import { motion } from 'framer-motion'
 import * as api from '../api.js'
 
-// Shares a file by default; pass getLink to share something else (e.g. a folder).
-export default function ShareModal({ file, onClose, getLink, note }) {
+// Shares a file by default; pass getLink to share something else (e.g. a folder or card).
+export default function ShareModal({ file, onClose, getLink, note, title }) {
   const [url, setUrl] = useState(null)
   const [qr, setQr] = useState(null)
   const [copied, setCopied] = useState(false)
@@ -49,7 +49,7 @@ export default function ShareModal({ file, onClose, getLink, note }) {
         className="w-full max-w-sm rounded-xl p-5"
         style={{ background: 'var(--s-surface)', border: '1px solid var(--s-border)' }}
       >
-        <p className="text-sm font-medium mb-1" style={{ color: 'var(--s-accent)' }}>share this file</p>
+        <p className="text-sm font-medium mb-1" style={{ color: 'var(--s-accent)' }}>{title || 'share this file'}</p>
         <p className="text-xs mb-4 truncate" style={{ color: 'var(--s-text-3)' }}>{file.name}</p>
 
         {error ? (

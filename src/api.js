@@ -121,6 +121,8 @@ export const saveGuide     = (id) => req('POST',   `/guides/${id}/save`, {})
 export const backfillGuides = ()  => req('POST',   '/guides/backfill', {})
 // A real link, so the browser downloads it directly — see the note on the route.
 export const guideDownloadUrl = (id) => `${base}/guides/${id}/download?t=${tok()}`
+export const shareGuide = (id) => req('POST', `/guides/${id}/share`, {})
+export const guideShareUrl = (token) => `${location.origin}/s/g/${token}`
 
 // ── Shelf chat: "man" (member messages) and "machine" (activity log) ─────────
 export async function sendMessage(categoryId, body) {

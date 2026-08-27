@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import * as api from '../api.js'
+import ShareModal from './ShareModal.jsx'
 
 function host(u) { try { return new URL(u).hostname.replace(/^www\./, '') } catch { return u || '' } }
 
@@ -36,6 +37,7 @@ export default function GuidesView({ onGenerate, refreshKey, categoryId }) {
   const [savedId, setSavedId] = useState(null)
   const [confirmId, setConfirmId] = useState(null)
   const [syncing, setSyncing] = useState(false)
+  const [sharingGuide, setSharingGuide] = useState(null)
 
   const load = () => api.getGuides(categoryId).then(setGuides).catch(() => setGuides([]))
   useEffect(() => { load() }, [refreshKey, categoryId])
@@ -173,6 +175,11 @@ export default function GuidesView({ onGenerate, refreshKey, categoryId }) {
                         onMouseLeave={e => e.currentTarget.style.borderColor = 'var(--s-border)'}>
                         {busyId === g.id ? '…' : 'open'}
                       </button>
+                      <button style={btn} onClick={() => setSharingGuide(g)}
+                        onMouseEnter={e => e.currentTarget.style.borderColor = 'var(--s-accent)'}
+                        onMouseLeave={e => e.currentTarget.style.borderColor = 'var(--s-border)'}>
+                        share
+                      </button>
                       <a href={api.guideDownloadUrl(g.id)} download
                         style={{ ...btn, textDecoration: 'none', display: 'inline-block' }}
                         onMouseEnter={e => e.currentTarget.style.borderColor = 'var(--s-accent)'}
@@ -216,6 +223,21 @@ export default function GuidesView({ onGenerate, refreshKey, categoryId }) {
           </AnimatePresence>
         </div>
       )}
+
+      <AnimatePresence>
+        {sharingGuide && (
+          <ShareModal
+            file={{ id: sharingGuide.id, name: sharingGuide.title || 'this guide' }}
+            getLink={async () => {
+              const { token } = await api.shareGuide(sharingGuide.id)
+              return api.guideShareUrl(token)
+            }}
+            title="share this guide"
+            note="Anyone with this link can open this guide."
+            onClose={() => setSharingGuide(null)}
+          />
+        )}
+      </AnimatePresence>
     </div>
   )
 }
