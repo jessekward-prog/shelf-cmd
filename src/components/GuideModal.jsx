@@ -2,12 +2,13 @@ import { useState, useEffect } from 'react'
 import { motion } from 'framer-motion'
 import * as api from '../api.js'
 
-// Same four voices server/guide.js's GUIDE_MODES can write in.
+// Same voices server/guide.js's GUIDE_MODES can write in.
 const MODES = [
   { id: 'man', label: 'man', hint: 'a full guide for a person to read' },
   { id: 'machine', label: 'machine', hint: 'a dense reference for an AI agent or tool' },
   { id: 'summary', label: 'summary', hint: 'a short, factual pull of what it says' },
-  { id: 'dumbary', label: 'dumbary', hint: 'short, with analogies for a tricky idea' }
+  { id: 'dumbary', label: 'dumbary', hint: 'medium length, with analogies for a tricky idea' },
+  { id: 'dumbaryLong', label: 'long dumbary', hint: 'the full, unhurried analogy-driven version' }
 ]
 
 // Paste a repo (or any) URL → the server writes a guide and hands back a

@@ -188,7 +188,7 @@ function digestOf(src) {
 // legend colors in GuidesView.jsx (PlayStation face-button colors).
 export const CATEGORIES = ['speed', 'thinking', 'design', 'tools', 'reference']
 
-// Four "voices" the same source material can be written in — all still land
+// Five "voices" the same source material can be written in — all still land
 // in the @@TITLE/@@CHAPTER delimited format, so the render pipeline below
 // never has to know which one ran.
 export const GUIDE_MODES = {
@@ -224,12 +224,24 @@ export const GUIDE_MODES = {
   },
   dumbary: {
     label: 'dumbary',
-    chapters: '1 to 2',
+    chapters: '2 to 4',
     style:
-      'Write a short, friendly explanation that leans on real-world analogies to make a complex ' +
-      'idea click for a non-expert — at least one analogy per chapter. Keep it brief: this is the ' +
-      '"explain it like I\'m smart but busy" version, not a full guide.',
-    temperature: 0.7
+      'Write a friendly explanation that leans on real-world analogies to make a complex idea ' +
+      'click for a non-expert — at least one analogy per chapter. Keep it tighter and simpler than ' +
+      'a full guide, but don\'t strip out real context or nuance to get there: this is a ' +
+      'medium-length explainer, not a one-paragraph blurb.',
+    temperature: 0.65
+  },
+  dumbaryLong: {
+    label: 'long dumbary',
+    chapters: '4 to 7',
+    style:
+      'Write a longer, patient walkthrough that leans on real-world analogies throughout to make a ' +
+      'complex topic click for a non-expert — at least one analogy per chapter, more where it helps. ' +
+      'Go deeper than a short explainer: cover more ground, connect the ideas to each other, and ' +
+      'don\'t rush — this is the full, unhurried version, still in plain, approachable language ' +
+      'rather than jargon.',
+    temperature: 0.65
   }
 }
 
