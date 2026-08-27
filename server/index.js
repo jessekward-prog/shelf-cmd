@@ -911,6 +911,85 @@ app.delete('/api/cards/:id', async (req, res) => {
   res.json({ ok: true })
 })
 
+app.post('/api/cards/:id/share', async (req, res) => {
+  const card = await ownedCard(req, res)
+  if (!card) return
+  const { rows: have } = await pool.query('SELECT token FROM card_share_tokens WHERE card_id=$1 LIMIT 1', [card.id])
+  if (have[0]) return res.json({ token: have[0].token })
+  const token = randomBytes(18).toString('hex')
+  await pool.query('INSERT INTO card_share_tokens (token, card_id) VALUES ($1,$2)', [token, card.id])
+  res.json({ token })
+})
+
+// Public read-only card page — no auth, this is the shareable link. The card
+// itself has no bytes to stream (unlike a file share), so this renders a small
+// standalone page instead, with OG tags so pasting the link shows a rich preview.
+function escHtml(s) {
+  return String(s == null ? '' : s)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
+}
+function renderSharedCard(card, shareUrl) {
+  const price = card.metadata?.price
+  const currency = card.metadata?.currency
+  const symbol = currency === 'GBP' ? '£' : currency === 'EUR' ? '€' : '$'
+  let hostFallback = 'Shared card'
+  try { if (card.url) hostFallback = new URL(card.url).hostname } catch {}
+  const title = card.title || hostFallback
+  const desc = card.description || ''
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>${escHtml(title)}</title>
+<meta property="og:title" content="${escHtml(title)}">
+${desc ? `<meta property="og:description" content="${escHtml(desc)}">` : ''}
+${card.thumbnail_url ? `<meta property="og:image" content="${escHtml(card.thumbnail_url)}">` : ''}
+<meta property="og:url" content="${escHtml(shareUrl)}">
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+  :root { --bg:#0e0a00; --surface:#160f00; --border:#3d2e00; --amber:#e8840a; --amber-lit:#f0b458; --text-2:#c8a060; --text-3:#8a6a1a; }
+  * { box-sizing:border-box; margin:0; padding:0; }
+  body { background:var(--bg); color:var(--text-2); font-family:'JetBrains Mono',ui-monospace,monospace; min-height:100vh;
+    display:flex; align-items:center; justify-content:center; padding:24px; }
+  .card { width:100%; max-width:420px; background:var(--surface); border:1px solid var(--border); border-radius:10px; overflow:hidden; }
+  .card img { width:100%; max-height:260px; object-fit:cover; display:block; }
+  .body { padding:18px; }
+  h1 { font-size:18px; color:var(--amber-lit); line-height:1.35; margin-bottom:8px; }
+  p { font-size:13px; line-height:1.6; color:var(--text-2); margin-bottom:16px; }
+  .price { display:inline-block; font-weight:700; color:var(--amber-lit); margin-bottom:8px; }
+  a.btn { display:inline-block; background:var(--amber); color:var(--bg); text-decoration:none; font-size:13px;
+    font-weight:600; padding:9px 16px; border-radius:6px; }
+  footer { text-align:center; font-size:11px; color:var(--text-3); margin-top:16px; letter-spacing:.04em; }
+</style>
+</head>
+<body>
+  <div>
+    <div class="card">
+      ${card.thumbnail_url ? `<img src="${escHtml(card.thumbnail_url)}" alt="">` : ''}
+      <div class="body">
+        <h1>${escHtml(title)}</h1>
+        ${price ? `<div class="price">${symbol}${parseFloat(price).toFixed(2)}</div>` : ''}
+        ${desc ? `<p>${escHtml(desc)}</p>` : ''}
+        ${card.url ? `<a class="btn" href="${escHtml(card.url)}" target="_blank" rel="noreferrer">visit ↗</a>` : ''}
+      </div>
+    </div>
+    <footer>shared via ShelfStation</footer>
+  </div>
+</body>
+</html>`
+}
+app.get('/s/c/:token', async (req, res) => {
+  const { rows } = await pool.query(
+    'SELECT c.* FROM card_share_tokens t JOIN cards c ON c.id = t.card_id WHERE t.token=$1', [req.params.token]
+  )
+  if (!rows[0]) return res.status(404).send('This link has expired or was revoked.')
+  // Behind the cloudflared/Coolify proxy the raw socket is plain HTTP — trust
+  // the forwarded header for the og:url tag rather than req.protocol.
+  const proto = req.headers['x-forwarded-proto'] || req.protocol
+  res.send(renderSharedCard(rows[0], `${proto}://${req.get('host')}${req.originalUrl}`))
+})
+
 function extractFromHtml(html) {
   const getMeta = (prop) =>
     html.match(new RegExp(`property="${prop}"[^>]*content="([^"]+)"`))?.[1] ||

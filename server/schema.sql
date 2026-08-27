@@ -33,6 +33,14 @@ CREATE TABLE IF NOT EXISTS cards (
 
 ALTER TABLE cards ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'ready';
 
+-- Mirrors files' own share tokens (see file_share_tokens below) — a public,
+-- no-auth link to a read-only page for one card.
+CREATE TABLE IF NOT EXISTS card_share_tokens (
+  token      TEXT PRIMARY KEY,
+  card_id    INT NOT NULL REFERENCES cards(id) ON DELETE CASCADE,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
 CREATE TABLE IF NOT EXISTS notes (
   id SERIAL PRIMARY KEY,
   label TEXT,

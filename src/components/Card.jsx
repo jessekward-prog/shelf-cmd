@@ -2,6 +2,7 @@ import { useState, useCallback } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import * as api from '../api.js'
 import { CATEGORY_COLOR } from './GuidesView.jsx'
+import ShareModal from './ShareModal.jsx'
 
 const PLATFORM_LABELS = {
   youtube: 'YouTube', tiktok: 'TikTok', vimeo: 'Vimeo',
@@ -273,6 +274,7 @@ export default function Card({ card, onDelete, onUpdate, nowPlayingId, onPlay, o
   const [descExpanded, setDescExpanded] = useState(false)
   const [planGenerating, setPlanGenerating] = useState(false)
   const [planExpanded, setPlanExpanded] = useState(false)
+  const [sharing, setSharing] = useState(false)
 
   const hasEmbed = !!card.metadata?.embed_url
   const hasMedia = hasEmbed || card.thumbnail_url
@@ -426,6 +428,13 @@ export default function Card({ card, onDelete, onUpdate, nowPlayingId, onPlay, o
             so anyone on it may run them; delete stays with whoever posted it. */}
         {(canEdit || canServerAI) && <div className="flex items-center justify-between mt-3 pt-2" style={{ borderTop: '1px solid var(--s-surface-2)' }}>
           <div className="flex items-center gap-2">
+            <button
+              onClick={(e) => { e.stopPropagation(); setSharing(true) }}
+              className="text-xs px-2 py-1 rounded"
+              style={{ color: 'var(--s-text-3)', background: 'transparent' }}
+            >
+              share
+            </button>
             {canServerAI && <button
               onClick={handleScrape}
               disabled={scraping}
@@ -474,6 +483,20 @@ export default function Card({ card, onDelete, onUpdate, nowPlayingId, onPlay, o
           </AnimatePresence>}
         </div>}
       </div>
+
+      <AnimatePresence>
+        {sharing && (
+          <ShareModal
+            file={{ id: card.id, name: card.title || 'this card' }}
+            getLink={async () => {
+              const { token } = await api.shareCard(card.id)
+              return api.cardShareUrl(token)
+            }}
+            note="Anyone with this link can view this card."
+            onClose={() => setSharing(false)}
+          />
+        )}
+      </AnimatePresence>
     </motion.div>
   )
 }
