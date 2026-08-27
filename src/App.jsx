@@ -219,11 +219,9 @@ export default function App({ me }) {
 
   const handleAddCard = async (data) => {
     const targetSub = data.subcategory_id || activeSubcatId || null
-    api.createCard({ ...data, category_id: activeCatId, subcategory_id: targetSub })
-      .then(card => {
-        setCards(prev => [card, ...prev])
-        if (card.status === 'pending') startPolling(card.id)
-      })
+    const card = await api.createCard({ ...data, category_id: activeCatId, subcategory_id: targetSub })
+    setCards(prev => [card, ...prev])
+    if (card.status === 'pending') startPolling(card.id)
   }
 
   // Minting the code is what turns a shelf collaborative, so reflect that once it comes back

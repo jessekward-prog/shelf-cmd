@@ -15,7 +15,10 @@ async function req(method, path, body) {
     },
     body: body ? JSON.stringify(body) : undefined
   })
-  if (!res.ok) throw new Error(`${method} ${path} → ${res.status}`)
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}))
+    throw new Error(data.error || `${method} ${path} → ${res.status}`)
+  }
   return res.json()
 }
 

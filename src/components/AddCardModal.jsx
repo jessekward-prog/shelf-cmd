@@ -6,17 +6,26 @@ export default function AddCardModal({ categoryId, subcategories, onAdd, onClose
   const [imageUrl, setImageUrl] = useState('')
   const [showImageField, setShowImageField] = useState(false)
   const [subcatId, setSubcatId] = useState('')
+  const [error, setError] = useState('')
+  const [busy, setBusy] = useState(false)
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault()
     if (!url.trim()) return
-    onAdd({
-      url: url.trim(),
-      category_id: categoryId,
-      subcategory_id: subcatId || null,
-      thumbnail_url: imageUrl.trim() || undefined
-    })
-    onClose()
+    setBusy(true)
+    setError('')
+    try {
+      await onAdd({
+        url: url.trim(),
+        category_id: categoryId,
+        subcategory_id: subcatId || null,
+        thumbnail_url: imageUrl.trim() || undefined
+      })
+      onClose()
+    } catch (err) {
+      setBusy(false)
+      setError(err.message || 'could not add that card')
+    }
   }
 
   return (
@@ -95,6 +104,8 @@ export default function AddCardModal({ categoryId, subcategories, onAdd, onClose
             {showImageField ? '− hide image url' : '+ add image url manually'}
           </button>
 
+          {error && <p className="text-xs" style={{ color: '#c0392b' }}>{error}</p>}
+
           <div className="flex gap-2 mt-1">
             <button
               type="button"
@@ -106,16 +117,16 @@ export default function AddCardModal({ categoryId, subcategories, onAdd, onClose
             </button>
             <motion.button
               type="submit"
-              disabled={!url.trim()}
+              disabled={!url.trim() || busy}
               whileTap={{ scale: 0.96 }}
               className="flex-1 py-2 rounded-lg text-sm font-medium"
               style={{
                 background: 'var(--s-accent)',
                 color: 'var(--s-bg)',
-                opacity: !url.trim() ? 0.4 : 1
+                opacity: !url.trim() || busy ? 0.4 : 1
               }}
             >
-              add
+              {busy ? 'adding…' : 'add'}
             </motion.button>
           </div>
         </form>
