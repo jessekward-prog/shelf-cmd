@@ -175,11 +175,6 @@ export default function GuidesView({ onGenerate, refreshKey, categoryId }) {
                         onMouseLeave={e => e.currentTarget.style.borderColor = 'var(--s-border)'}>
                         {busyId === g.id ? '…' : 'open'}
                       </button>
-                      <button style={btn} onClick={() => setSharingGuide(g)}
-                        onMouseEnter={e => e.currentTarget.style.borderColor = 'var(--s-accent)'}
-                        onMouseLeave={e => e.currentTarget.style.borderColor = 'var(--s-border)'}>
-                        share
-                      </button>
                       <a href={api.guideDownloadUrl(g.id)} download
                         style={{ ...btn, textDecoration: 'none', display: 'inline-block' }}
                         onMouseEnter={e => e.currentTarget.style.borderColor = 'var(--s-accent)'}
@@ -195,6 +190,21 @@ export default function GuidesView({ onGenerate, refreshKey, categoryId }) {
                         </button>
                       ) : null}
                       <div style={{ flex: 1 }} />
+                      <button
+                        onClick={() => setSharingGuide(g)}
+                        title="Share"
+                        style={{ padding: 5, borderRadius: 4, color: 'var(--s-text-3)', background: 'transparent', flexShrink: 0 }}
+                        onMouseEnter={e => e.currentTarget.style.color = 'var(--s-accent)'}
+                        onMouseLeave={e => e.currentTarget.style.color = 'var(--s-text-3)'}
+                      >
+                        <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                          <circle cx="18" cy="5" r="3" />
+                          <circle cx="6" cy="12" r="3" />
+                          <circle cx="18" cy="19" r="3" />
+                          <line x1="8.59" y1="13.51" x2="15.42" y2="17.49" />
+                          <line x1="15.41" y1="6.51" x2="8.59" y2="10.49" />
+                        </svg>
+                      </button>
                       {confirmId === g.id ? (
                         <button
                           onClick={() => removeGuide(g.id)}
