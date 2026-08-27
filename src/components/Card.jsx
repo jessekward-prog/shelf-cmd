@@ -324,6 +324,21 @@ export default function Card({ card, onDelete, onUpdate, nowPlayingId, onPlay, o
         border: `1px solid ${card.category ? (CATEGORY_COLOR[card.category] || CATEGORY_COLOR.reference) + '55' : 'var(--s-border)'}`
       }}
     >
+      {planGenerating && (
+        <div style={{ position: 'absolute', inset: 0, zIndex: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden' }}>
+          {[0, 1, 2].map(i => (
+            <motion.div
+              key={i}
+              style={{ position: 'absolute', width: '10%', aspectRatio: '1', borderRadius: '50%', border: '2px solid #000' }}
+              initial={{ scale: 0.3, opacity: 0 }}
+              animate={{ scale: [0.3, 1.3, 14], opacity: [0, 0.5, 0] }}
+              transition={{ duration: 2.2, times: [0, 0.15, 1], repeat: Infinity, ease: 'easeOut', delay: i * 0.73 }}
+            />
+          ))}
+        </div>
+      )}
+
+      <div style={{ position: 'relative', zIndex: 1 }}>
       {hasMedia && (
         <MediaEmbed
           card={card}
@@ -496,6 +511,7 @@ export default function Card({ card, onDelete, onUpdate, nowPlayingId, onPlay, o
             </button>
           </div>
         </div>}
+      </div>
       </div>
 
       <AnimatePresence>

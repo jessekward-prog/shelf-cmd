@@ -52,9 +52,24 @@ export default function GuideModal({ onClose, onSaved, categoryId }) {
       <motion.div
         initial={{ y: 40, opacity: 0 }} animate={{ y: 0, opacity: 1 }} exit={{ y: 40, opacity: 0 }}
         transition={{ type: 'spring', damping: 22, stiffness: 300 }}
-        className="w-full max-w-md rounded-xl p-5"
+        className="w-full max-w-md rounded-xl p-5 relative overflow-hidden"
         style={{ background: 'var(--s-surface)', border: '1px solid var(--s-border)' }}
       >
+        {busy && (
+          <div style={{ position: 'absolute', inset: 0, zIndex: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            {[0, 1, 2].map(i => (
+              <motion.div
+                key={i}
+                style={{ position: 'absolute', width: '10%', aspectRatio: '1', borderRadius: '50%', border: '2px solid #000' }}
+                initial={{ scale: 0.3, opacity: 0 }}
+                animate={{ scale: [0.3, 1.3, 14], opacity: [0, 0.5, 0] }}
+                transition={{ duration: 2.2, times: [0, 0.15, 1], repeat: Infinity, ease: 'easeOut', delay: i * 0.73 }}
+              />
+            ))}
+          </div>
+        )}
+
+        <div style={{ position: 'relative', zIndex: 1 }}>
         <p className="text-sm font-medium mb-1" style={{ color: 'var(--s-accent)' }}>generate a guide</p>
         <p className="text-xs mb-4" style={{ color: 'var(--s-text-3)', lineHeight: 1.5 }}>
           Paste a GitHub repo — or any page — and ShelfStation writes a styled, standalone
@@ -171,6 +186,7 @@ export default function GuideModal({ onClose, onSaved, categoryId }) {
             </div>
           </div>
         )}
+        </div>
       </motion.div>
     </motion.div>
   )
