@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { motion } from 'framer-motion'
 import * as api from '../api.js'
+import RippleField from './RippleField.jsx'
 
 // Same voices server/guide.js's GUIDE_MODES can write in.
 const MODES = [
@@ -55,19 +56,7 @@ export default function GuideModal({ onClose, onSaved, categoryId }) {
         className="w-full max-w-md rounded-xl p-5 relative overflow-hidden"
         style={{ background: 'var(--s-surface)', border: '1px solid var(--s-border)' }}
       >
-        {busy && (
-          <div style={{ position: 'absolute', inset: 0, zIndex: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-            {[0, 1, 2].map(i => (
-              <motion.div
-                key={i}
-                style={{ position: 'absolute', width: '10%', aspectRatio: '1', borderRadius: '50%', border: '2px solid #000' }}
-                initial={{ scale: 0.3, opacity: 0 }}
-                animate={{ scale: [0.3, 1.3, 14], opacity: [0, 0.5, 0] }}
-                transition={{ duration: 2.2, times: [0, 0.15, 1], repeat: Infinity, ease: 'easeOut', delay: i * 0.73 }}
-              />
-            ))}
-          </div>
-        )}
+        {busy && <div style={{ position: 'absolute', inset: 0, zIndex: 0 }}><RippleField /></div>}
 
         <div style={{ position: 'relative', zIndex: 1 }}>
         <p className="text-sm font-medium mb-1" style={{ color: 'var(--s-accent)' }}>generate a guide</p>
