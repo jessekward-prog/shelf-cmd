@@ -2,10 +2,19 @@ import { useState, useEffect } from 'react'
 import { motion } from 'framer-motion'
 import * as api from '../api.js'
 
+// Same four voices server/guide.js's GUIDE_MODES can write in.
+const MODES = [
+  { id: 'man', label: 'man', hint: 'a full guide for a person to read' },
+  { id: 'machine', label: 'machine', hint: 'a dense reference for an AI agent or tool' },
+  { id: 'summary', label: 'summary', hint: 'a short, factual pull of what it says' },
+  { id: 'dumbary', label: 'dumbary', hint: 'short, with analogies for a tricky idea' }
+]
+
 // Paste a repo (or any) URL → the server writes a guide and hands back a
 // standalone HTML document to open or download.
 export default function GuideModal({ onClose, onSaved, categoryId }) {
   const [url, setUrl] = useState('')
+  const [mode, setMode] = useState('man')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const [result, setResult] = useState(null)   // { html, filename, title, chapters }
@@ -24,7 +33,7 @@ export default function GuideModal({ onClose, onSaved, categoryId }) {
     if (busy || !/^https?:\/\/\S+$/.test(url.trim())) return
     setBusy(true); setError('')
     try {
-      setResult(await api.generateGuide(url.trim(), categoryId))
+      setResult(await api.generateGuide(url.trim(), categoryId, mode))
       onSaved && onSaved() // it's now saved to the Workspace — refresh the list
     } catch (err) {
       setError(err.message || 'could not generate a guide')
@@ -48,11 +57,28 @@ export default function GuideModal({ onClose, onSaved, categoryId }) {
         <p className="text-sm font-medium mb-1" style={{ color: 'var(--s-accent)' }}>generate a guide</p>
         <p className="text-xs mb-4" style={{ color: 'var(--s-text-3)', lineHeight: 1.5 }}>
           Paste a GitHub repo — or any page — and ShelfStation writes a styled, standalone
-          HTML user guide for it. It reads the README and fills sensible gaps.
+          HTML document for it: {MODES.find(m => m.id === mode)?.hint}.
         </p>
 
         {!result ? (
           <form onSubmit={submit} className="flex flex-col gap-3">
+            <div className="flex gap-1.5 flex-wrap">
+              {MODES.map(m => (
+                <button
+                  key={m.id} type="button" disabled={busy}
+                  onClick={() => setMode(m.id)}
+                  className="px-2.5 py-1 rounded-md text-xs"
+                  style={{
+                    border: '1px solid var(--s-border)',
+                    background: mode === m.id ? 'var(--s-accent)' : 'transparent',
+                    color: mode === m.id ? 'var(--s-bg)' : 'var(--s-text-2)',
+                    fontWeight: mode === m.id ? 500 : 400
+                  }}
+                >
+                  {m.label}
+                </button>
+              ))}
+            </div>
             <input
               autoFocus type="url" inputMode="url"
               placeholder="https://github.com/owner/repo"
@@ -105,6 +131,7 @@ export default function GuideModal({ onClose, onSaved, categoryId }) {
               <p className="text-sm font-medium" style={{ color: 'var(--s-text-0)' }}>{result.title}</p>
               <p className="text-xs mt-0.5" style={{ color: 'var(--s-text-3)' }}>
                 {result.chapters} chapter{result.chapters === 1 ? '' : 's'} · standalone HTML
+                {result.mode && result.mode !== 'man' ? ` · ${result.mode}` : ''}
               </p>
             </div>
 

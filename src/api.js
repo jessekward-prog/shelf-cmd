@@ -102,11 +102,11 @@ export const getHubStatus = () => req('GET', '/hub')
 
 // ── Guides (generated standalone HTML) ───────────────────────────────────────
 // Surfaces the server's error text, which carries the real reason a guide failed.
-export async function generateGuide(url, categoryId) {
+export async function generateGuide(url, categoryId, mode) {
   const res = await fetch(base + '/guide', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...(getToken() ? { Authorization: `Bearer ${getToken()}` } : {}) },
-    body: JSON.stringify({ url, category_id: categoryId || undefined })
+    body: JSON.stringify({ url, category_id: categoryId || undefined, mode: mode || undefined })
   })
   const data = await res.json().catch(() => ({}))
   if (!res.ok) throw new Error(data.error || `guide → ${res.status}`)

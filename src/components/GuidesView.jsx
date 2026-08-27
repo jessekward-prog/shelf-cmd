@@ -164,7 +164,8 @@ export default function GuidesView({ onGenerate, refreshKey, categoryId }) {
 
                   <div style={{ minWidth: 0 }}>
                     <div className="truncate" style={{ fontSize: 10, color: 'var(--s-text-3)', marginBottom: 6 }}>
-                      {g.source ? host(g.source) : ''} · {g.chapters} ch · {new Date(g.created_at).toLocaleDateString()}
+                      {g.source ? host(g.source) : ''} · {g.chapters} ch
+                      {g.mode && g.mode !== 'man' ? ` · ${g.mode}` : ''} · {new Date(g.created_at).toLocaleDateString()}
                     </div>
                     <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
                       <button style={btn} disabled={busyId === g.id} onClick={() => openGuide(g.id)}

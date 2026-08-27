@@ -75,6 +75,7 @@ export async function ensureGuideTable(pool) {
   )`)
   await pool.query('ALTER TABLE guides ADD COLUMN IF NOT EXISTS tagline TEXT')
   await pool.query('ALTER TABLE guides ADD COLUMN IF NOT EXISTS category TEXT')
+  await pool.query("ALTER TABLE guides ADD COLUMN IF NOT EXISTS mode TEXT NOT NULL DEFAULT 'man'")
   // NULL = a personal guide on the home Workspace tab. Set = generated (or
   // saved) into a specific shelf's own Guides tab.
   await pool.query('ALTER TABLE guides ADD COLUMN IF NOT EXISTS category_id INT REFERENCES categories(id) ON DELETE CASCADE')
@@ -187,13 +188,57 @@ function digestOf(src) {
 // legend colors in GuidesView.jsx (PlayStation face-button colors).
 export const CATEGORIES = ['speed', 'thinking', 'design', 'tools', 'reference']
 
-async function writeChapters(digest, fallbackName) {
+// Four "voices" the same source material can be written in — all still land
+// in the @@TITLE/@@CHAPTER delimited format, so the render pipeline below
+// never has to know which one ran.
+export const GUIDE_MODES = {
+  man: {
+    label: 'man',
+    chapters: '4 to 7',
+    style:
+      'Write a clear, practical end-user guide for a human reader, covering, as the material ' +
+      'allows: what it is and who it is for; getting started / installation; configuration; ' +
+      'using the main features; and troubleshooting or tips. Take reasonable liberties to fill ' +
+      'small gaps, but never invent commands or facts that contradict the source.',
+    temperature: 0.5
+  },
+  machine: {
+    label: 'machine',
+    chapters: '3 to 6',
+    style:
+      'Write a dense reference doc for an AI coding agent or tool (think AGENTS.md), not a human ' +
+      'tutorial. No marketing language, no filler, no "getting started" narrative — state facts, ' +
+      'commands, config keys, file paths, and API shapes plainly. Prefer tables, code fences, and ' +
+      'short bullet lists over prose. Cover what it is in one line, exact setup/invocation, the ' +
+      'configuration surface, and any constraints or gotchas a tool must know before touching this.',
+    temperature: 0.25
+  },
+  summary: {
+    label: 'summary',
+    chapters: '1 to 3',
+    style:
+      'Write a short, factual summary that pulls out and explains what this source actually says ' +
+      'or does — not a how-to guide. Skip installation steps and tutorial framing. Cover: what it ' +
+      'is, the key points worth knowing, and why it matters.',
+    temperature: 0.4
+  },
+  dumbary: {
+    label: 'dumbary',
+    chapters: '1 to 2',
+    style:
+      'Write a short, friendly explanation that leans on real-world analogies to make a complex ' +
+      'idea click for a non-expert — at least one analogy per chapter. Keep it brief: this is the ' +
+      '"explain it like I\'m smart but busy" version, not a full guide.',
+    temperature: 0.7
+  }
+}
+
+async function writeChapters(digest, fallbackName, mode = 'man') {
+  const cfg = GUIDE_MODES[mode] || GUIDE_MODES.man
   const system =
-    'You write a clear, practical end-user guide for a software project using only the ' +
-    'README and metadata provided. Reply with ONLY the guide in the exact delimited ' +
-    'format requested — no preamble, no meta-commentary, no thinking out loud. Take ' +
-    'reasonable liberties to fill small gaps, but never invent commands or facts that ' +
-    'contradict the source.'
+    `You write software documentation using only the README and metadata provided. ${cfg.style} ` +
+    'Reply with ONLY the guide in the exact delimited format requested — no preamble, no ' +
+    'meta-commentary, no thinking out loud.'
   const user =
     `Write the guide for this project.\n\n${digest}\n\n---\n` +
     'OUTPUT FORMAT — follow it exactly and output nothing before or after:\n\n' +
@@ -210,9 +255,7 @@ async function writeChapters(digest, fallbackName) {
     'Body rules: use short paragraphs. Use "### " for a sub-heading inside a chapter. ' +
     'Use "- " for bullet lists and "1. " for ordered steps. Put shell commands or config ' +
     'inside triple-backtick code fences. Start a line with "NOTE:", "WARN:", or "DANGER:" ' +
-    'for a callout. You may use markdown "| col | col |" tables. Write 4 to 7 chapters ' +
-    'covering, as the material allows: what it is and who it is for; getting started / ' +
-    'installation; configuration; using the main features; and troubleshooting or tips. ' +
+    `for a callout. You may use markdown "| col | col |" tables. Write ${cfg.chapters} chapters. ` +
     'Begin your reply directly with @@TITLE.'
 
   // A whole guide is a big generation — run it on a fast model. Defaults to the
@@ -220,7 +263,7 @@ async function writeChapters(digest, fallbackName) {
   const model = process.env.LM_STUDIO_GUIDE_MODEL || process.env.LM_STUDIO_PLAN_MODEL || undefined
   const raw = stripReasoning(await lmComplete(
     [{ role: 'system', content: system }, { role: 'user', content: user }],
-    { maxTokens: null, temperature: 0.5, timeout: 240000, model }
+    { maxTokens: null, temperature: cfg.temperature, timeout: 240000, model }
   ))
   return parseChapters(raw, fallbackName)
 }
@@ -463,17 +506,18 @@ export function mountGuide({ app, pool, adminOnly, adminOrToken, hub }) {
       if (!/^https?:\/\/\S+$/.test(url)) return res.status(400).json({ error: 'a full http(s) URL is required' })
       // Present = generated into that shelf's own Guides tab. Absent = the personal home tab.
       const categoryId = req.body.category_id ? Number(req.body.category_id) : null
+      const mode = GUIDE_MODES[req.body.mode] ? req.body.mode : 'man'
 
       const gh = url.match(GITHUB_RE)
       const src = gh ? await fetchGitHub(gh[1], gh[2]) : await fetchGeneric(url)
       const fallbackName = src.meta?.name || src.meta?.full_name || 'User Guide'
 
-      const guide = await writeChapters(digestOf(src), fallbackName)
+      const guide = await writeChapters(digestOf(src), fallbackName, mode)
       if (!guide.chapters.length) return res.status(502).json({ error: 'the model returned nothing usable — try again' })
 
       const html = renderHtml({
         title: guide.title, tagline: guide.tagline, source: src.source,
-        badges: badgesOf(src), chapters: guide.chapters,
+        badges: [...(mode !== 'man' ? [mode] : []), ...badgesOf(src)], chapters: guide.chapters,
         meta: src.meta || {}, files: src.files || []
       })
       const s = (guide.title || 'guide').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 40) || 'guide'
@@ -484,8 +528,8 @@ export function mountGuide({ app, pool, adminOnly, adminOrToken, hub }) {
       let id = null
       try {
         const { rows } = await pool.query(
-          'INSERT INTO guides (title, source, filename, chapters, html, tagline, category, category_id) VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING id',
-          [guide.title, src.source, filename, guide.chapters.length, html, guide.tagline, guide.category, categoryId]
+          'INSERT INTO guides (title, source, filename, chapters, html, tagline, category, category_id, mode) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING id',
+          [guide.title, src.source, filename, guide.chapters.length, html, guide.tagline, guide.category, categoryId, mode]
         )
         id = rows[0].id
       } catch (e) { console.error('guide save:', e.message) }
@@ -506,7 +550,7 @@ export function mountGuide({ app, pool, adminOnly, adminOrToken, hub }) {
 
       if (id && categoryId) logActivity(pool, hub, categoryId, 'guide_added', `generated a guide: ${guide.title}`).catch(() => {})
 
-      res.json({ id, title: guide.title, tagline: guide.tagline, category: guide.category, filename, chapters: guide.chapters.length, html })
+      res.json({ id, title: guide.title, tagline: guide.tagline, category: guide.category, mode, filename, chapters: guide.chapters.length, html })
     } catch (err) {
       console.error('guide error:', err.message)
       res.status(err.status === 404 ? 404 : 500).json({ error: err.status === 404 ? 'repo not found (or private)' : err.message })
@@ -518,7 +562,7 @@ export function mountGuide({ app, pool, adminOnly, adminOrToken, hub }) {
   app.get('/api/guides', guard, async (req, res) => {
     const catId = req.query.category_id ? Number(req.query.category_id) : null
     const { rows } = await pool.query(
-      `SELECT id, title, tagline, category, source, filename, chapters, created_at FROM guides
+      `SELECT id, title, tagline, category, mode, source, filename, chapters, created_at FROM guides
        WHERE category_id ${catId ? '= $1' : 'IS NULL'} ORDER BY created_at DESC`,
       catId ? [catId] : []
     )
@@ -531,9 +575,9 @@ export function mountGuide({ app, pool, adminOnly, adminOrToken, hub }) {
     const g = rows[0]
     if (!g) return res.status(404).json({ error: 'not found' })
     const { rows: inserted } = await pool.query(
-      `INSERT INTO guides (title, source, filename, chapters, html, tagline, category, category_id)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,NULL) RETURNING id`,
-      [g.title, g.source, g.filename, g.chapters, g.html, g.tagline, g.category]
+      `INSERT INTO guides (title, source, filename, chapters, html, tagline, category, category_id, mode)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,NULL,$8) RETURNING id`,
+      [g.title, g.source, g.filename, g.chapters, g.html, g.tagline, g.category, g.mode]
     )
     res.json({ id: inserted[0].id })
   })
