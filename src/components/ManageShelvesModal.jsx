@@ -114,7 +114,7 @@ export default function ManageShelvesModal({ categories, onClose, onReorder, onR
                     sure?
                   </button>
                 ) : (
-                  <button style={{ ...iconBtn, color: 'var(--s-text-3)' }} title="Delete"
+                  <button style={{ ...iconBtn, color: '#c0392b' }} title="Delete"
                     onClick={() => setConfirmId(cat.id)} onPointerDown={(e) => e.stopPropagation()}>
                     <TrashIcon />
                   </button>
@@ -154,7 +154,7 @@ export default function ManageShelvesModal({ categories, onClose, onReorder, onR
                       sure?
                     </button>
                   ) : (
-                    <button style={{ ...iconBtn, color: 'var(--s-text-3)' }} title="Delete" onClick={() => setConfirmId(cat.id)}>
+                    <button style={{ ...iconBtn, color: '#c0392b' }} title="Delete" onClick={() => setConfirmId(cat.id)}>
                       <TrashIcon />
                     </button>
                   )}
