@@ -7,6 +7,9 @@
 // which model wrote it. The shell wears ShelfStation's retro amber-CRT terminal
 // skin: warm-black ground, amber glow, VT323 + JetBrains Mono, scanlines, flicker.
 
+// chromium is the playwright-extra singleton index.js already wires up with
+// StealthPlugin at module load — reused here rather than re-registered.
+import { chromium } from 'playwright-extra'
 import { logActivity } from './chat.js'
 
 const GITHUB_RE = /^https?:\/\/(?:www\.)?github\.com\/([^/\s#?]+)\/([^/\s#?]+)/i
@@ -116,15 +119,7 @@ async function fetchGitHub(owner, repo) {
   return { meta, readme, files, source: `https://github.com/${owner}/${repo}` }
 }
 
-async function fetchGeneric(url) {
-  let html = ''
-  try {
-    const r = await fetch(url, {
-      headers: { 'User-Agent': 'Mozilla/5.0 (compatible; shelf-cmd guide bot)' },
-      redirect: 'follow', signal: AbortSignal.timeout(12000)
-    })
-    if (r.ok) html = await r.text()
-  } catch { /* fall through to whatever we have */ }
+function htmlToText(html) {
   const title = (html.match(/<title[^>]*>([^<]+)<\/title>/i)?.[1] || '').trim()
   const text = html
     .replace(/<script[\s\S]*?<\/script>/gi, ' ')
@@ -133,6 +128,42 @@ async function fetchGeneric(url) {
     .replace(/&nbsp;/g, ' ')
     .replace(/\s+/g, ' ')
     .trim()
+  return { title, text }
+}
+
+// A real headless browser — sites behind Cloudflare/bot-check (e.g. openai.com)
+// 403 or serve an empty JS-challenge shell to a plain fetch(); rendering with
+// StealthPlugin clears the challenge the same way the card scraper does.
+async function fetchRendered(url) {
+  const browser = await chromium.launch({ headless: true })
+  try {
+    const page = await browser.newPage()
+    await page.setExtraHTTPHeaders({ 'Accept-Language': 'en-US,en;q=0.9' })
+    await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 20000 })
+    await page.waitForTimeout(2000)
+    return await page.content()
+  } finally {
+    await browser.close()
+  }
+}
+
+async function fetchGeneric(url) {
+  let html = ''
+  try {
+    const r = await fetch(url, {
+      headers: { 'User-Agent': 'Mozilla/5.0 (compatible; shelf-cmd guide bot)' },
+      redirect: 'follow', signal: AbortSignal.timeout(12000)
+    })
+    if (r.ok) html = await r.text()
+  } catch { /* fall through to the browser render */ }
+
+  let { title, text } = htmlToText(html)
+  if (!text || text.length < 200) {
+    try {
+      html = await fetchRendered(url)
+      ;({ title, text } = htmlToText(html))
+    } catch { /* fall through to whatever we have */ }
+  }
   if (!text) throw new Error('could not read that page')
   return { meta: { name: title, description: '' }, readme: text.slice(0, 12000), files: [], source: url }
 }
