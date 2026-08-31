@@ -5,8 +5,53 @@ import { memberColor } from '../memberColor.js'
 
 const REACTIONS = ['👍', '❤️', '😂', '😮', '😢', '🔥']
 
+function ReplyIcon() {
+  return (
+    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <polyline points="9 17 4 12 9 7" /><path d="M20 18v-2a4 4 0 0 0-4-4H4" />
+    </svg>
+  )
+}
+
+function SmileIcon() {
+  return (
+    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <circle cx="12" cy="12" r="10" /><path d="M8 14s1.5 2 4 2 4-2 4-2" />
+      <line x1="9" y1="9" x2="9.01" y2="9" /><line x1="15" y1="9" x2="15.01" y2="9" />
+    </svg>
+  )
+}
+
+// A floating popover, positioned absolute so opening it never pushes other
+// bubbles down the list — it overlaps whatever's below instead.
+const POPOVER_STYLE = (align) => ({
+  position: 'absolute', top: '100%', marginTop: 3, zIndex: 5,
+  [align === 'end' ? 'right' : 'left']: 0
+})
+
+// Tap a bubble → this (reply / react); tap react → EmojiPicker replaces it.
+function MessageActions({ align, onReply, onReact }) {
+  return (
+    <div
+      onClick={(e) => e.stopPropagation()}
+      style={{
+        ...POPOVER_STYLE(align), display: 'flex', gap: 2,
+        background: 'var(--s-surface-2)', border: '1px solid var(--s-border)', borderRadius: 999,
+        padding: 3, boxShadow: '0 4px 12px rgba(0,0,0,0.4)'
+      }}
+    >
+      <button type="button" onClick={onReply} title="Reply" style={{ width: 26, height: 26, display: 'flex', alignItems: 'center', justifyContent: 'center', borderRadius: '50%', color: 'var(--s-text-0)' }}>
+        <ReplyIcon />
+      </button>
+      <button type="button" onClick={onReact} title="React" style={{ width: 26, height: 26, display: 'flex', alignItems: 'center', justifyContent: 'center', borderRadius: '50%', color: 'var(--s-text-0)' }}>
+        <SmileIcon />
+      </button>
+    </div>
+  )
+}
+
 // Grouped emoji counts under a bubble, mirroring chat.cmdward.xyz's format —
-// tap a pill to toggle your own reaction, tap the bubble to open the picker.
+// tap a pill to toggle your own reaction, tap the bubble to open the actions.
 function ReactionsRow({ reactions, myHubUserId, isMine, onToggle }) {
   if (!reactions?.length) return null
   const grouped = {}
@@ -41,8 +86,9 @@ function EmojiPicker({ align, onPick }) {
     <div
       onClick={(e) => e.stopPropagation()}
       style={{
-        display: 'flex', gap: 4, marginTop: 3, width: 'fit-content', marginLeft: align === 'end' ? 'auto' : 0,
-        background: 'var(--s-surface-2)', border: '1px solid var(--s-border)', borderRadius: 999, padding: '3px 7px'
+        ...POPOVER_STYLE(align), display: 'flex', gap: 4, width: 'fit-content',
+        background: 'var(--s-surface-2)', border: '1px solid var(--s-border)', borderRadius: 999,
+        padding: '3px 7px', boxShadow: '0 4px 12px rgba(0,0,0,0.4)'
       }}
     >
       {REACTIONS.map((e) => (
@@ -112,9 +158,32 @@ export default function ShelfChat({ categoryId, isLinked }) {
   // This instance's own hub identity — the bubble format needs to know which
   // side of the chat "me" is on, and whether a reaction pill is already mine.
   const [myHubUserId, setMyHubUserId] = useState(null)
+  // actionsFor: the small reply/react popover. pickerFor: the emoji strip
+  // it opens into. Only one message can have either open at a time.
+  const [actionsFor, setActionsFor] = useState(null)
   const [pickerFor, setPickerFor] = useState(null)
+  const [replyingTo, setReplyingTo] = useState(null)
   const listRef = useRef(null)
   const esRef = useRef(null)
+  const inputRef = useRef(null)
+
+  // Both popovers are floating (position: absolute) so they never push the
+  // message list — but that means a tap outside them has to close them itself.
+  useEffect(() => {
+    if (!actionsFor && !pickerFor) return
+    const onOutside = (e) => {
+      if (!e.target.closest?.('[data-chat-msg]')) {
+        setActionsFor(null)
+        setPickerFor(null)
+      }
+    }
+    document.addEventListener('mousedown', onOutside)
+    document.addEventListener('touchstart', onOutside, { passive: true })
+    return () => {
+      document.removeEventListener('mousedown', onOutside)
+      document.removeEventListener('touchstart', onOutside)
+    }
+  }, [actionsFor, pickerFor])
 
   useEffect(() => {
     api.getMessages(categoryId).then(setMessages).catch(() => setMessages([]))
@@ -161,9 +230,11 @@ export default function ShelfChat({ categoryId, isLinked }) {
     e.preventDefault()
     const body = input.trim()
     if (!body || sending) return
+    const replyToId = replyingTo?.id
     setInput('')
+    setReplyingTo(null)
     setSending(true)
-    try { await api.sendMessage(categoryId, body) } catch { /* queued or failed — it'll show up once synced */ }
+    try { await api.sendMessage(categoryId, body, replyToId) } catch { /* queued or failed — it'll show up once synced */ }
     setSending(false)
   }
 
@@ -190,6 +261,24 @@ export default function ShelfChat({ categoryId, isLinked }) {
       const { reactions } = await api.reactToMessage(categoryId, message.id, emoji)
       setMessages(prev => prev.map(m => m.id === message.id ? { ...m, reactions } : m))
     } catch { /* hub unreachable — pill just doesn't update, tap again to retry */ }
+  }
+
+  const startReply = (message) => {
+    setActionsFor(null)
+    setPickerFor(null)
+    setReplyingTo(message)
+    inputRef.current?.focus()
+  }
+
+  // Jumping to a quoted message's own bubble — a brief outline instead of a
+  // permanent highlight, just enough to catch the eye after the scroll lands.
+  const scrollToMessage = (id) => {
+    const el = listRef.current?.querySelector(`[data-msg-id="${id}"]`)
+    if (!el) return
+    el.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    el.style.outline = '2px solid var(--s-accent)'
+    el.style.outlineOffset = '2px'
+    setTimeout(() => { el.style.outline = 'none' }, 900)
   }
 
   return (
@@ -286,38 +375,78 @@ export default function ShelfChat({ categoryId, isLinked }) {
                       return (
                         <div key={m.id} style={{ display: 'flex', justifyContent: isMine ? 'flex-end' : 'flex-start' }}>
                           <div style={{ maxWidth: '85%' }}>
-                            <div
-                              onClick={() => setPickerFor(p => p === m.id ? null : m.id)}
-                              style={{
-                                background: isMine ? 'var(--s-accent-faint)' : 'var(--s-surface-2)',
-                                border: `1px solid ${isMine ? 'var(--s-accent-glow)' : 'var(--s-border)'}`,
-                                borderRadius: 14,
-                                borderBottomRightRadius: isMine ? 4 : 14,
-                                borderBottomLeftRadius: isMine ? 14 : 4,
-                                padding: '7px 10px', cursor: 'pointer'
-                              }}
-                            >
-                              {!isMine && (
-                                <div style={{ fontSize: 10, fontWeight: 600, color: memberColor(m.hub_user_id), marginBottom: 2 }}>
-                                  {m.username || 'someone'}
+                            {/* data-chat-msg scopes the outside-click close and the
+                                scroll-to-message lookup to this one message. */}
+                            <div data-chat-msg data-msg-id={m.id} style={{ position: 'relative' }}>
+                              <div
+                                onClick={() => { setPickerFor(null); setActionsFor(p => p === m.id ? null : m.id) }}
+                                style={{
+                                  background: isMine ? 'var(--s-accent-faint)' : 'var(--s-surface-2)',
+                                  border: `1px solid ${isMine ? 'var(--s-accent-glow)' : 'var(--s-border)'}`,
+                                  borderRadius: 14,
+                                  borderBottomRightRadius: isMine ? 4 : 14,
+                                  borderBottomLeftRadius: isMine ? 14 : 4,
+                                  padding: '7px 10px', cursor: 'pointer'
+                                }}
+                              >
+                                {!isMine && (
+                                  <div style={{ fontSize: 10, fontWeight: 600, color: memberColor(m.hub_user_id), marginBottom: 2 }}>
+                                    {m.username || 'someone'}
+                                  </div>
+                                )}
+                                {m.reply_to && (
+                                  <div
+                                    onClick={(e) => { e.stopPropagation(); scrollToMessage(m.reply_to.id) }}
+                                    style={{
+                                      marginBottom: 4, paddingLeft: 6, borderLeft: `2px solid ${memberColor(m.reply_to.hub_user_id)}`, cursor: 'pointer'
+                                    }}
+                                  >
+                                    <div style={{ fontSize: 9, fontWeight: 600, color: memberColor(m.reply_to.hub_user_id) }}>
+                                      {m.reply_to.username || 'someone'}
+                                    </div>
+                                    <div style={{ fontSize: 11, color: 'var(--s-text-1)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                                      {m.reply_to.body}
+                                    </div>
+                                  </div>
+                                )}
+                                <div style={{ fontSize: 13, color: 'var(--s-text-0)', wordBreak: 'break-word', whiteSpace: 'pre-wrap' }}>
+                                  {m.body}
                                 </div>
+                                <div style={{ fontSize: 9, color: 'var(--s-text-3)', textAlign: 'right', marginTop: 2 }}>
+                                  {timeAgo(m.created_at)}
+                                </div>
+                              </div>
+                              {actionsFor === m.id && (
+                                <MessageActions
+                                  align={isMine ? 'end' : 'start'}
+                                  onReply={() => startReply(m)}
+                                  onReact={() => { setActionsFor(null); setPickerFor(m.id) }}
+                                />
                               )}
-                              <div style={{ fontSize: 13, color: 'var(--s-text-0)', wordBreak: 'break-word', whiteSpace: 'pre-wrap' }}>
-                                {m.body}
-                              </div>
-                              <div style={{ fontSize: 9, color: 'var(--s-text-3)', textAlign: 'right', marginTop: 2 }}>
-                                {timeAgo(m.created_at)}
-                              </div>
+                              {pickerFor === m.id && <EmojiPicker align={isMine ? 'end' : 'start'} onPick={(emoji) => react(m, emoji)} />}
                             </div>
                             <ReactionsRow reactions={m.reactions} myHubUserId={myHubUserId} isMine={isMine} onToggle={(emoji) => react(m, emoji)} />
-                            {pickerFor === m.id && <EmojiPicker align={isMine ? 'end' : 'start'} onPick={(emoji) => react(m, emoji)} />}
                           </div>
                         </div>
                       )
                     })}
                   </div>
-                  <form onSubmit={send} className="flex gap-2 p-2" style={{ borderTop: '1px solid var(--s-border)', paddingBottom: NOTCH_OVERLAP }}>
+                  {replyingTo && (
+                    <div className="flex items-center gap-2" style={{ padding: '5px 10px', borderTop: '1px solid var(--s-border)', background: 'var(--s-surface-2)' }}>
+                      <div style={{ flex: 1, minWidth: 0, paddingLeft: 6, borderLeft: `2px solid ${memberColor(replyingTo.hub_user_id)}` }}>
+                        <div style={{ fontSize: 10, fontWeight: 600, color: memberColor(replyingTo.hub_user_id) }}>
+                          replying to {String(replyingTo.hub_user_id) === String(myHubUserId) ? 'yourself' : (replyingTo.username || 'someone')}
+                        </div>
+                        <div style={{ fontSize: 11, color: 'var(--s-text-1)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                          {replyingTo.body}
+                        </div>
+                      </div>
+                      <button type="button" onClick={() => setReplyingTo(null)} style={{ fontSize: 16, lineHeight: 1, color: 'var(--s-text-3)', padding: 4 }}>×</button>
+                    </div>
+                  )}
+                  <form onSubmit={send} className="flex gap-2 p-2" style={{ borderTop: replyingTo ? 'none' : '1px solid var(--s-border)', paddingBottom: NOTCH_OVERLAP }}>
                     <input
+                      ref={inputRef}
                       value={input}
                       onChange={(e) => setInput(e.target.value)}
                       placeholder="message this shelf…"

@@ -76,7 +76,11 @@ export function mountChat({ app, pool, adminOnly, adminOrToken, hub, lmComplete 
     const { rows } = await pool.query(
       `SELECT m.*, hu.username AS username,
          COALESCE((SELECT json_agg(json_build_object('emoji', r.emoji, 'hub_user_id', r.hub_user_id))
-                     FROM shelf_message_reactions r WHERE r.message_id = m.id), '[]') AS reactions
+                     FROM shelf_message_reactions r WHERE r.message_id = m.id), '[]') AS reactions,
+         CASE WHEN m.reply_to_id IS NULL THEN NULL ELSE (
+           SELECT json_build_object('id', rm.id, 'hub_user_id', rm.hub_user_id, 'username', ru.username, 'body', rm.body)
+           FROM shelf_messages rm LEFT JOIN hub_users ru ON ru.id = rm.hub_user_id WHERE rm.id = m.reply_to_id
+         ) END AS reply_to
          FROM shelf_messages m
          LEFT JOIN hub_users hu ON hu.id = m.hub_user_id
         WHERE m.category_id=$1 ORDER BY m.created_at`,
@@ -121,16 +125,30 @@ export function mountChat({ app, pool, adminOnly, adminOrToken, hub, lmComplete 
     if (!await hub.linkedShelf(categoryId)) {
       return res.status(400).json({ error: 'share this shelf first — chat only works between members' })
     }
-    try {
-      const remote = await hub.postMessage(categoryId, body)
+
+    let replyTo = null
+    if (req.body.reply_to_id) {
       const { rows } = await pool.query(
-        `INSERT INTO shelf_messages (category_id, hub_message_id, hub_user_id, body, created_at)
-         VALUES ($1,$2,$3,$4,$5)
+        `SELECT rm.id, rm.hub_message_id, rm.hub_user_id, rm.body, ru.username
+           FROM shelf_messages rm LEFT JOIN hub_users ru ON ru.id = rm.hub_user_id
+          WHERE rm.id=$1 AND rm.category_id=$2`,
+        [Number(req.body.reply_to_id), categoryId]
+      )
+      if (!rows[0]?.hub_message_id) return res.status(400).json({ error: 'message being replied to not found' })
+      replyTo = rows[0]
+    }
+
+    try {
+      const remote = await hub.postMessage(categoryId, body, replyTo?.hub_message_id)
+      const { rows } = await pool.query(
+        `INSERT INTO shelf_messages (category_id, hub_message_id, hub_user_id, body, created_at, reply_to_id)
+         VALUES ($1,$2,$3,$4,$5,$6)
          ON CONFLICT (hub_message_id) WHERE hub_message_id IS NOT NULL DO NOTHING
          RETURNING *`,
-        [categoryId, remote.id, remote.user_id, remote.body, remote.created_at]
+        [categoryId, remote.id, remote.user_id, remote.body, remote.created_at, replyTo?.id || null]
       )
-      const out = { ...(rows[0] || remote), username: remote.username }
+      const replyToOut = replyTo && { id: replyTo.id, hub_user_id: replyTo.hub_user_id, username: replyTo.username, body: replyTo.body }
+      const out = { ...(rows[0] || remote), username: remote.username, reply_to: replyToOut }
       // Don't wait on the hub socket relay to hear our own message back.
       hub.events.emit('message', { categoryId, row: out })
       res.json(out)

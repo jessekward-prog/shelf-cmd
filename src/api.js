@@ -128,11 +128,11 @@ export const shareGuide = (id) => req('POST', `/guides/${id}/share`, {})
 export const guideShareUrl = (token) => `${location.origin}/s/g/${token}`
 
 // ── Shelf chat: "man" (member messages) and "machine" (activity log) ─────────
-export async function sendMessage(categoryId, body) {
+export async function sendMessage(categoryId, body, replyToId) {
   const res = await fetch(`${base}/categories/${categoryId}/messages`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...(getToken() ? { Authorization: `Bearer ${getToken()}` } : {}) },
-    body: JSON.stringify({ body })
+    body: JSON.stringify({ body, reply_to_id: replyToId || undefined })
   })
   const data = await res.json().catch(() => ({}))
   if (!res.ok && res.status !== 202) throw new Error(data.error || `message → ${res.status}`)

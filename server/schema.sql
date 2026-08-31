@@ -186,6 +186,9 @@ CREATE TABLE IF NOT EXISTS shelf_messages (
   created_at     TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 CREATE UNIQUE INDEX IF NOT EXISTS shelf_messages_hub_id ON shelf_messages (hub_message_id) WHERE hub_message_id IS NOT NULL;
+-- Points at the LOCAL row of the message being replied to, resolved from the
+-- hub's own reply_to_id (a hub message id) at mirror time — see hub.js.
+ALTER TABLE shelf_messages ADD COLUMN IF NOT EXISTS reply_to_id INT REFERENCES shelf_messages(id) ON DELETE SET NULL;
 
 -- Local mirror of the hub's shelf_message_reactions — same eventual-consistency
 -- deal as shelf_messages, keyed off the LOCAL message id (not the hub one).

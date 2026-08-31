@@ -252,13 +252,16 @@ export function makeHub(pool) {
       // to emit the same way the socket does, or a chat panel that's open
       // right now never learns the backstop found something.
       const { messages, seq: msgSeq } = await call('GET', `/shelves/${shelf.hub_shelf_id}/messages?since=${shelf.last_seq}`)
+      // Rows arrive ordered by seq, so a reply's target — if it's part of this
+      // same batch — has already been inserted by the time we reach it.
       for (const m of messages) {
+        const replyToId = m.reply_to_id ? await resolveLocalReplyId(m.reply_to_id) : null
         const { rows } = await pool.query(
-          `INSERT INTO shelf_messages (category_id, hub_message_id, hub_user_id, body, created_at)
-           VALUES ($1,$2,$3,$4,$5)
+          `INSERT INTO shelf_messages (category_id, hub_message_id, hub_user_id, body, created_at, reply_to_id)
+           VALUES ($1,$2,$3,$4,$5,$6)
            ON CONFLICT (hub_message_id) WHERE hub_message_id IS NOT NULL DO NOTHING
            RETURNING *`,
-          [categoryId, m.id, m.user_id, m.body, m.created_at]
+          [categoryId, m.id, m.user_id, m.body, m.created_at, replyToId]
         )
         if (rows[0]) {
           await mirrorReactions(rows[0].id, m.reactions)
@@ -405,6 +408,14 @@ export function makeHub(pool) {
     return rows[0]?.category_id || null
   }
 
+  // A reply's reply_to_id from the hub is a HUB message id; the local mirror
+  // needs the LOCAL row it maps to. Null if that original was never synced
+  // here (deleted, or a very unlucky race) — the reply just loses its quote.
+  async function resolveLocalReplyId(hubMessageId) {
+    const { rows } = await pool.query('SELECT id FROM shelf_messages WHERE hub_message_id=$1', [hubMessageId])
+    return rows[0]?.id || null
+  }
+
   // Full-replace rather than diff — the hub always hands over the complete
   // current set for a message, and a toggle can just as easily be a removal.
   async function mirrorReactions(messageId, reactions) {
@@ -425,12 +436,13 @@ export function makeHub(pool) {
     socket.on('message:new', async (m) => {
       const categoryId = await categoryIdFor(m.shelf_id)
       if (!categoryId) return
+      const replyToId = m.reply_to_id ? await resolveLocalReplyId(m.reply_to_id) : null
       const { rows } = await pool.query(
-        `INSERT INTO shelf_messages (category_id, hub_message_id, hub_user_id, body, created_at)
-         VALUES ($1,$2,$3,$4,$5)
+        `INSERT INTO shelf_messages (category_id, hub_message_id, hub_user_id, body, created_at, reply_to_id)
+         VALUES ($1,$2,$3,$4,$5,$6)
          ON CONFLICT (hub_message_id) WHERE hub_message_id IS NOT NULL DO NOTHING
          RETURNING *`,
-        [categoryId, m.id, m.user_id, m.body, m.created_at]
+        [categoryId, m.id, m.user_id, m.body, m.created_at, replyToId]
       )
       if (rows[0]) events.emit('message', { categoryId, row: { ...rows[0], username: m.username } })
     })
@@ -468,13 +480,17 @@ export function makeHub(pool) {
     ensureSocket().emit('shelf:join', shelf.hub_shelf_id)
   }
 
-  async function postMessage(categoryId, body) {
+  // replyToHubMessageId is the HUB id of the message being replied to — the
+  // caller (chat.js) resolves the local reply_to_id it was given to that
+  // before calling in, since only the hub side can validate/store it.
+  async function postMessage(categoryId, body, replyToHubMessageId) {
     const shelf = await linkedShelf(categoryId)
     if (!shelf) throw new Error('not a linked shelf')
+    const payload = { shelf_id: shelf.hub_shelf_id, body, reply_to_id: replyToHubMessageId || undefined }
     try {
-      return await call('POST', '/messages', { shelf_id: shelf.hub_shelf_id, body })
+      return await call('POST', '/messages', payload)
     } catch (err) {
-      await queue(categoryId, 'message_create', { shelf_id: shelf.hub_shelf_id, body })
+      await queue(categoryId, 'message_create', payload)
       err.queued = true
       throw err
     }
