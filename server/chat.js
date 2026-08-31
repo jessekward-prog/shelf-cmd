@@ -74,13 +74,44 @@ function stripReasoning(text) {
 export function mountChat({ app, pool, adminOnly, adminOrToken, hub, lmComplete }) {
   app.get('/api/categories/:id/messages', adminOnly, async (req, res) => {
     const { rows } = await pool.query(
-      `SELECT m.*, hu.username AS username
+      `SELECT m.*, hu.username AS username,
+         COALESCE((SELECT json_agg(json_build_object('emoji', r.emoji, 'hub_user_id', r.hub_user_id))
+                     FROM shelf_message_reactions r WHERE r.message_id = m.id), '[]') AS reactions
          FROM shelf_messages m
          LEFT JOIN hub_users hu ON hu.id = m.hub_user_id
         WHERE m.category_id=$1 ORDER BY m.created_at`,
       [req.params.id]
     )
     res.json(rows)
+  })
+
+  // "man" tab only — the machine (AI Q&A) tab has no reactions.
+  app.post('/api/categories/:id/messages/:messageId/reactions', adminOnly, async (req, res) => {
+    const categoryId = Number(req.params.id)
+    const messageId = Number(req.params.messageId)
+    const emoji = String(req.body.emoji || '').trim()
+    if (!emoji) return res.status(400).json({ error: 'emoji required' })
+    const { rows } = await pool.query(
+      'SELECT hub_message_id FROM shelf_messages WHERE id=$1 AND category_id=$2',
+      [messageId, categoryId]
+    )
+    if (!rows[0]?.hub_message_id) return res.status(404).json({ error: 'message not found' })
+    try {
+      const { reactions } = await hub.postReaction(categoryId, rows[0].hub_message_id, emoji)
+      await pool.query('DELETE FROM shelf_message_reactions WHERE message_id=$1', [messageId])
+      for (const r of reactions) {
+        await pool.query(
+          'INSERT INTO shelf_message_reactions (message_id, hub_user_id, emoji) VALUES ($1,$2,$3) ON CONFLICT DO NOTHING',
+          [messageId, r.user_id, r.emoji]
+        )
+      }
+      const out = reactions.map(r => ({ emoji: r.emoji, hub_user_id: r.user_id }))
+      // Don't wait on the hub socket relay to hear our own toggle back.
+      hub.events.emit('reaction', { categoryId, messageId, reactions: out })
+      res.json({ reactions: out })
+    } catch (err) {
+      res.status(502).json({ error: err.message })
+    }
   })
 
   app.post('/api/categories/:id/messages', adminOnly, async (req, res) => {
@@ -204,8 +235,12 @@ export function mountChat({ app, pool, adminOnly, adminOrToken, hub, lmComplete 
     const onActivity = ({ categoryId: cid, row }) => {
       if (cid === categoryId) res.write(`event: activity\ndata: ${JSON.stringify(row)}\n\n`)
     }
+    const onReaction = ({ categoryId: cid, messageId, reactions }) => {
+      if (cid === categoryId) res.write(`event: reaction\ndata: ${JSON.stringify({ messageId, reactions })}\n\n`)
+    }
     hub.events.on('message', onMessage)
     hub.events.on('activity', onActivity)
+    hub.events.on('reaction', onReaction)
 
     // Proxies/browsers will silently drop an idle connection; a comment frame
     // every 20s is enough to keep it open without meaning anything to the client.
@@ -215,6 +250,7 @@ export function mountChat({ app, pool, adminOnly, adminOrToken, hub, lmComplete 
       clearInterval(heartbeat)
       hub.events.off('message', onMessage)
       hub.events.off('activity', onActivity)
+      hub.events.off('reaction', onReaction)
     })
   })
 }

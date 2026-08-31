@@ -1,6 +1,56 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import * as api from '../api.js'
+import { memberColor } from '../memberColor.js'
+
+const REACTIONS = ['👍', '❤️', '😂', '😮', '😢', '🔥']
+
+// Grouped emoji counts under a bubble, mirroring chat.cmdward.xyz's format —
+// tap a pill to toggle your own reaction, tap the bubble to open the picker.
+function ReactionsRow({ reactions, myHubUserId, isMine, onToggle }) {
+  if (!reactions?.length) return null
+  const grouped = {}
+  for (const r of reactions) {
+    if (!grouped[r.emoji]) grouped[r.emoji] = { count: 0, mine: false }
+    grouped[r.emoji].count++
+    if (String(r.hub_user_id) === String(myHubUserId)) grouped[r.emoji].mine = true
+  }
+  return (
+    <div style={{ display: 'flex', gap: 4, marginTop: 3, flexWrap: 'wrap', justifyContent: isMine ? 'flex-end' : 'flex-start' }}>
+      {Object.entries(grouped).map(([emoji, { count, mine }]) => (
+        <button
+          key={emoji}
+          type="button"
+          onClick={(e) => { e.stopPropagation(); onToggle(emoji) }}
+          style={{
+            fontSize: 11, padding: '1px 6px', borderRadius: 999, display: 'flex', alignItems: 'center', gap: 3,
+            border: `1px solid ${mine ? 'var(--s-accent)' : 'var(--s-border)'}`,
+            background: mine ? 'var(--s-accent-faint)' : 'var(--s-surface-2)', color: 'var(--s-text-0)'
+          }}
+        >
+          <span>{emoji}</span>
+          {count > 1 && <span style={{ opacity: 0.7 }}>{count}</span>}
+        </button>
+      ))}
+    </div>
+  )
+}
+
+function EmojiPicker({ align, onPick }) {
+  return (
+    <div
+      onClick={(e) => e.stopPropagation()}
+      style={{
+        display: 'flex', gap: 4, marginTop: 3, width: 'fit-content', marginLeft: align === 'end' ? 'auto' : 0,
+        background: 'var(--s-surface-2)', border: '1px solid var(--s-border)', borderRadius: 999, padding: '3px 7px'
+      }}
+    >
+      {REACTIONS.map((e) => (
+        <button key={e} type="button" onClick={() => onPick(e)} style={{ fontSize: 15, lineHeight: 1 }}>{e}</button>
+      ))}
+    </div>
+  )
+}
 
 function EnvelopeIcon() {
   return (
@@ -59,12 +109,17 @@ export default function ShelfChat({ categoryId, isLinked }) {
   const [asking, setAsking] = useState(false)
   const [qaLog, setQaLog] = useState([])
   const [lastSeen, setLastSeen] = useState(() => localStorage.getItem(lastSeenKey(categoryId)) || new Date(0).toISOString())
+  // This instance's own hub identity — the bubble format needs to know which
+  // side of the chat "me" is on, and whether a reaction pill is already mine.
+  const [myHubUserId, setMyHubUserId] = useState(null)
+  const [pickerFor, setPickerFor] = useState(null)
   const listRef = useRef(null)
   const esRef = useRef(null)
 
   useEffect(() => {
     api.getMessages(categoryId).then(setMessages).catch(() => setMessages([]))
     api.getActivity(categoryId).then(setActivity).catch(() => setActivity([]))
+    api.getHubStatus().then(d => setMyHubUserId(d?.identity?.user_id ?? null)).catch(() => setMyHubUserId(null))
 
     const es = new EventSource(api.chatStreamUrl(categoryId))
     es.addEventListener('message', (e) => {
@@ -74,6 +129,10 @@ export default function ShelfChat({ categoryId, isLinked }) {
     es.addEventListener('activity', (e) => {
       const a = JSON.parse(e.data)
       setActivity(prev => prev.some(x => x.id === a.id) ? prev : [a, ...prev])
+    })
+    es.addEventListener('reaction', (e) => {
+      const { messageId, reactions } = JSON.parse(e.data)
+      setMessages(prev => prev.map(m => m.id === messageId ? { ...m, reactions } : m))
     })
     esRef.current = es
     return () => es.close()
@@ -123,6 +182,14 @@ export default function ShelfChat({ categoryId, isLinked }) {
       setQaLog(prev => prev.map(x => x.id === id ? { ...x, answer: `couldn't reach the machine — ${err.message}` } : x))
     }
     setAsking(false)
+  }
+
+  const react = async (message, emoji) => {
+    setPickerFor(null)
+    try {
+      const { reactions } = await api.reactToMessage(categoryId, message.id, emoji)
+      setMessages(prev => prev.map(m => m.id === message.id ? { ...m, reactions } : m))
+    } catch { /* hub unreachable — pill just doesn't update, tap again to retry */ }
   }
 
   return (
@@ -214,20 +281,40 @@ export default function ShelfChat({ categoryId, isLinked }) {
                     {messages.length === 0 && (
                       <div style={{ textAlign: 'center', color: 'var(--s-text-3)', fontSize: 11, marginTop: 20 }}>no messages yet</div>
                     )}
-                    {messages.map(m => (
-                      <div key={m.id} style={{ maxWidth: '85%', alignSelf: 'flex-start' }}>
-                        <div style={{ fontSize: 10, color: 'var(--s-text-3)', marginBottom: 2 }}>
-                          {m.username || 'someone'} · {timeAgo(m.created_at)}
+                    {messages.map(m => {
+                      const isMine = String(m.hub_user_id) === String(myHubUserId)
+                      return (
+                        <div key={m.id} style={{ display: 'flex', justifyContent: isMine ? 'flex-end' : 'flex-start' }}>
+                          <div style={{ maxWidth: '85%' }}>
+                            <div
+                              onClick={() => setPickerFor(p => p === m.id ? null : m.id)}
+                              style={{
+                                background: isMine ? 'var(--s-accent-faint)' : 'var(--s-surface-2)',
+                                border: `1px solid ${isMine ? 'var(--s-accent-glow)' : 'var(--s-border)'}`,
+                                borderRadius: 14,
+                                borderBottomRightRadius: isMine ? 4 : 14,
+                                borderBottomLeftRadius: isMine ? 14 : 4,
+                                padding: '7px 10px', cursor: 'pointer'
+                              }}
+                            >
+                              {!isMine && (
+                                <div style={{ fontSize: 10, fontWeight: 600, color: memberColor(m.hub_user_id), marginBottom: 2 }}>
+                                  {m.username || 'someone'}
+                                </div>
+                              )}
+                              <div style={{ fontSize: 13, color: 'var(--s-text-0)', wordBreak: 'break-word', whiteSpace: 'pre-wrap' }}>
+                                {m.body}
+                              </div>
+                              <div style={{ fontSize: 9, color: 'var(--s-text-3)', textAlign: 'right', marginTop: 2 }}>
+                                {timeAgo(m.created_at)}
+                              </div>
+                            </div>
+                            <ReactionsRow reactions={m.reactions} myHubUserId={myHubUserId} isMine={isMine} onToggle={(emoji) => react(m, emoji)} />
+                            {pickerFor === m.id && <EmojiPicker align={isMine ? 'end' : 'start'} onPick={(emoji) => react(m, emoji)} />}
+                          </div>
                         </div>
-                        <div style={{
-                          background: 'var(--s-surface-2)', border: '1px solid var(--s-border)',
-                          padding: '7px 10px', fontSize: 13, color: 'var(--s-text-0)',
-                          wordBreak: 'break-word'
-                        }}>
-                          {m.body}
-                        </div>
-                      </div>
-                    ))}
+                      )
+                    })}
                   </div>
                   <form onSubmit={send} className="flex gap-2 p-2" style={{ borderTop: '1px solid var(--s-border)', paddingBottom: NOTCH_OVERLAP }}>
                     <input
@@ -262,20 +349,22 @@ export default function ShelfChat({ categoryId, isLinked }) {
                   )}
                   {qaLog.map(qa => (
                     <div key={qa.id} style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                      <div style={{ maxWidth: '85%', alignSelf: 'flex-end' }}>
+                      <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
                         <div style={{
-                          background: 'var(--s-accent)', color: 'var(--s-bg)',
-                          padding: '7px 10px', fontSize: 13, wordBreak: 'break-word'
+                          maxWidth: '85%', background: 'var(--s-accent-faint)', border: '1px solid var(--s-accent-glow)',
+                          borderRadius: 14, borderBottomRightRadius: 4,
+                          padding: '7px 10px', fontSize: 13, color: 'var(--s-text-0)', wordBreak: 'break-word'
                         }}>
                           {qa.question}
                         </div>
                       </div>
-                      <div style={{ maxWidth: '85%', alignSelf: 'flex-start' }}>
+                      <div style={{ display: 'flex', justifyContent: 'flex-start' }}>
                         {qa.answer === null ? (
                           <div style={{ color: 'var(--s-text-3)', fontSize: 12, padding: '2px 2px' }}>thinking…</div>
                         ) : (
                           <div style={{
-                            background: 'var(--s-surface-2)', border: '1px solid var(--s-border)',
+                            maxWidth: '85%', background: 'var(--s-surface-2)', border: '1px solid var(--s-border)',
+                            borderRadius: 14, borderBottomLeftRadius: 4,
                             padding: '7px 10px', fontSize: 13, color: 'var(--s-text-0)',
                             whiteSpace: 'pre-wrap', wordBreak: 'break-word'
                           }}>

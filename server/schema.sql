@@ -187,6 +187,16 @@ CREATE TABLE IF NOT EXISTS shelf_messages (
 );
 CREATE UNIQUE INDEX IF NOT EXISTS shelf_messages_hub_id ON shelf_messages (hub_message_id) WHERE hub_message_id IS NOT NULL;
 
+-- Local mirror of the hub's shelf_message_reactions — same eventual-consistency
+-- deal as shelf_messages, keyed off the LOCAL message id (not the hub one).
+CREATE TABLE IF NOT EXISTS shelf_message_reactions (
+  id          SERIAL PRIMARY KEY,
+  message_id  INT NOT NULL REFERENCES shelf_messages(id) ON DELETE CASCADE,
+  hub_user_id INT NOT NULL,
+  emoji       TEXT NOT NULL,
+  UNIQUE (message_id, hub_user_id, emoji)
+);
+
 -- kind is a coarse tag (card_added, file_added, guide_added, ...) the "what's
 -- new" panel can use for an icon; summary is the actual one-line text shown.
 CREATE TABLE IF NOT EXISTS shelf_activity (

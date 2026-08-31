@@ -260,7 +260,11 @@ export function makeHub(pool) {
            RETURNING *`,
           [categoryId, m.id, m.user_id, m.body, m.created_at]
         )
-        if (rows[0]) events.emit('message', { categoryId, row: { ...rows[0], username: m.username } })
+        if (rows[0]) {
+          await mirrorReactions(rows[0].id, m.reactions)
+          const reactions = (m.reactions || []).map(r => ({ emoji: r.emoji, hub_user_id: r.user_id }))
+          events.emit('message', { categoryId, row: { ...rows[0], username: m.username, reactions } })
+        }
       }
 
       const { activity, seq: actSeq } = await call('GET', `/shelves/${shelf.hub_shelf_id}/activity?since=${shelf.last_seq}`)
@@ -401,6 +405,19 @@ export function makeHub(pool) {
     return rows[0]?.category_id || null
   }
 
+  // Full-replace rather than diff — the hub always hands over the complete
+  // current set for a message, and a toggle can just as easily be a removal.
+  async function mirrorReactions(messageId, reactions) {
+    if (!reactions) return
+    await pool.query('DELETE FROM shelf_message_reactions WHERE message_id=$1', [messageId])
+    for (const r of reactions) {
+      await pool.query(
+        'INSERT INTO shelf_message_reactions (message_id, hub_user_id, emoji) VALUES ($1,$2,$3) ON CONFLICT DO NOTHING',
+        [messageId, r.user_id, r.emoji]
+      )
+    }
+  }
+
   function ensureSocket() {
     if (socket) return socket
     socket = ioClient(HUB_URL, { auth: (cb) => hubToken().then(token => cb({ token })) })
@@ -431,6 +448,17 @@ export function makeHub(pool) {
       events.emit('activity', { categoryId, row: rows[0] ? { ...rows[0], username: a.username } : { ...a, username: a.username } })
     })
 
+    socket.on('reaction:update', async ({ message_id, reactions }) => {
+      const { rows } = await pool.query('SELECT id, category_id FROM shelf_messages WHERE hub_message_id=$1', [message_id])
+      const row = rows[0]
+      if (!row) return
+      await mirrorReactions(row.id, reactions)
+      // Same field name (hub_user_id) as chat.js's own-toggle response, so the
+      // frontend never has to know which path a reaction update came from.
+      const out = reactions.map(r => ({ emoji: r.emoji, hub_user_id: r.user_id }))
+      events.emit('reaction', { categoryId: row.category_id, messageId: row.id, reactions: out })
+    })
+
     return socket
   }
 
@@ -450,6 +478,15 @@ export function makeHub(pool) {
       err.queued = true
       throw err
     }
+  }
+
+  // No outbox queuing here, unlike postMessage/postActivity — a reaction that
+  // fails to land while the hub's briefly unreachable just doesn't toggle;
+  // the person sees that immediately and can tap it again, no durability needed.
+  async function postReaction(categoryId, hubMessageId, emoji) {
+    const shelf = await linkedShelf(categoryId)
+    if (!shelf) throw new Error('not a linked shelf')
+    return call('POST', `/messages/${hubMessageId}/reactions`, { emoji })
   }
 
   async function postActivity(categoryId, kind, summary) {
@@ -558,7 +595,7 @@ export function makeHub(pool) {
     url: HUB_URL,
     publish, link, syncOne, postCard, deleteCard, updateCard,
     postTab, postGuide, deleteGuideRemote,
-    postMessage, postActivity, joinShelfRoom, events,
+    postMessage, postActivity, postReaction, joinShelfRoom, events,
     invite, members, linkedShelf, setUsername, startLoop,
     ticketFor, redeemTicket,
     identity: async () => ({

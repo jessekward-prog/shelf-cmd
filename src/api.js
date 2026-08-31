@@ -139,6 +139,8 @@ export async function sendMessage(categoryId, body) {
   return data
 }
 export const getMessages = (categoryId) => req('GET', `/categories/${categoryId}/messages`)
+export const reactToMessage = (categoryId, messageId, emoji) =>
+  req('POST', `/categories/${categoryId}/messages/${messageId}/reactions`, { emoji })
 export const getActivity = (categoryId) => req('GET', `/categories/${categoryId}/activity`)
 export const askMachine  = (categoryId, question) => req('POST', `/categories/${categoryId}/ask`, {
   question, timezone: Intl.DateTimeFormat().resolvedOptions().timeZone
