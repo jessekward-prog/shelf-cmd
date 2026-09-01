@@ -11,13 +11,14 @@
 import { io as ioClient } from 'socket.io-client'
 import { EventEmitter } from 'events'
 
-// No baked-in fallback — sharing is opt-in per instance. An instance that
-// never sets this simply can't share, rather than silently becoming a live
-// client of whichever hub used to be the default (that used to be
-// shelf-hub-production.up.railway.app; anyone still wanting that hub sets it
-// explicitly). Keeps a publicly-distributed image from turning into
-// unauthenticated load against infra it doesn't own.
-const HUB_URL = (process.env.HUB_URL || '').replace(/\/+$/, '')
+// Zero-config sharing is the actual point of the app — collaborators
+// shouldn't need to know a hub exists, let alone configure one. So this stays
+// a real default rather than requiring every instance to opt in by hand.
+// What changed instead is on the hub's side: POST /shelves (the only
+// unauthenticated route — it mints a fresh account) is now rate-limited, so
+// a publicly-known default URL costs an abuser very little to hit but can't
+// be turned into unlimited free accounts. See shelf-hub/server.js.
+const HUB_URL = (process.env.HUB_URL || 'https://shelf-hub-production.up.railway.app').replace(/\/+$/, '')
 
 // This instance's own address, published so members can reach its drive. Unset
 // means the drive simply isn't offered — files are never mirrored, so there is
