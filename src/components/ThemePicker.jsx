@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { THEMES, FONTS, applyTheme, applyIntensity, applyFont, applyOverlay, getSavedIntensity, getSavedFont, getSavedOverlay } from '../themes.js'
 import * as api from '../api.js'
@@ -133,157 +133,6 @@ const inputStyle = {
 
 const labelStyle = { fontSize: 10, color: 'var(--s-text-3)', letterSpacing: '0.12em' }
 
-// Every local runner worth listing speaks the same OpenAI-compatible shape
-// (/v1/models, /v1/chat/completions) at its own default port, so a base URL
-// for any of them just drops straight in here — nothing else in the backend
-// needs to know or care which one it's talking to.
-const LM_PRESETS = [
-  { label: 'LM Studio', port: 1234 },
-  { label: 'Ollama', port: 11434 },
-  { label: 'text-generation-webui', port: 5000 }
-]
-
-// The AI this instance runs everything through — scraping, descriptions, plans,
-// guides, the legend classifier. Listed straight off the endpoint, so you pick a
-// model you actually have loaded instead of guessing at an id in a .env.
-function ServerModel() {
-  const [lm, setLm] = useState(null)
-  const [open, setOpen] = useState(false)
-  const [saved, setSaved] = useState(false)
-  const [editingUrl, setEditingUrl] = useState(false)
-  const [urlInput, setUrlInput] = useState('')
-  const [apiKeyInput, setApiKeyInput] = useState('')
-  // Which preset button was clicked, if any — purely to swap the placeholder
-  // to that software's default port as an example. Never writes urlInput
-  // itself: the address on this box is always whatever this instance can
-  // actually reach, which nobody can guess for you, so save should only ever
-  // commit what you typed.
-  const [preset, setPreset] = useState(null)
-
-  useEffect(() => {
-    if (open && !lm) api.getLm().then(setLm).catch(err => setLm({ models: [], error: err.message }))
-  }, [open, lm])
-
-  useEffect(() => { if (lm?.error) setEditingUrl(true) }, [lm?.error])
-
-  const pick = async (model) => {
-    const { selected } = await api.setLmModel(model)
-    setLm(prev => ({ ...prev, selected }))
-    setSaved(true)
-    setTimeout(() => setSaved(false), 1500)
-  }
-
-  const saveUrl = async (url) => {
-    if (!url.trim()) return
-    const updated = await api.setLmConnection(url.trim(), apiKeyInput.trim())
-    setEditingUrl(false)
-    setApiKeyInput('')
-    setPreset(null)
-    setLm({ ...updated, models: [], selected: '' })
-    api.getLm().then(setLm)
-  }
-
-  return (
-    <>
-      <button
-        onClick={() => setOpen(v => !v)}
-        style={{
-          background: 'none', border: 'none', padding: 0, cursor: 'pointer',
-          fontFamily: 'inherit', textAlign: 'left', ...labelStyle,
-          color: lm?.selected ? 'var(--s-accent)' : 'var(--s-text-3)'
-        }}
-      >
-        {open ? '− ' : '+ '}MY AI
-      </button>
-
-      {open && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
-          <span style={{ fontSize: 9, color: 'var(--s-text-3)', lineHeight: 1.4 }}>
-            {lm ? lm.url : 'loading…'} — used by scrape, plans, guides and the legend.
-            {lm && !editingUrl && (
-              <>
-                {' '}
-                <button
-                  onClick={() => { setUrlInput(lm.url); setEditingUrl(true) }}
-                  style={{ background: 'none', border: 'none', padding: 0, color: 'var(--s-text-2)', textDecoration: 'underline', cursor: 'pointer', fontFamily: 'inherit', fontSize: 9 }}
-                >change</button>
-              </>
-            )}
-          </span>
-
-          {lm?.error && (
-            <span style={{ fontSize: 9, color: 'var(--s-text-2)', lineHeight: 1.4 }}>
-              can't reach it: {lm.error}
-              {/401/.test(lm.error) && ' — this endpoint wants an API key (below), not just a URL.'}
-            </span>
-          )}
-
-          {editingUrl ? (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
-              <span style={{ fontSize: 9, color: 'var(--s-text-3)', lineHeight: 1.4 }}>
-                Pick which you're running, below, for an example — then type the real address yourself; nobody
-                else can guess it. If this instance runs in Docker, `localhost` means the container, not your PC —
-                use <code>host.docker.internal</code> to reach the host machine instead (falls back to the
-                host's real LAN IP if that name doesn't resolve).
-              </span>
-              <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
-                {LM_PRESETS.map(p => (
-                  <button
-                    key={p.label}
-                    onClick={() => setPreset(p)}
-                    style={{
-                      fontSize: 9, padding: '3px 7px', borderRadius: 4, cursor: 'pointer',
-                      background: preset?.label === p.label ? 'var(--s-accent)' : 'var(--s-surface-2)',
-                      border: '1px solid var(--s-border)', color: preset?.label === p.label ? 'var(--s-bg)' : 'var(--s-text-2)'
-                    }}
-                  >{p.label}</button>
-                ))}
-              </div>
-              <input
-                value={urlInput}
-                onChange={(e) => setUrlInput(e.target.value)}
-                onKeyDown={(e) => e.key === 'Enter' && saveUrl(urlInput)}
-                placeholder={preset ? `its address, e.g. http://host.docker.internal:${preset.port}` : 'its address — pick one above for an example'}
-                style={inputStyle}
-              />
-              <input
-                value={apiKeyInput}
-                onChange={(e) => setApiKeyInput(e.target.value)}
-                onKeyDown={(e) => e.key === 'Enter' && saveUrl(urlInput)}
-                type="password"
-                placeholder={lm?.apiKeySet ? 'API key (leave blank to keep current)' : 'API key (only if it needs one)'}
-                style={inputStyle}
-              />
-              <div style={{ display: 'flex', gap: 5 }}>
-                <button
-                  onClick={() => saveUrl(urlInput)}
-                  style={{ fontSize: 9, padding: '3px 8px', borderRadius: 4, background: 'var(--s-accent)', color: 'var(--s-bg)', cursor: 'pointer' }}
-                >save</button>
-                {lm && !lm.error && (
-                  <button
-                    onClick={() => { setEditingUrl(false); setPreset(null) }}
-                    style={{ fontSize: 9, padding: '3px 8px', borderRadius: 4, background: 'none', border: '1px solid var(--s-border)', color: 'var(--s-text-3)', cursor: 'pointer' }}
-                  >cancel</button>
-                )}
-              </div>
-            </div>
-          ) : lm && !lm.error && (
-            <select
-              value={lm.selected || ''}
-              onChange={(e) => pick(e.target.value)}
-              style={inputStyle}
-            >
-              <option value="">{lm.env_default ? `default (${lm.env_default})` : 'endpoint default'}</option>
-              {lm.models.map(id => <option key={id} value={id}>{id}</option>)}
-            </select>
-          )}
-          {saved && <span style={{ fontSize: 9, color: 'var(--s-accent)' }}>model set</span>}
-        </div>
-      )}
-    </>
-  )
-}
-
 function Identity({ user, onRenamed }) {
   const [name, setName] = useState(user.username)
   const [saved, setSaved] = useState(false)
@@ -309,8 +158,6 @@ function Identity({ user, onRenamed }) {
         style={inputStyle}
       />
       {saved && <span style={{ fontSize: 9, color: 'var(--s-accent)' }}>name updated everywhere</span>}
-
-      {user.is_admin && <ServerModel />}
     </div>
   )
 }

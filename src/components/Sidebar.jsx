@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { motion, AnimatePresence, Reorder } from 'framer-motion'
 import { CollabIcon, LinkIcon } from './MembersBar.jsx'
 import ShelfIcon from './ShelfIcons.jsx'
+import MyAiPanel from './MyAiPanel.jsx'
 
 // Same pulse used for "generating a guide" (GuideModal.jsx) — reused here so
 // a live hub reads as "something's actively running", not just "on".
@@ -130,7 +131,7 @@ export default function Sidebar({
   onAddCat, onAddSub, onDeleteSub, onShareCat,
   onReorderCats, onReorderCatsEnd, onReorderSubs, onReorderSubsEnd,
   onJoin, onManage, activeView, onView, cardCount,
-  favorites, onToggleFavorite, hubHosting
+  favorites, onToggleFavorite, hubHosting, isAdmin
 }) {
   const [reordering, setReordering] = useState(false)
   const [collapsed, setCollapsed] = useState(() => {
@@ -370,6 +371,7 @@ export default function Sidebar({
       </nav>
 
       <div style={{ padding: '8px', borderTop: '1px solid var(--s-border)' }}>
+        <MyAiPanel isAdmin={isAdmin} />
         <Row active={activeView === 'hubs'} onClick={() => onView('hubs')}>
           <HubsIcon />
           <span className="flex-1">Shelf Hubs</span>
