@@ -153,6 +153,12 @@ function ServerModel() {
   const [editingUrl, setEditingUrl] = useState(false)
   const [urlInput, setUrlInput] = useState('')
   const [apiKeyInput, setApiKeyInput] = useState('')
+  // Which preset button was clicked, if any — purely to swap the placeholder
+  // to that software's default port as an example. Never writes urlInput
+  // itself: the address on this box is always whatever this instance can
+  // actually reach, which nobody can guess for you, so save should only ever
+  // commit what you typed.
+  const [preset, setPreset] = useState(null)
 
   useEffect(() => {
     if (open && !lm) api.getLm().then(setLm).catch(err => setLm({ models: [], error: err.message }))
@@ -172,6 +178,7 @@ function ServerModel() {
     const updated = await api.setLmConnection(url.trim(), apiKeyInput.trim())
     setEditingUrl(false)
     setApiKeyInput('')
+    setPreset(null)
     setLm({ ...updated, models: [], selected: '' })
     api.getLm().then(setLm)
   }
@@ -214,18 +221,20 @@ function ServerModel() {
           {editingUrl ? (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
               <span style={{ fontSize: 9, color: 'var(--s-text-3)', lineHeight: 1.4 }}>
-                Pick what you're running locally, or type its address. If this instance runs in Docker,
-                `localhost` means the container, not your PC — use <code>host.docker.internal</code> to reach
-                the host machine instead (falls back to the host's real LAN IP if that name doesn't resolve).
+                Pick which you're running, below, for an example — then type the real address yourself; nobody
+                else can guess it. If this instance runs in Docker, `localhost` means the container, not your PC —
+                use <code>host.docker.internal</code> to reach the host machine instead (falls back to the
+                host's real LAN IP if that name doesn't resolve).
               </span>
               <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
                 {LM_PRESETS.map(p => (
                   <button
                     key={p.label}
-                    onClick={() => setUrlInput(`http://host.docker.internal:${p.port}`)}
+                    onClick={() => setPreset(p)}
                     style={{
                       fontSize: 9, padding: '3px 7px', borderRadius: 4, cursor: 'pointer',
-                      background: 'var(--s-surface-2)', border: '1px solid var(--s-border)', color: 'var(--s-text-2)'
+                      background: preset?.label === p.label ? 'var(--s-accent)' : 'var(--s-surface-2)',
+                      border: '1px solid var(--s-border)', color: preset?.label === p.label ? 'var(--s-bg)' : 'var(--s-text-2)'
                     }}
                   >{p.label}</button>
                 ))}
@@ -234,7 +243,7 @@ function ServerModel() {
                 value={urlInput}
                 onChange={(e) => setUrlInput(e.target.value)}
                 onKeyDown={(e) => e.key === 'Enter' && saveUrl(urlInput)}
-                placeholder="http://host.docker.internal:1234"
+                placeholder={preset ? `its address, e.g. http://host.docker.internal:${preset.port}` : 'its address — pick one above for an example'}
                 style={inputStyle}
               />
               <input
@@ -252,7 +261,7 @@ function ServerModel() {
                 >save</button>
                 {lm && !lm.error && (
                   <button
-                    onClick={() => setEditingUrl(false)}
+                    onClick={() => { setEditingUrl(false); setPreset(null) }}
                     style={{ fontSize: 9, padding: '3px 8px', borderRadius: 4, background: 'none', border: '1px solid var(--s-border)', color: 'var(--s-text-3)', cursor: 'pointer' }}
                   >cancel</button>
                 )}
