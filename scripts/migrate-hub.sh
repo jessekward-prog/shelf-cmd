@@ -12,8 +12,22 @@
 # Usage:
 #   ./scripts/migrate-hub.sh <source-database-url> <dest-database-url> [source-schema]
 #
-# source-schema: pass "hosted_hub" when the source is an embedded hub (its
-# tables live in that schema, not public). Omit for a standalone shelf-hub.
+# source-schema: which schema the SOURCE's tables live in — "hosted_hub" for
+# an embedded hub, "public" (the default, so you can omit it) for a
+# standalone shelf-hub.
+#
+# pg_dump always schema-qualifies COPY/ALTER TABLE/setval statements with
+# whatever --schema you gave it (or "public" implicitly with none) — the
+# destination's own copy of that table usually lives under a *different*
+# schema name (a standalone hub's "public", an embedded hub's "hosted_hub",
+# and critically, an embedded instance's "public" is its host app's own
+# unrelated tables, e.g. shelf-cmd's admin/PIN users — writing hub rows
+# straight into that would corrupt them). So every qualifier gets stripped
+# down to an unqualified name before it reaches the destination, and that
+# destination resolves it through its OWN search_path instead — pass a
+# dest URL with ?options=-c%20search_path%3Dhosted_hub when the destination
+# is an embedded hub (this is exactly what the Shelf Hubs page's
+# hostedHubDbUrl already looks like).
 #
 # After this finishes, use the Shelf Hubs page's "repoint my shelves" action
 # (or PUT /api/hub-migrate) so shelf-cmd instances actually start using the
@@ -23,13 +37,10 @@ set -euo pipefail
 
 SOURCE_URL="${1:?usage: migrate-hub.sh <source-database-url> <dest-database-url> [source-schema]}"
 DEST_URL="${2:?usage: migrate-hub.sh <source-database-url> <dest-database-url> [source-schema]}"
-SOURCE_SCHEMA="${3:-}"
-
-DUMP_ARGS=(--data-only --no-owner --disable-triggers)
-if [ -n "$SOURCE_SCHEMA" ]; then
-  DUMP_ARGS+=(--schema="$SOURCE_SCHEMA")
-fi
+SOURCE_SCHEMA="${3:-public}"
 
 echo "Dumping data from source..." >&2
-pg_dump "${DUMP_ARGS[@]}" "$SOURCE_URL" | psql -v ON_ERROR_STOP=1 "$DEST_URL"
+pg_dump --data-only --no-owner --disable-triggers --schema="$SOURCE_SCHEMA" "$SOURCE_URL" \
+  | sed -E "s/^(COPY|ALTER TABLE) ${SOURCE_SCHEMA}\./\1 /; s/^(SELECT pg_catalog\.setval\(')${SOURCE_SCHEMA}\./\1/; /^SELECT pg_catalog\.set_config\('search_path'/d" \
+  | psql -v ON_ERROR_STOP=1 "$DEST_URL"
 echo "Done. Now repoint shelves to the new address from the Shelf Hubs page." >&2
