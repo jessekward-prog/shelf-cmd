@@ -11,7 +11,13 @@
 import { io as ioClient } from 'socket.io-client'
 import { EventEmitter } from 'events'
 
-const HUB_URL = (process.env.HUB_URL || 'https://shelf-hub-production.up.railway.app').replace(/\/+$/, '')
+// No baked-in fallback — sharing is opt-in per instance. An instance that
+// never sets this simply can't share, rather than silently becoming a live
+// client of whichever hub used to be the default (that used to be
+// shelf-hub-production.up.railway.app; anyone still wanting that hub sets it
+// explicitly). Keeps a publicly-distributed image from turning into
+// unauthenticated load against infra it doesn't own.
+const HUB_URL = (process.env.HUB_URL || '').replace(/\/+$/, '')
 
 // This instance's own address, published so members can reach its drive. Unset
 // means the drive simply isn't offered — files are never mirrored, so there is
@@ -40,6 +46,11 @@ export function makeHub(pool) {
   const hubToken = () => getSetting('hub_token')
 
   async function call(method, path, body, token) {
+    if (!HUB_URL) {
+      const err = new Error('sharing is not configured on this instance — set HUB_URL in .env to enable it')
+      err.status = 503
+      throw err
+    }
     const auth = token ?? await hubToken()
     const res = await fetch(HUB_URL + path, {
       method,
