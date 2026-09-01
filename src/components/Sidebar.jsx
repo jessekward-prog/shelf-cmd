@@ -3,6 +3,17 @@ import { motion, AnimatePresence, Reorder } from 'framer-motion'
 import { CollabIcon, LinkIcon } from './MembersBar.jsx'
 import ShelfIcon from './ShelfIcons.jsx'
 
+// Same pulse used for "generating a guide" (GuideModal.jsx) — reused here so
+// a live hub reads as "something's actively running", not just "on".
+function PulseDot({ color }) {
+  return (
+    <motion.span
+      animate={{ opacity: [1, 0.3, 1] }} transition={{ duration: 1.2, repeat: Infinity }}
+      style={{ width: 6, height: 6, borderRadius: '50%', background: color, flexShrink: 0 }}
+    />
+  )
+}
+
 function StarIcon({ filled }) {
   return (
     <svg width="12" height="12" viewBox="0 0 24 24" fill={filled ? 'currentColor' : 'none'}
@@ -119,7 +130,7 @@ export default function Sidebar({
   onAddCat, onAddSub, onDeleteSub, onShareCat,
   onReorderCats, onReorderCatsEnd, onReorderSubs, onReorderSubsEnd,
   onJoin, onManage, activeView, onView, cardCount,
-  favorites, onToggleFavorite
+  favorites, onToggleFavorite, hubHosting
 }) {
   const [reordering, setReordering] = useState(false)
   const [collapsed, setCollapsed] = useState(() => {
@@ -351,16 +362,20 @@ export default function Sidebar({
             <GuidesIcon />
             <span>Guides</span>
           </Row>
-          <Row active={activeView === 'hubs'} onClick={() => onView('hubs')}>
-            <HubsIcon />
-            <span>Shelf Hubs</span>
-          </Row>
           <Row muted onClick={onJoin}>
             <CollabIcon size={14} />
             <span>Link a shared shelf</span>
           </Row>
         </>
       </nav>
+
+      <div style={{ padding: '8px', borderTop: '1px solid var(--s-border)' }}>
+        <Row active={activeView === 'hubs'} onClick={() => onView('hubs')}>
+          <HubsIcon />
+          <span className="flex-1">Shelf Hubs</span>
+          {hubHosting && <PulseDot color="#3fb37f" />}
+        </Row>
+      </div>
 
       <div style={{ padding: '12px 16px', borderTop: '1px solid var(--s-border)' }}>
         <div className="flex items-baseline justify-between" style={{ fontSize: 10, letterSpacing: '0.14em', color: 'var(--s-text-3)' }}>

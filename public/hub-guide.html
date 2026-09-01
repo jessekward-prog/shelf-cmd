@@ -1,0 +1,246 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Shelf Hubs — how this works</title>
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;600;700&family=VT323&display=swap" rel="stylesheet" />
+<style>
+  :root {
+    --bg: #0e0a00; --bg-2: #080600; --surface: #1a1200; --surface-2: #241a00;
+    --border: #3d2e00; --border-2: #2a2000;
+    --accent: #e8840a; --accent-hi: #ffab40;
+    --glow: rgba(232,132,10,0.45); --glow-soft: rgba(232,132,10,0.14);
+    --peer: #38bdf8; --peer-glow: rgba(56,189,248,0.35);
+    --t0: #f0b458; --t1: #c8a060; --t2: #8a6a1a; --t3: #5a4400; --ok: #7bd88f;
+    --mono: 'JetBrains Mono', ui-monospace, 'Cascadia Code', Menlo, monospace;
+    --pixel: 'VT323', 'JetBrains Mono', monospace;
+    --measure: 62ch; --pad: clamp(1.1rem, 4vw, 2rem);
+  }
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body {
+    margin: 0; background: var(--bg); color: var(--t1); font-family: var(--mono);
+    line-height: 1.7; font-size: 16px; -webkit-font-smoothing: antialiased; position: relative;
+  }
+  body::after {
+    content: ''; position: fixed; inset: 0; pointer-events: none; z-index: 9999;
+    background: repeating-linear-gradient(0deg, rgba(0,0,0,0.20), rgba(0,0,0,0.20) 1px, transparent 1px, transparent 3px),
+      radial-gradient(ellipse 120% 120% at 50% 30%, transparent 55%, rgba(0,0,0,0.55) 100%);
+    mix-blend-mode: multiply; opacity: 0.55;
+  }
+  a { color: var(--accent); text-decoration: none; }
+  a:hover { color: var(--accent-hi); text-decoration: underline; }
+  .wrap { max-width: 780px; margin: 0 auto; padding: 0 var(--pad); }
+  header.boot { padding: 3.2rem 0 2rem; }
+  .boot-tag { font-family: var(--pixel); font-size: clamp(1rem, 3vw, 1.3rem); letter-spacing: 0.3em; color: var(--t2); text-transform: uppercase; margin: 0 0 1rem; }
+  .wordmark { font-weight: 700; font-size: clamp(2rem, 8vw, 3.4rem); line-height: 1.05; color: var(--t0); margin: 0; text-shadow: 0 0 26px var(--glow), 0 0 60px var(--glow-soft); }
+  .lede { max-width: var(--measure); font-size: clamp(1rem, 2.2vw, 1.1rem); color: var(--t1); margin: 1.4rem 0 0; }
+  .lede strong { color: var(--t0); }
+  section { padding: 2.6rem 0; }
+  .eyebrow { font-family: var(--pixel); font-size: 1.1rem; letter-spacing: 0.24em; text-transform: uppercase; color: var(--accent); margin: 0 0 0.5rem; display: flex; align-items: center; gap: 0.6rem; }
+  .eyebrow::before { content: ''; width: 8px; height: 8px; background: var(--accent); box-shadow: 0 0 8px var(--glow); flex: none; }
+  h2 { font-size: clamp(1.3rem, 4vw, 1.7rem); font-weight: 600; color: var(--t0); line-height: 1.2; margin: 0 0 1rem; }
+  h3 { font-size: 1.05rem; color: var(--t0); margin: 0 0 0.6rem; }
+  p { max-width: var(--measure); margin: 0 0 1rem; }
+  .rule { max-width: 780px; margin: 0 auto; height: 1px; background: linear-gradient(90deg, transparent, var(--border), transparent); }
+
+  .cards { display: grid; gap: 0.9rem; margin: 1.4rem 0 0; }
+  @media (min-width: 680px) { .cards.three { grid-template-columns: repeat(3, 1fr); } }
+  .card { border: 1px solid var(--border); background: linear-gradient(180deg, var(--surface), var(--bg-2)); padding: 1.1rem 1.2rem; }
+  .card h3 { display: flex; align-items: baseline; gap: 0.5rem; }
+  .card .tag { font-family: var(--pixel); font-size: 0.85rem; letter-spacing: 0.1em; text-transform: uppercase; color: var(--accent); border: 1px solid var(--border); padding: 0.05rem 0.4rem; }
+  .card p { font-size: 0.92rem; margin: 0; }
+  .card .cost { display: block; margin-top: 0.6rem; font-size: 0.8rem; color: var(--t2); letter-spacing: 0.04em; }
+
+  .steps { counter-reset: step; list-style: none; margin: 1.4rem 0 0; padding: 0; display: grid; gap: 0.9rem; }
+  .steps li { counter-increment: step; display: grid; grid-template-columns: 2.2rem 1fr; gap: 0.8rem; align-items: start; }
+  .steps li::before {
+    content: counter(step, decimal-leading-zero); font-family: var(--pixel); font-size: 1.2rem; color: var(--accent);
+    border: 1px solid var(--border); background: var(--surface); width: 2.2rem; height: 2.2rem;
+    display: grid; place-items: center;
+  }
+  .steps li b { color: var(--t0); }
+  .steps li p { margin: 0.15rem 0 0; font-size: 0.92rem; max-width: none; }
+  .inline-code, code { font-family: var(--mono); background: var(--surface-2); border: 1px solid var(--border-2); padding: 0.05em 0.4em; font-size: 0.88em; color: var(--accent-hi); }
+
+  .terminal { margin: 1rem 0; border: 1px solid var(--border); background: var(--bg-2); }
+  .term-bar { display: flex; align-items: center; gap: 0.5rem; padding: 0.5rem 0.8rem; border-bottom: 1px solid var(--border); background: var(--surface); }
+  .term-bar .dot { width: 10px; height: 10px; border-radius: 50%; flex: none; }
+  .term-bar .label { margin-left: 0.4rem; font-size: 0.72rem; color: var(--t2); letter-spacing: 0.1em; text-transform: uppercase; }
+  pre.term { margin: 0; padding: 1rem 1.1rem; overflow-x: auto; font-size: 0.85rem; line-height: 1.7; color: var(--t1); white-space: pre-wrap; word-break: break-all; }
+  pre.term .cm { color: var(--t2); }
+  pre.term .pr { color: var(--accent); }
+  pre.term .op { color: var(--t0); }
+
+  .strip { margin: 1.4rem 0 0; border-left: 2px solid var(--accent); background: var(--glow-soft); padding: 0.9rem 1.1rem; font-size: 0.92rem; }
+  .strip b { color: var(--t0); }
+  .strip.peer { border-left-color: var(--peer); background: rgba(56,189,248,0.08); }
+
+  .glossary { margin: 1.4rem 0 0; display: grid; gap: 0.9rem; }
+  .glossary dt { font-family: var(--pixel); font-size: 1.05rem; color: var(--t0); letter-spacing: 0.03em; }
+  .glossary dd { margin: 0.15rem 0 0; font-size: 0.92rem; color: var(--t1); max-width: var(--measure); }
+
+  footer { padding: 2.4rem 0 3rem; color: var(--t3); font-size: 0.82rem; line-height: 1.7; }
+</style>
+</head>
+<body>
+<main>
+
+  <header class="boot">
+    <div class="wrap">
+      <p class="boot-tag">Reference · Shelf Hubs</p>
+      <h1 class="wordmark">How hubs actually work</h1>
+      <p class="lede">
+        A <strong>hub</strong> is the small always-online relay that lets you share a shelf with
+        someone who runs their own separate copy of the app. This page explains what it does,
+        the three ways you can have one, and walks through moving between them step by step.
+      </p>
+    </div>
+  </header>
+
+  <div class="rule"></div>
+
+  <section>
+    <div class="wrap">
+      <p class="eyebrow">01 · The short version</p>
+      <h2>Sharing needs a middle man — this is the whole job it does</h2>
+      <p>
+        Your box keeps a full copy of a shared shelf; so does everyone else's. The hub's only
+        jobs are: settle the order writes happened in, and pass a message along while a
+        machine is offline. It never sees your files, never runs any AI, and never holds an
+        API key. That's why it's cheap enough for anyone to run.
+      </p>
+      <p>
+        The card content on a shared shelf lives on <em>every</em> member's own box — the hub
+        going away for a while doesn't lose it. What only ever lives on the hub itself: the
+        list of who's a member, and everyone's login token for it. That's the part a hub
+        migration (below) actually has to move.
+      </p>
+    </div>
+  </section>
+
+  <div class="rule"></div>
+
+  <section>
+    <div class="wrap">
+      <p class="eyebrow">02 · Your options</p>
+      <h2>Three ways to have a hub</h2>
+      <div class="cards three">
+        <div class="card">
+          <h3><span class="tag">default</span></h3>
+          <p>Do nothing. Every install ships pointed at one already-running shared hub — sharing works immediately, no setup.</p>
+          <span class="cost">free, not yours to control</span>
+        </div>
+        <div class="card">
+          <h3><span class="tag">local</span></h3>
+          <p>Flip <b style="color:var(--t0)">host a hub here</b> on. This exact install becomes a hub too — same box, same database, nothing new to deploy.</p>
+          <span class="cost">free, only live while this box is on</span>
+        </div>
+        <div class="card">
+          <h3><span class="tag">cloud</span></h3>
+          <p>Deploy <a href="https://github.com/jessekward-prog/shelf-hub" target="_blank" rel="noreferrer">shelf-hub</a> to Railway (or anywhere else that runs Docker + Postgres) — an always-on hub you fully own.</p>
+          <span class="cost">costs whatever that hosting does</span>
+        </div>
+      </div>
+      <p class="strip">
+        None of these change the actual sharing mechanics — a six-digit code either way. They
+        only change <b>which server</b> settles the ordering and holds the membership list.
+      </p>
+    </div>
+  </section>
+
+  <div class="rule"></div>
+
+  <section>
+    <div class="wrap">
+      <p class="eyebrow">03 · Glossary</p>
+      <h2>What the labels on the Shelf Hubs page mean</h2>
+      <dl class="glossary">
+        <div><dt>host a hub here</dt><dd>The toggle that turns <em>this install</em> into a hub. Off by default. Turning it on doesn't move any of your own sharing to it automatically — it just makes the option exist for whoever you hand the address to.</dd></div>
+        <div><dt>which hub is active</dt><dd>The one hub this instance uses when <em>you</em> share a <b>new</b> shelf. Doesn't affect shelves you've already shared — see below.</dd></div>
+        <div><dt>the shared default</dt><dd>The hub every install ships pointed at, unless you change it. Free, always-on, not something you administer.</dd></div>
+        <div><dt>hosted on this instance</dt><dd>Your active hub is the one you just turned on above — this box is now serving both roles at once.</dd></div>
+        <div><dt>your shared shelves → "whichever hub is active"</dt><dd>That specific shelf has no hub of its own pinned — it just follows whatever "which hub is active" currently says. Pick an explicit hub from the dropdown to pin it and stop it following changes above.</dd></div>
+        <div><dt>your hubs</dt><dd>A personal address book — hubs you've used or added, so you can switch back without re-typing a URL. Doesn't sync anywhere; it's local to this install only.</dd></div>
+      </dl>
+    </div>
+  </section>
+
+  <div class="rule"></div>
+
+  <section>
+    <div class="wrap">
+      <p class="eyebrow">04 · Tutorial</p>
+      <h2>Host locally, free, right now</h2>
+      <ol class="steps">
+        <li><div><b>Set an address this box can be reached at.</b><p>Needs <span class="inline-code">PUBLIC_URL</span> set to a real domain in <span class="inline-code">.env</span> — the same requirement Drive-sharing already has. If you can already share a shelf's Drive with someone, this is already done.</p></div></li>
+        <li><div><b>Open Shelf Hubs → flip "host a hub here" on.</b><p>Instant — no restart. You'll get a URL (yours ends in <span class="inline-code">/relay</span>) and a QR code.</p></div></li>
+        <li><div><b>Hand that URL to whoever you want sharing through it.</b><p>They paste it into their own instance's <span class="inline-code">sharing through</span> field. From then on, sharing between the two of you goes through your box specifically.</p></div></li>
+      </ol>
+      <p class="strip">That's it — no second server, no signup, no cost. It's only reachable while this box is powered on and connected, same as your Drive already is.</p>
+    </div>
+  </section>
+
+  <div class="rule"></div>
+
+  <section>
+    <div class="wrap">
+      <p class="eyebrow">05 · Tutorial</p>
+      <h2>Move a local hub to an always-on cloud one</h2>
+      <p>Do this once you've outgrown "only live while my box is on" — moving doesn't lose any shelf, card, or message.</p>
+      <ol class="steps">
+        <li><div><b>Deploy <a href="https://github.com/jessekward-prog/shelf-hub" target="_blank" rel="noreferrer">shelf-hub</a> somewhere always-on.</b><p>Railway's the easy option — a Postgres-backed Node app, deploys the same way shelf-cmd itself does. Get its database connection string once it's running.</p></div></li>
+        <li><div><b>Open Shelf Hubs → "outgrown this? migrate to an always-on host."</b><p>Shown right under your local hub's QR code while hosting is on. It pre-fills the command below with your side of the transfer already filled in.</p></div></li>
+        <li><div>
+          <b>Run the command it shows you, from any machine with <span class="inline-code">psql</span>.</b>
+          <p>Same shape either direction — this instance's data on the left, the new hub's database URL on the right:</p>
+          <div class="terminal">
+            <div class="term-bar"><span class="dot" style="background:var(--accent)"></span><span class="dot" style="background:var(--border)"></span><span class="dot" style="background:var(--border)"></span><span class="label">terminal</span></div>
+            <pre class="term"><span class="pr">$</span> <span class="op">./scripts/migrate-hub.sh</span> "&lt;this instance's database url&gt;" "&lt;new hub's database url&gt;" hosted_hub</pre>
+          </div>
+        </div></li>
+        <li><div><b>Back in the app, paste the new hub's address (not the database URL) and hit "repoint shelves."</b><p>Every shelf using this local hub moves to the new one, and local hosting turns itself off — no split-brain with two "live" copies of the same data.</p></div></li>
+      </ol>
+      <p class="strip peer">
+        <b>If someone else was also pointed at your local hub</b>, this step only repoints <em>your</em>
+        instance. They need to do the same thing on theirs — paste the new address into their own
+        "sharing through" field. There's no way to do that for them from here; it's a real
+        limitation, not an oversight.
+      </p>
+    </div>
+  </section>
+
+  <div class="rule"></div>
+
+  <section>
+    <div class="wrap">
+      <p class="eyebrow">06 · Tutorial</p>
+      <h2>Bring a cloud hub back home</h2>
+      <p>If the hosting bill ever isn't worth it — the exact same steps, run in reverse.</p>
+      <ol class="steps">
+        <li><div><b>Turn "host a hub here" back on locally</b> (step 2 of the local tutorial above, if it's currently off).</div></li>
+        <li><div><b>Run the migrate script the other way</b> — your cloud hub's database URL as the source, this instance's as the destination, no <span class="inline-code">hosted_hub</span> schema flag this time since the destination is the one with it:
+          <div class="terminal">
+            <div class="term-bar"><span class="dot" style="background:var(--peer)"></span><span class="dot" style="background:var(--border)"></span><span class="dot" style="background:var(--border)"></span><span class="label">terminal</span></div>
+            <pre class="term"><span class="pr">$</span> <span class="op">./scripts/migrate-hub.sh</span> "&lt;cloud hub's database url&gt;" "&lt;this instance's database url&gt;"</pre>
+          </div>
+        </div></li>
+        <li><div><b>Repoint shelves</b> to your local <span class="inline-code">/relay</span> address the same way, then shut the cloud deployment down whenever you're ready.</div></li>
+      </ol>
+    </div>
+  </section>
+
+  <div class="rule"></div>
+
+  <footer>
+    <div class="wrap">
+      <p>Back to the app: close this tab, or <a href="/">open ShelfStation</a>. Repo: <a href="https://github.com/jessekward-prog/shelf-cmd" target="_blank" rel="noreferrer">shelf-cmd</a> · <a href="https://github.com/jessekward-prog/shelf-hub" target="_blank" rel="noreferrer">shelf-hub</a>.</p>
+    </div>
+  </footer>
+
+</main>
+</body>
+</html>

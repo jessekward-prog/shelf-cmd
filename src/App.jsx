@@ -86,6 +86,7 @@ export default function App({ me }) {
   const [recolorResult, setRecolorResult] = useState(null)
   const [nowPlaying, setNowPlaying] = useState(null)
   const [popped, setPopped] = useState(null) // card floating in the mini-player
+  const [hubHosting, setHubHosting] = useState(false) // this instance hosting a hub for others — drives the sidebar's status dot
   const pollTimers = useRef({})
   const latestCats = useRef([])
   const latestSubs = useRef([])
@@ -153,6 +154,8 @@ export default function App({ me }) {
   }, [])
 
   useEffect(() => { loadTopLevel() }, [loadTopLevel])
+
+  useEffect(() => { api.getHubConfig().then(c => setHubHosting(!!c.hostedHubEnabled)).catch(() => {}) }, [])
 
   useEffect(() => {
     if (!activeCatId) return
@@ -333,6 +336,7 @@ export default function App({ me }) {
         cardCount={cards.length}
         favorites={favorites}
         onToggleFavorite={toggleFavorite}
+        hubHosting={hubHosting}
       />
 
       <div className="lg:flex-1 lg:min-w-0 lg:flex lg:flex-col">
@@ -525,7 +529,7 @@ export default function App({ me }) {
 
           {activeView === 'hubs' && (
             <div className="lg:px-8 lg:pt-7">
-              <ShelfHubsView isAdmin={me.is_admin} />
+              <ShelfHubsView isAdmin={me.is_admin} onHostingChange={setHubHosting} />
             </div>
           )}
 

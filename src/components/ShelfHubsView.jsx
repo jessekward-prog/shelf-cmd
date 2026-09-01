@@ -22,6 +22,16 @@ const smallBtn = {
   background: 'var(--s-accent)', color: 'var(--s-bg)', flexShrink: 0
 }
 
+// What "which hub is active" actually resolves to, in plain language — the
+// raw URL alone doesn't tell you whether that's the shared default, this
+// same instance, or something you added to the directory.
+function activeKind(config, hubs) {
+  if (!config) return null
+  if (config.isDefault) return 'the shared default'
+  if (config.hostedHubUrl && config.sharingHubUrl === config.hostedHubUrl) return 'hosted on this instance'
+  return hubs?.find((h) => h.url === config.sharingHubUrl)?.label || 'a custom hub'
+}
+
 function CopyField({ value }) {
   const [copied, setCopied] = useState(false)
   const copy = () => {
@@ -42,7 +52,7 @@ function CopyField({ value }) {
 // hosting, plus any external ones added by hand). Server side: hosted-hub.js
 // (the embedded hub, gated by the hosted_hub_enabled setting) and the
 // /api/hub-config + /api/known-hubs routes in index.js.
-export default function ShelfHubsView({ isAdmin }) {
+export default function ShelfHubsView({ isAdmin, onHostingChange }) {
   const [config, setConfig] = useState(null) // null = loading
   const [hubs, setHubs] = useState(null)
   const [shelfHubs, setShelfHubs] = useState(null)
@@ -63,6 +73,8 @@ export default function ShelfHubsView({ isAdmin }) {
     api.getShelfHubs().then(setShelfHubs).catch(() => setShelfHubs([]))
   }
   useEffect(load, [])
+
+  useEffect(() => { if (config && !config.error) onHostingChange?.(!!config.hostedHubEnabled) }, [config?.hostedHubEnabled])
 
   useEffect(() => {
     if (!config?.hostedHubEnabled || !config.hostedHubUrl) { setQr(null); return }
@@ -141,16 +153,26 @@ export default function ShelfHubsView({ isAdmin }) {
 
   return (
     <div className="px-4 pb-24" style={{ maxWidth: '46rem', margin: '0 auto' }}>
-      <div style={{ marginBottom: 18 }}>
-        <div style={{ fontSize: 15, color: 'var(--s-text-0)', fontWeight: 500 }}>Shelf Hubs</div>
-        <div style={{ fontSize: 11, color: 'var(--s-text-3)', letterSpacing: '0.04em', marginTop: 2 }}>
-          Sharing routes through a hub — a small always-online relay. Host your own here, or pick which one this instance uses.
+      <div style={{ marginBottom: 18, display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 10 }}>
+        <div>
+          <div style={{ fontSize: 15, color: 'var(--s-text-0)', fontWeight: 500 }}>Shelf Hubs</div>
+          <div style={{ fontSize: 11, color: 'var(--s-text-3)', letterSpacing: '0.04em', marginTop: 2 }}>
+            Sharing routes through a hub — a small always-online relay. Host your own here, or pick which one this instance uses.
+          </div>
         </div>
+        <a
+          href="/hub-guide.html" target="_blank" rel="noreferrer"
+          style={{
+            flexShrink: 0, fontSize: 11, color: 'var(--s-accent)', border: '1px solid var(--s-accent-glow)',
+            borderRadius: 999, width: 22, height: 22, display: 'flex', alignItems: 'center', justifyContent: 'center'
+          }}
+          title="How this all works — full guide"
+        >?</a>
       </div>
 
       <div style={cardStyle}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
-          <div style={{ fontSize: 13, color: 'var(--s-text-0)', fontWeight: 500 }}>this instance's hub</div>
+          <div style={{ fontSize: 13, color: 'var(--s-text-0)', fontWeight: 500 }}>host a hub here</div>
           <button
             onClick={toggleHosting}
             disabled={toggling}
@@ -233,14 +255,20 @@ export default function ShelfHubsView({ isAdmin }) {
             </>
           )
         ) : (
-          <div style={{ fontSize: 12, color: 'var(--s-text-3)' }}>off — flip it on to let other people's instances share through this one.</div>
+          <div style={{ fontSize: 12, color: 'var(--s-text-3)' }}>off — flip it on to let other people's instances share through this one, for free, no separate server.</div>
         )}
       </div>
 
       <div style={cardStyle}>
-        <div style={{ fontSize: 13, color: 'var(--s-text-0)', fontWeight: 500, marginBottom: 10 }}>sharing through</div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10, flexWrap: 'wrap' }}>
+          <div style={{ fontSize: 13, color: 'var(--s-text-0)', fontWeight: 500 }}>which hub is active</div>
+          <span style={{
+            fontSize: 9, fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase',
+            padding: '2px 7px', borderRadius: 999, color: 'var(--s-accent)', border: '1px solid var(--s-accent-glow)', background: 'var(--s-accent-faint)'
+          }}>{activeKind(config, hubs)}</span>
+        </div>
         <div style={{ fontSize: 11, color: 'var(--s-text-3)', marginBottom: 10, lineHeight: 1.5 }}>
-          {config.isDefault ? 'using the built-in default hub' : 'using a custom hub'} for any <b style={{ color: 'var(--s-text-1)' }}>new</b> shelf you share — an already-shared shelf keeps using whatever hub it was first shared through (see below), so changing this never moves anything that's already live.
+          This is where any <b style={{ color: 'var(--s-text-1)' }}>new</b> shelf you share goes. A shelf you've <b style={{ color: 'var(--s-text-1)' }}>already</b> shared keeps using whatever hub it went to at the time (see "your shared shelves" below) — changing this never moves anything that's already live.
         </div>
         <form onSubmit={(e) => { e.preventDefault(); saveSharing(sharingInput.trim()) }} style={{ display: 'flex', gap: 8 }}>
           <input value={sharingInput} onChange={(e) => setSharingInput(e.target.value)} placeholder="hub URL" style={{ ...inputStyle, flex: 1 }} />
@@ -263,16 +291,16 @@ export default function ShelfHubsView({ isAdmin }) {
                     {s.name}{!s.is_owner && <span style={{ color: 'var(--s-text-3)' }}> · joined, not yours to repoint</span>}
                   </div>
                   <div style={{ fontSize: 10, color: 'var(--s-text-3)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                    {s.hub_url || 'instance default'}
+                    {s.hub_url || '→ whichever hub is active, above'}
                   </div>
                 </div>
                 {s.is_owner && (
                   <select
                     value={s.hub_url || ''}
                     onChange={(e) => repointShelf(s.category_id, e.target.value)}
-                    style={{ ...inputStyle, flex: '0 0 auto', width: 150 }}
+                    style={{ ...inputStyle, flex: '0 0 auto', width: 190 }}
                   >
-                    <option value="">instance default</option>
+                    <option value="">whichever hub is active</option>
                     {hubs?.map((h) => <option key={h.id} value={h.url}>{h.label}</option>)}
                   </select>
                 )}
