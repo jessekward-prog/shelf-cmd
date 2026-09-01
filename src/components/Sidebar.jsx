@@ -42,6 +42,16 @@ function NotesIcon() {
   )
 }
 
+function HubsIcon() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
+      <circle cx="12" cy="12" r="3" />
+      <path d="M12 2v4M12 18v4M4.9 4.9l2.8 2.8M16.3 16.3l2.8 2.8M2 12h4M18 12h4M4.9 19.1l2.8-2.8M16.3 7.7l2.8-2.8" />
+    </svg>
+  )
+}
+
 function ReorderIcon() {
   return (
     <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor"
@@ -340,6 +350,10 @@ export default function Sidebar({
           <Row active={activeView === 'guides'} onClick={() => onView('guides')}>
             <GuidesIcon />
             <span>Guides</span>
+          </Row>
+          <Row active={activeView === 'hubs'} onClick={() => onView('hubs')}>
+            <HubsIcon />
+            <span>Shelf Hubs</span>
           </Row>
           <Row muted onClick={onJoin}>
             <CollabIcon size={14} />

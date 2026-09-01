@@ -212,3 +212,14 @@ CREATE TABLE IF NOT EXISTS shelf_activity (
   created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 CREATE UNIQUE INDEX IF NOT EXISTS shelf_activity_hub_id ON shelf_activity (hub_activity_id) WHERE hub_activity_id IS NOT NULL;
+
+-- Hubs this instance knows about — local bookkeeping only, not synced
+-- anywhere. 'hosted' tracks this instance's own toggle (server/hosted-hub.js);
+-- 'external' entries are added by hand from the Shelf Hubs page.
+CREATE TABLE IF NOT EXISTS known_hubs (
+  id         SERIAL PRIMARY KEY,
+  label      TEXT NOT NULL,
+  url        TEXT NOT NULL,
+  kind       TEXT NOT NULL DEFAULT 'external',
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);

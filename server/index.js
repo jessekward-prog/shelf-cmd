@@ -2,6 +2,7 @@ import 'dotenv/config'
 import express from 'express'
 import cors from 'cors'
 import pg from 'pg'
+import { createServer } from 'http'
 import { readFile } from 'fs/promises'
 import { fileURLToPath } from 'url'
 import { dirname, join } from 'path'
@@ -13,10 +14,12 @@ import { makeHub } from './hub.js'
 import { mountDrive } from './drive.js'
 import { mountGuide, ensureGuideTable, CATEGORIES } from './guide.js'
 import { mountChat, logActivity } from './chat.js'
+import { mountHostedHub } from './hosted-hub.js'
 chromium.use(StealthPlugin())
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const app = express()
+const httpServer = createServer(app)
 const PORT = process.env.PORT || 3016
 const TWITCH_PARENT = process.env.TWITCH_PARENT || 'shelf.cmdward.xyz'
 
@@ -524,6 +527,68 @@ app.put('/api/lm', adminOnly, async (req, res) => {
   res.json({ selected: process.env.LM_STUDIO_MODEL || '' })
 })
 
+// ── Shelf Hubs page ───────────────────────────────────────────────────────────
+// hostedHubEnabled/sharingHubUrl are settings rows so the UI can flip them live,
+// no restart — see server/hosted-hub.js for the enabled check on the hub side
+// and server/hub.js's getHubUrl() for how sharing picks this up.
+app.get('/api/hub-config', adminOnly, async (req, res) => {
+  const { rows } = await pool.query(
+    "SELECT key, value FROM settings WHERE key IN ('hosted_hub_enabled','hub_url_override')"
+  )
+  const settingsMap = Object.fromEntries(rows.map(r => [r.key, r.value]))
+  const publicUrl = (process.env.PUBLIC_URL || '').replace(/\/+$/, '')
+  res.json({
+    hostedHubEnabled: settingsMap.hosted_hub_enabled === 'true',
+    hostedHubUrl: publicUrl ? `${publicUrl}/relay` : null,
+    publicUrlSet: !!publicUrl,
+    sharingHubUrl: await hub.getHubUrl(),
+    isDefault: !settingsMap.hub_url_override
+  })
+})
+
+app.put('/api/hub-config', adminOnly, async (req, res) => {
+  if (typeof req.body.hostedHubEnabled === 'boolean') {
+    await pool.query(
+      "INSERT INTO settings (key, value) VALUES ('hosted_hub_enabled', $1) ON CONFLICT (key) DO UPDATE SET value=$1",
+      [String(req.body.hostedHubEnabled)]
+    )
+  }
+  if (typeof req.body.sharingHubUrl === 'string') {
+    const url = req.body.sharingHubUrl.trim().replace(/\/+$/, '')
+    if (url) {
+      await pool.query(
+        "INSERT INTO settings (key, value) VALUES ('hub_url_override', $1) ON CONFLICT (key) DO UPDATE SET value=$1",
+        [url]
+      )
+    } else {
+      await pool.query("DELETE FROM settings WHERE key='hub_url_override'")
+    }
+    await hub.reconnect()
+  }
+  res.json({ ok: true })
+})
+
+app.get('/api/known-hubs', adminOnly, async (req, res) => {
+  const { rows } = await pool.query('SELECT * FROM known_hubs ORDER BY kind, label')
+  res.json(rows)
+})
+
+app.post('/api/known-hubs', adminOnly, async (req, res) => {
+  const label = (req.body.label || '').trim().slice(0, 60)
+  const url = (req.body.url || '').trim().replace(/\/+$/, '')
+  if (!label || !url) return res.status(400).json({ error: 'label and url required' })
+  const { rows } = await pool.query(
+    "INSERT INTO known_hubs (label, url, kind) VALUES ($1,$2,'external') RETURNING *",
+    [label, url]
+  )
+  res.json(rows[0])
+})
+
+app.delete('/api/known-hubs/:id', adminOnly, async (req, res) => {
+  await pool.query("DELETE FROM known_hubs WHERE id=$1 AND kind != 'hosted'", [req.params.id])
+  res.json({ ok: true })
+})
+
 // ── Users, invites, membership ───────────────────────────────────────────────
 
 app.get('/api/me', (req, res) => {
@@ -555,7 +620,7 @@ app.post('/api/categories/:id/invite', adminOnly, async (req, res) => {
       await hub.publish(categoryId, req.user.username)
     }
     const { code } = await hub.invite(categoryId)
-    res.json({ code, hub: hub.url })
+    res.json({ code, hub: await hub.getHubUrl() })
   } catch (err) {
     console.error('invite error:', err.message)
     res.status(502).json({ error: `could not reach the hub — ${err.message}` })
@@ -590,7 +655,7 @@ app.get('/api/hub', adminOnly, async (req, res) => {
        FROM linked_shelves l JOIN categories c ON c.id = l.category_id ORDER BY c.name`
   )
   const { rows: queued } = await pool.query('SELECT count(*)::int n FROM outbox')
-  res.json({ url: hub.url, identity: await hub.identity(), shelves: rows, queued: queued[0].n })
+  res.json({ url: await hub.getHubUrl(), identity: await hub.identity(), shelves: rows, queued: queued[0].n })
 })
 
 app.get('/api/categories/:id/members', adminOnly, async (req, res) => {
@@ -1287,6 +1352,7 @@ app.delete('/api/notes/:id', adminOnly, async (req, res) => {
 mountDrive({ app, pool, adminOnly, adminOrToken, lmComplete, hub })
 mountGuide({ app, pool, adminOnly, adminOrToken, hub })
 mountChat({ app, pool, adminOnly, adminOrToken, hub, lmComplete })
+mountHostedHub({ app, httpServer, mainPool: pool })
 
 // Unknown /api paths must not fall through to the SPA, or a stale client gets
 // HTML where it expected JSON and fails with a parse error instead of a 404.
@@ -1297,7 +1363,7 @@ app.get('*', (req, res) => res.sendFile(join(__dirname, '../dist/index.html')))
 
 initDb().then(async () => {
   await applyLmModel()
-  app.listen(PORT, () => console.log(`shelf-cmd running on :${PORT}`))
+  httpServer.listen(PORT, () => console.log(`shelf-cmd running on :${PORT}`))
   // Pull linked shelves and flush anything queued while the hub was unreachable
   if (process.env.HUB_SYNC !== 'off') hub.startLoop(Number(process.env.HUB_SYNC_MS) || 30000)
 })

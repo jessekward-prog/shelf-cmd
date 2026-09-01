@@ -13,6 +13,7 @@ import NotesTab from './components/NotesTab.jsx'
 import DrivePage from './components/DrivePage.jsx'
 import GuideModal from './components/GuideModal.jsx'
 import GuidesView, { Legend } from './components/GuidesView.jsx'
+import ShelfHubsView from './components/ShelfHubsView.jsx'
 import MiniPlayer from './components/MiniPlayer.jsx'
 import MembersBar from './components/MembersBar.jsx'
 import InviteModal from './components/InviteModal.jsx'
@@ -519,6 +520,12 @@ export default function App({ me }) {
           {activeView === 'guides' && (
             <div className="lg:px-8 lg:pt-7">
               <GuidesView onGenerate={() => { setGuideModalCatId(null); setShowGuide(true) }} refreshKey={guidesKey} />
+            </div>
+          )}
+
+          {activeView === 'hubs' && (
+            <div className="lg:px-8 lg:pt-7">
+              <ShelfHubsView isAdmin={me.is_admin} />
             </div>
           )}
 

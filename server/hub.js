@@ -18,16 +18,16 @@ import { EventEmitter } from 'events'
 // unauthenticated route — it mints a fresh account) is now rate-limited, so
 // a publicly-known default URL costs an abuser very little to hit but can't
 // be turned into unlimited free accounts. See shelf-hub/server.js.
-const HUB_URL = (process.env.HUB_URL || 'https://shelf-hub-production.up.railway.app').replace(/\/+$/, '')
+//
+// Overridable live from the Shelf Hubs page (the `hub_url_override` setting,
+// see getHubUrl below) — this env var is just the fallback when nothing's
+// been picked in the UI.
+const DEFAULT_HUB_URL = (process.env.HUB_URL || 'https://shelf-hub-production.up.railway.app').replace(/\/+$/, '')
 
 // This instance's own address, published so members can reach its drive. Unset
 // means the drive simply isn't offered — files are never mirrored, so there is
 // no fallback route to them.
 const PUBLIC_URL = (process.env.PUBLIC_URL || '').replace(/\/+$/, '')
-
-export function hubConfigured() {
-  return !!HUB_URL
-}
 
 export function makeHub(pool) {
   // ── Credentials ───────────────────────────────────────────────────────────
@@ -46,14 +46,15 @@ export function makeHub(pool) {
 
   const hubToken = () => getSetting('hub_token')
 
+  async function getHubUrl() {
+    const override = await getSetting('hub_url_override')
+    return (override || DEFAULT_HUB_URL).replace(/\/+$/, '')
+  }
+
   async function call(method, path, body, token) {
-    if (!HUB_URL) {
-      const err = new Error('sharing is not configured on this instance — set HUB_URL in .env to enable it')
-      err.status = 503
-      throw err
-    }
+    const hubUrl = await getHubUrl()
     const auth = token ?? await hubToken()
-    const res = await fetch(HUB_URL + path, {
+    const res = await fetch(hubUrl + path, {
       method,
       headers: {
         ...(body ? { 'Content-Type': 'application/json' } : {}),
@@ -457,9 +458,9 @@ export function makeHub(pool) {
     }
   }
 
-  function ensureSocket() {
+  async function ensureSocket() {
     if (socket) return socket
-    socket = ioClient(HUB_URL, { auth: (cb) => hubToken().then(token => cb({ token })) })
+    socket = ioClient(await getHubUrl(), { auth: (cb) => hubToken().then(token => cb({ token })) })
 
     socket.on('message:new', async (m) => {
       const categoryId = await categoryIdFor(m.shelf_id)
@@ -508,7 +509,17 @@ export function makeHub(pool) {
   async function joinShelfRoom(categoryId) {
     const shelf = await linkedShelf(categoryId)
     if (!shelf) return
-    ensureSocket().emit('shelf:join', shelf.hub_shelf_id)
+    ;(await ensureSocket()).emit('shelf:join', shelf.hub_shelf_id)
+  }
+
+  // Called after the sharing hub setting changes — the cached socket (if any)
+  // was talking to the OLD hub, so it has to go. The next joinShelfRoom() call
+  // reconnects fresh against whatever getHubUrl() resolves to now.
+  function reconnect() {
+    if (socket) {
+      socket.disconnect()
+      socket = null
+    }
   }
 
   // replyToHubMessageId is the HUB id of the message being replied to — the
@@ -639,7 +650,7 @@ export function makeHub(pool) {
   }
 
   return {
-    url: HUB_URL,
+    getHubUrl, reconnect,
     publish, link, syncOne, postCard, deleteCard, updateCard,
     postTab, postGuide, deleteGuideRemote,
     postMessage, postActivity, postReaction, joinShelfRoom, events,

@@ -49,6 +49,13 @@ export const cardShareUrl = (token) => `${location.origin}/s/c/${token}`
 export const getLm = () => req('GET', '/lm')
 export const setLmModel = (model) => req('PUT', '/lm', { model })
 
+// ── Shelf Hubs page ──────────────────────────────────────────────────────────
+export const getHubConfig   = () => req('GET', '/hub-config')
+export const setHubConfig   = (patch) => req('PUT', '/hub-config', patch)
+export const getKnownHubs   = () => req('GET', '/known-hubs')
+export const addKnownHub    = (label, url) => req('POST', '/known-hubs', { label, url })
+export const deleteKnownHub = (id) => req('DELETE', `/known-hubs/${id}`)
+
 export const getNotes    = ()           => req('GET',    '/notes')
 export const createNote  = (data)       => req('POST',   '/notes', data)
 export const deleteNote  = (id)         => req('DELETE', `/notes/${id}`)
