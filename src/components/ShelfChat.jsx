@@ -193,7 +193,12 @@ export default function ShelfChat({ categoryId, isLinked }) {
     const es = new EventSource(api.chatStreamUrl(categoryId))
     es.addEventListener('message', (e) => {
       const m = JSON.parse(e.data)
-      setMessages(prev => prev.some(x => x.id === m.id) ? prev : [...prev, m])
+      // Merge rather than skip on a repeat id — the same message can arrive
+      // twice (a self-sent message racing the hub's own socket echo), and the
+      // two copies aren't always equally complete (e.g. reply_to).
+      setMessages(prev => prev.some(x => x.id === m.id)
+        ? prev.map(x => x.id === m.id ? { ...x, ...m } : x)
+        : [...prev, m])
     })
     es.addEventListener('activity', (e) => {
       const a = JSON.parse(e.data)

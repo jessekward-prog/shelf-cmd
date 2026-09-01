@@ -266,7 +266,8 @@ export function makeHub(pool) {
         if (rows[0]) {
           await mirrorReactions(rows[0].id, m.reactions)
           const reactions = (m.reactions || []).map(r => ({ emoji: r.emoji, hub_user_id: r.user_id }))
-          events.emit('message', { categoryId, row: { ...rows[0], username: m.username, reactions } })
+          const reply_to = await resolveReplyPreview(replyToId)
+          events.emit('message', { categoryId, row: { ...rows[0], username: m.username, reactions, reply_to } })
         }
       }
 
@@ -416,6 +417,21 @@ export function makeHub(pool) {
     return rows[0]?.id || null
   }
 
+  // The quoted preview a reply's bubble renders — same shape chat.js's own
+  // GET /messages subquery builds, needed here too since a message can reach
+  // the frontend via the live socket or the catch-up pull instead of a POST
+  // response, and neither of those has the joined preview otherwise.
+  async function resolveReplyPreview(localReplyToId) {
+    if (!localReplyToId) return null
+    const { rows } = await pool.query(
+      `SELECT rm.id, rm.hub_user_id, rm.body, hu.username
+         FROM shelf_messages rm LEFT JOIN hub_users hu ON hu.id = rm.hub_user_id
+        WHERE rm.id=$1`,
+      [localReplyToId]
+    )
+    return rows[0] || null
+  }
+
   // Full-replace rather than diff — the hub always hands over the complete
   // current set for a message, and a toggle can just as easily be a removal.
   async function mirrorReactions(messageId, reactions) {
@@ -444,7 +460,10 @@ export function makeHub(pool) {
          RETURNING *`,
         [categoryId, m.id, m.user_id, m.body, m.created_at, replyToId]
       )
-      if (rows[0]) events.emit('message', { categoryId, row: { ...rows[0], username: m.username } })
+      if (rows[0]) {
+        const reply_to = await resolveReplyPreview(replyToId)
+        events.emit('message', { categoryId, row: { ...rows[0], username: m.username, reply_to } })
+      }
     })
 
     socket.on('activity:new', async (a) => {
