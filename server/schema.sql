@@ -53,6 +53,18 @@ CREATE TABLE IF NOT EXISTS settings (
   value TEXT NOT NULL
 );
 
+-- One hub identity per hub — a token minted on one hub's users table means
+-- nothing to another's, so unlike everything else here this can't be a
+-- single flat setting once a shelf can live on a hub other than the default.
+-- See hub.js's getIdentityFor, which lazily migrates the old flat
+-- hub_token/hub_user_id/hub_username settings into a row here on first use.
+CREATE TABLE IF NOT EXISTS hub_identities (
+  hub_url  TEXT PRIMARY KEY,
+  token    TEXT NOT NULL,
+  user_id  INT,
+  username TEXT
+);
+
 -- ── Collaborative shelves ────────────────────────────────────────────────────
 
 CREATE TABLE IF NOT EXISTS users (
@@ -167,6 +179,12 @@ WHERE NOT EXISTS (SELECT 1 FROM categories);
 -- Where the shelf owner's instance lives. Drive files are never mirrored, so a
 -- member needs this to fetch them from the machine that actually holds them.
 ALTER TABLE linked_shelves ADD COLUMN IF NOT EXISTS origin TEXT;
+
+-- Which hub this specific shelf is pinned to, set once at publish/link time
+-- (see hub.js's callFor). NULL on rows from before this column existed, or
+-- any shelf that's never had its hub changed — meaning "use the instance-wide
+-- default," so nothing needs backfilling for it to keep working.
+ALTER TABLE linked_shelves ADD COLUMN IF NOT EXISTS hub_url TEXT;
 
 -- Archived hides a shelf from the everyday nav without deleting it (and
 -- everything on it — cards, drive files, guides, a collab link).

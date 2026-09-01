@@ -44,16 +44,52 @@ export function makeHub(pool) {
     )
   }
 
-  const hubToken = () => getSetting('hub_token')
-
   async function getHubUrl() {
     const override = await getSetting('hub_url_override')
     return (override || DEFAULT_HUB_URL).replace(/\/+$/, '')
   }
 
-  async function call(method, path, body, token) {
-    const hubUrl = await getHubUrl()
-    const auth = token ?? await hubToken()
+  // Every credential this instance holds, keyed by which hub it's for — a
+  // token minted on one hub's users table means nothing to another's.
+  async function getIdentityFor(hubUrl) {
+    const { rows } = await pool.query('SELECT * FROM hub_identities WHERE hub_url=$1', [hubUrl])
+    if (rows[0]) return rows[0]
+    // Lazy one-time migration: instances from before per-hub identity kept a
+    // single flat one. Adopt it for the default hub so upgrading doesn't
+    // strand an existing account — every OTHER hub still mints fresh, which
+    // is correct, since a pre-upgrade instance only ever had one hub anyway.
+    if (hubUrl === DEFAULT_HUB_URL) {
+      const legacyToken = await getSetting('hub_token')
+      if (legacyToken) {
+        const legacyUserId = await getSetting('hub_user_id')
+        const identity = {
+          hub_url: hubUrl, token: legacyToken,
+          user_id: legacyUserId ? Number(legacyUserId) : null,
+          username: await getSetting('hub_username')
+        }
+        await pool.query(
+          `INSERT INTO hub_identities (hub_url, token, user_id, username) VALUES ($1,$2,$3,$4)
+           ON CONFLICT (hub_url) DO NOTHING`,
+          [identity.hub_url, identity.token, identity.user_id, identity.username]
+        )
+        return identity
+      }
+    }
+    return null
+  }
+
+  async function rememberIdentityFor(hubUrl, { token, user }) {
+    if (!token) return
+    await pool.query(
+      `INSERT INTO hub_identities (hub_url, token, user_id, username) VALUES ($1,$2,$3,$4)
+       ON CONFLICT (hub_url) DO UPDATE SET token=$2,
+         user_id=COALESCE($3, hub_identities.user_id), username=COALESCE($4, hub_identities.username)`,
+      [hubUrl, token, user?.id ?? null, user?.username ?? null]
+    )
+  }
+
+  async function call(hubUrl, method, path, body, token) {
+    const auth = token ?? (await getIdentityFor(hubUrl))?.token
     const res = await fetch(hubUrl + path, {
       method,
       headers: {
@@ -74,11 +110,15 @@ export function makeHub(pool) {
     return json
   }
 
-  async function rememberIdentity({ token, user }) {
-    if (!token) return
-    await setSetting('hub_token', token)
-    if (user?.id) await setSetting('hub_user_id', String(user.id))
-    if (user?.username) await setSetting('hub_username', user.username)
+  // The one place a shelf's own hub gets resolved — its pinned hub_url if it
+  // has one, else whatever this instance's current default is. Every
+  // per-shelf hub.js function goes through this instead of calling call()
+  // directly, so a shelf never silently talks to the wrong hub after the
+  // instance-wide default changes.
+  async function callFor(categoryId, method, path, body, token) {
+    const shelf = await linkedShelf(categoryId)
+    const hubUrl = shelf?.hub_url || await getHubUrl()
+    return call(hubUrl, method, path, body, token)
   }
 
   // ── Publishing a local category ───────────────────────────────────────────
@@ -98,7 +138,11 @@ export function makeHub(pool) {
       [categoryId]
     )
 
-    const existing = await hubToken()
+    // Resolved once, up front — this is the hub the shelf gets pinned to for
+    // the rest of its life (see callFor), regardless of what the instance-wide
+    // default becomes later.
+    const hubUrl = await getHubUrl()
+    const existing = await getIdentityFor(hubUrl)
     const payload = {
       name: cat[0].name,
       icon: cat[0].icon,
@@ -112,27 +156,30 @@ export function makeHub(pool) {
     }
     if (!existing) payload.username = username?.trim() || 'shelf owner'
 
-    const out = await call('POST', '/shelves', payload)
-    await rememberIdentity(out)
+    const out = await call(hubUrl, 'POST', '/shelves', payload)
+    await rememberIdentityFor(hubUrl, out)
 
     await pool.query('UPDATE categories SET is_collab=TRUE WHERE id=$1', [categoryId])
+    // hub_url is deliberately absent from DO UPDATE SET — a re-run (the ON
+    // CONFLICT path) must never re-pin an already-published shelf to whatever
+    // the default happens to be today.
     await pool.query(
-      `INSERT INTO linked_shelves (category_id, hub_shelf_id, last_seq, is_owner, synced_at)
-       VALUES ($1,$2,$3,TRUE,NOW())
-       ON CONFLICT (category_id) DO UPDATE SET hub_shelf_id=$2, last_seq=$3, is_owner=TRUE, synced_at=NOW()`,
-      [categoryId, out.shelf.id, out.shelf.seq]
+      `INSERT INTO linked_shelves (category_id, hub_shelf_id, hub_url, last_seq, is_owner, synced_at)
+       VALUES ($1,$2,$3,$4,TRUE,NOW())
+       ON CONFLICT (category_id) DO UPDATE SET hub_shelf_id=$2, last_seq=$4, is_owner=TRUE, synced_at=NOW()`,
+      [categoryId, out.shelf.id, hubUrl, out.shelf.seq]
     )
     for (const [localId, hubTabId] of Object.entries(out.shelf.tab_map || {})) {
       await pool.query('UPDATE subcategories SET hub_tab_id=$1 WHERE id=$2', [hubTabId, Number(localId)])
     }
     // The hub assigned ids to the backfilled cards; adopt them so the puller
     // recognises our own rows instead of duplicating them on the next tick.
-    await adoptBackfilled(categoryId, out.shelf.id)
+    await adoptBackfilled(categoryId, out.shelf.id, hubUrl)
     return out.shelf
   }
 
-  async function adoptBackfilled(categoryId, hubShelfId) {
-    const { cards } = await call('GET', `/shelves/${hubShelfId}/cards?since=0`)
+  async function adoptBackfilled(categoryId, hubShelfId, hubUrl) {
+    const { cards } = await call(hubUrl, 'GET', `/shelves/${hubShelfId}/cards?since=0`)
     const { rows: local } = await pool.query(
       'SELECT id, url, title FROM cards WHERE category_id=$1 AND hub_card_id IS NULL',
       [categoryId]
@@ -149,15 +196,21 @@ export function makeHub(pool) {
   // ── Linking someone else's shelf into this instance ───────────────────────
 
   async function link(code, username) {
-    const existing = await hubToken()
-    const out = await call('POST', '/join', {
+    const hubUrl = await getHubUrl()
+    const existing = await getIdentityFor(hubUrl)
+    const out = await call(hubUrl, 'POST', '/join', {
       code,
       ...(existing ? {} : { username: username?.trim() || 'shelf owner' })
     })
-    await rememberIdentity(out)
+    await rememberIdentityFor(hubUrl, out)
 
+    // hub_shelf_id alone isn't globally unique — it's only unique within one
+    // hub — so the dedup check has to confirm the hub matches too. NULL on an
+    // old row means "was on the default when created," which is exactly what
+    // $2 already is here, so COALESCE treats that as a match too.
     const { rows: already } = await pool.query(
-      'SELECT category_id FROM linked_shelves WHERE hub_shelf_id=$1', [out.shelf.id]
+      'SELECT category_id FROM linked_shelves WHERE hub_shelf_id=$1 AND COALESCE(hub_url, $2) = $2',
+      [out.shelf.id, hubUrl]
     )
     if (already[0]) return { category_id: already[0].category_id, already_linked: true }
 
@@ -166,8 +219,8 @@ export function makeHub(pool) {
       [out.shelf.name, out.shelf.icon || '📁']
     )
     await pool.query(
-      'INSERT INTO linked_shelves (category_id, hub_shelf_id, last_seq, is_owner) VALUES ($1,$2,0,FALSE)',
-      [cat[0].id, out.shelf.id]
+      'INSERT INTO linked_shelves (category_id, hub_shelf_id, hub_url, last_seq, is_owner) VALUES ($1,$2,$3,0,FALSE)',
+      [cat[0].id, out.shelf.id, hubUrl]
     )
     await syncOne(cat[0].id)
     return { category_id: cat[0].id, already_linked: false }
@@ -179,10 +232,11 @@ export function makeHub(pool) {
     const { rows: ls } = await pool.query('SELECT * FROM linked_shelves WHERE category_id=$1', [categoryId])
     if (!ls[0]) return
     const shelf = ls[0]
+    const hubUrl = shelf.hub_url || await getHubUrl()
 
     try {
       // Tabs and the shelf name are owner-controlled and live on the hub
-      const meta = await call('GET', `/shelves/${shelf.hub_shelf_id}`)
+      const meta = await call(hubUrl, 'GET', `/shelves/${shelf.hub_shelf_id}`)
       await pool.query('UPDATE categories SET name=$1, icon=COALESCE($2, icon) WHERE id=$3',
         [meta.name, meta.icon, categoryId])
 
@@ -190,7 +244,7 @@ export function makeHub(pool) {
       // records it, because that's the only way to the files.
       if (shelf.is_owner) {
         if (PUBLIC_URL && meta.origin !== PUBLIC_URL) {
-          await call('PATCH', `/shelves/${shelf.hub_shelf_id}`, { origin: PUBLIC_URL })
+          await call(hubUrl, 'PATCH', `/shelves/${shelf.hub_shelf_id}`, { origin: PUBLIC_URL })
         }
       } else if (meta.origin !== shelf.origin) {
         await pool.query('UPDATE linked_shelves SET origin=$1 WHERE category_id=$2',
@@ -210,7 +264,7 @@ export function makeHub(pool) {
       // this every sync is what keeps a rename from leaving stale names behind
       // on cards that were mirrored before it happened.
       try {
-        const people = await call('GET', `/shelves/${shelf.hub_shelf_id}/members`)
+        const people = await call(hubUrl, 'GET', `/shelves/${shelf.hub_shelf_id}/members`)
         for (const p of people) {
           await pool.query(
             'INSERT INTO hub_users (id, username) VALUES ($1,$2) ON CONFLICT (id) DO UPDATE SET username=$2',
@@ -219,7 +273,7 @@ export function makeHub(pool) {
         }
       } catch { /* names go stale for a tick; cards still sync */ }
 
-      const { cards, seq } = await call('GET', `/shelves/${shelf.hub_shelf_id}/cards?since=${shelf.last_seq}`)
+      const { cards, seq } = await call(hubUrl, 'GET', `/shelves/${shelf.hub_shelf_id}/cards?since=${shelf.last_seq}`)
       for (const c of cards) {
         if (c.deleted_at) {
           // Tombstone: the only way a mirror ever learns about a deletion
@@ -245,7 +299,7 @@ export function makeHub(pool) {
       // Guides share the shelf's card changefeed cursor — the two tables
       // advance the same underlying seq counter, so nothing needs a second
       // column, just folding both maxes into the one cursor below.
-      const { guides, seq: guideSeq } = await call('GET', `/shelves/${shelf.hub_shelf_id}/guides?since=${shelf.last_seq}`)
+      const { guides, seq: guideSeq } = await call(hubUrl, 'GET', `/shelves/${shelf.hub_shelf_id}/guides?since=${shelf.last_seq}`)
       for (const g of guides) {
         if (g.deleted_at) {
           await pool.query('DELETE FROM guides WHERE hub_guide_id=$1', [g.id])
@@ -264,7 +318,7 @@ export function makeHub(pool) {
       // missed while offline or before a chat panel was ever opened — it has
       // to emit the same way the socket does, or a chat panel that's open
       // right now never learns the backstop found something.
-      const { messages, seq: msgSeq } = await call('GET', `/shelves/${shelf.hub_shelf_id}/messages?since=${shelf.last_seq}`)
+      const { messages, seq: msgSeq } = await call(hubUrl, 'GET', `/shelves/${shelf.hub_shelf_id}/messages?since=${shelf.last_seq}`)
       // Rows arrive ordered by seq, so a reply's target — if it's part of this
       // same batch — has already been inserted by the time we reach it.
       for (const m of messages) {
@@ -284,7 +338,7 @@ export function makeHub(pool) {
         }
       }
 
-      const { activity, seq: actSeq } = await call('GET', `/shelves/${shelf.hub_shelf_id}/activity?since=${shelf.last_seq}`)
+      const { activity, seq: actSeq } = await call(hubUrl, 'GET', `/shelves/${shelf.hub_shelf_id}/activity?since=${shelf.last_seq}`)
       for (const a of activity) {
         const { rows } = await pool.query(
           `INSERT INTO shelf_activity (category_id, hub_activity_id, hub_user_id, kind, summary, created_at)
@@ -327,6 +381,7 @@ export function makeHub(pool) {
   async function postCard(categoryId, card) {
     const { rows: ls } = await pool.query('SELECT * FROM linked_shelves WHERE category_id=$1', [categoryId])
     if (!ls[0]) throw new Error('not a linked shelf')
+    const hubUrl = ls[0].hub_url || await getHubUrl()
 
     const { rows: tab } = card.subcategory_id
       ? await pool.query('SELECT hub_tab_id FROM subcategories WHERE id=$1', [card.subcategory_id])
@@ -347,7 +402,7 @@ export function makeHub(pool) {
     }
 
     try {
-      return await call('POST', '/cards', payload)
+      return await call(hubUrl, 'POST', '/cards', payload)
     } catch (err) {
       await queue(categoryId, 'create', payload)
       err.queued = true
@@ -358,7 +413,7 @@ export function makeHub(pool) {
   async function deleteCard(card) {
     if (!card.hub_card_id) return
     try {
-      await call('DELETE', `/cards/${card.hub_card_id}`)
+      await callFor(card.category_id, 'DELETE', `/cards/${card.hub_card_id}`)
     } catch (err) {
       await queue(card.category_id, 'delete', { hub_card_id: card.hub_card_id })
     }
@@ -370,10 +425,11 @@ export function makeHub(pool) {
     // Tabs are owner-controlled on the hub (see syncOne) — a member's local tab
     // has nowhere to go and would just 403 forever.
     if (!ls[0].is_owner) return null
+    const hubUrl = ls[0].hub_url || await getHubUrl()
 
     const payload = { shelf_id: ls[0].hub_shelf_id, name: tab.name, sort_order: tab.sort_order || 0 }
     try {
-      return await call('POST', `/shelves/${ls[0].hub_shelf_id}/tabs`, payload)
+      return await call(hubUrl, 'POST', `/shelves/${ls[0].hub_shelf_id}/tabs`, payload)
     } catch (err) {
       await queue(categoryId, 'tab_create', payload)
       err.queued = true
@@ -384,6 +440,7 @@ export function makeHub(pool) {
   async function postGuide(categoryId, guide) {
     const { rows: ls } = await pool.query('SELECT * FROM linked_shelves WHERE category_id=$1', [categoryId])
     if (!ls[0]) throw new Error('not a linked shelf')
+    const hubUrl = ls[0].hub_url || await getHubUrl()
 
     const payload = {
       shelf_id: ls[0].hub_shelf_id,
@@ -391,7 +448,7 @@ export function makeHub(pool) {
       chapters: guide.chapters, tagline: guide.tagline, category: guide.category, html: guide.html
     }
     try {
-      return await call('POST', '/guides', payload)
+      return await call(hubUrl, 'POST', '/guides', payload)
     } catch (err) {
       await queue(categoryId, 'guide_create', payload)
       err.queued = true
@@ -402,7 +459,7 @@ export function makeHub(pool) {
   async function deleteGuideRemote(guide) {
     if (!guide.hub_guide_id) return
     try {
-      await call('DELETE', `/guides/${guide.hub_guide_id}`)
+      await callFor(guide.category_id, 'DELETE', `/guides/${guide.hub_guide_id}`)
     } catch (err) {
       await queue(guide.category_id, 'guide_delete', { hub_guide_id: guide.hub_guide_id })
     }
@@ -417,8 +474,15 @@ export function makeHub(pool) {
   const events = new EventEmitter()
   let socket = null
 
-  async function categoryIdFor(hubShelfId) {
-    const { rows } = await pool.query('SELECT category_id FROM linked_shelves WHERE hub_shelf_id=$1', [hubShelfId])
+  // hub_shelf_id is only unique within one hub, so an incoming socket event
+  // (always from the one hub this socket is connected to) has to be matched
+  // against a shelf actually pinned there — otherwise an id collision with a
+  // shelf on a different hub could misattribute the event.
+  async function categoryIdFor(hubShelfId, hubUrl) {
+    const { rows } = await pool.query(
+      'SELECT category_id FROM linked_shelves WHERE hub_shelf_id=$1 AND COALESCE(hub_url, $2) = $2',
+      [hubShelfId, hubUrl]
+    )
     return rows[0]?.category_id || null
   }
 
@@ -460,10 +524,11 @@ export function makeHub(pool) {
 
   async function ensureSocket() {
     if (socket) return socket
-    socket = ioClient(await getHubUrl(), { auth: (cb) => hubToken().then(token => cb({ token })) })
+    const hubUrl = await getHubUrl()
+    socket = ioClient(hubUrl, { auth: (cb) => getIdentityFor(hubUrl).then(id => cb({ token: id?.token })) })
 
     socket.on('message:new', async (m) => {
-      const categoryId = await categoryIdFor(m.shelf_id)
+      const categoryId = await categoryIdFor(m.shelf_id, hubUrl)
       if (!categoryId) return
       const replyToId = m.reply_to_id ? await resolveLocalReplyId(m.reply_to_id) : null
       const { rows } = await pool.query(
@@ -480,7 +545,7 @@ export function makeHub(pool) {
     })
 
     socket.on('activity:new', async (a) => {
-      const categoryId = await categoryIdFor(a.shelf_id)
+      const categoryId = await categoryIdFor(a.shelf_id, hubUrl)
       if (!categoryId) return
       const { rows } = await pool.query(
         `INSERT INTO shelf_activity (category_id, hub_activity_id, hub_user_id, kind, summary, created_at)
@@ -506,9 +571,16 @@ export function makeHub(pool) {
     return socket
   }
 
+  // Live push only exists for shelves on the instance-wide default hub — the
+  // one socket connects to exactly one server. A shelf pinned elsewhere still
+  // syncs fully, just via syncOne's 30s poll instead of instantly; deliberate
+  // scope cut, not a bug (a multi-socket, one-per-hub setup is the fast-follow
+  // if this needs to be instant everywhere).
   async function joinShelfRoom(categoryId) {
     const shelf = await linkedShelf(categoryId)
     if (!shelf) return
+    const defaultUrl = await getHubUrl()
+    if ((shelf.hub_url || defaultUrl) !== defaultUrl) return
     ;(await ensureSocket()).emit('shelf:join', shelf.hub_shelf_id)
   }
 
@@ -528,9 +600,10 @@ export function makeHub(pool) {
   async function postMessage(categoryId, body, replyToHubMessageId) {
     const shelf = await linkedShelf(categoryId)
     if (!shelf) throw new Error('not a linked shelf')
+    const hubUrl = shelf.hub_url || await getHubUrl()
     const payload = { shelf_id: shelf.hub_shelf_id, body, reply_to_id: replyToHubMessageId || undefined }
     try {
-      return await call('POST', '/messages', payload)
+      return await call(hubUrl, 'POST', '/messages', payload)
     } catch (err) {
       await queue(categoryId, 'message_create', payload)
       err.queued = true
@@ -544,14 +617,15 @@ export function makeHub(pool) {
   async function postReaction(categoryId, hubMessageId, emoji) {
     const shelf = await linkedShelf(categoryId)
     if (!shelf) throw new Error('not a linked shelf')
-    return call('POST', `/messages/${hubMessageId}/reactions`, { emoji })
+    return callFor(categoryId, 'POST', `/messages/${hubMessageId}/reactions`, { emoji })
   }
 
   async function postActivity(categoryId, kind, summary) {
     const shelf = await linkedShelf(categoryId)
     if (!shelf) throw new Error('not a linked shelf')
+    const hubUrl = shelf.hub_url || await getHubUrl()
     try {
-      return await call('POST', '/activity', { shelf_id: shelf.hub_shelf_id, kind, summary })
+      return await call(hubUrl, 'POST', '/activity', { shelf_id: shelf.hub_shelf_id, kind, summary })
     } catch (err) {
       await queue(categoryId, 'activity_create', { shelf_id: shelf.hub_shelf_id, kind, summary })
       err.queued = true
@@ -562,7 +636,7 @@ export function makeHub(pool) {
   async function updateCard(card, patch) {
     if (!card.hub_card_id) return
     try {
-      await call('PATCH', `/cards/${card.hub_card_id}`, patch)
+      await callFor(card.category_id, 'PATCH', `/cards/${card.hub_card_id}`, patch)
     } catch (err) {
       await queue(card.category_id, 'update', { hub_card_id: card.hub_card_id, ...patch })
     }
@@ -572,17 +646,17 @@ export function makeHub(pool) {
     const { rows } = await pool.query('SELECT * FROM outbox ORDER BY id LIMIT 50')
     for (const item of rows) {
       try {
-        if (item.op === 'create') await call('POST', '/cards', item.payload)
-        if (item.op === 'delete') await call('DELETE', `/cards/${item.payload.hub_card_id}`)
+        if (item.op === 'create') await callFor(item.category_id, 'POST', '/cards', item.payload)
+        if (item.op === 'delete') await callFor(item.category_id, 'DELETE', `/cards/${item.payload.hub_card_id}`)
         if (item.op === 'update') {
           const { hub_card_id, ...patch } = item.payload
-          await call('PATCH', `/cards/${hub_card_id}`, patch)
+          await callFor(item.category_id, 'PATCH', `/cards/${hub_card_id}`, patch)
         }
-        if (item.op === 'tab_create') await call('POST', `/shelves/${item.payload.shelf_id}/tabs`, item.payload)
-        if (item.op === 'guide_create') await call('POST', '/guides', item.payload)
-        if (item.op === 'guide_delete') await call('DELETE', `/guides/${item.payload.hub_guide_id}`)
-        if (item.op === 'message_create') await call('POST', '/messages', item.payload)
-        if (item.op === 'activity_create') await call('POST', '/activity', item.payload)
+        if (item.op === 'tab_create') await callFor(item.category_id, 'POST', `/shelves/${item.payload.shelf_id}/tabs`, item.payload)
+        if (item.op === 'guide_create') await callFor(item.category_id, 'POST', '/guides', item.payload)
+        if (item.op === 'guide_delete') await callFor(item.category_id, 'DELETE', `/guides/${item.payload.hub_guide_id}`)
+        if (item.op === 'message_create') await callFor(item.category_id, 'POST', '/messages', item.payload)
+        if (item.op === 'activity_create') await callFor(item.category_id, 'POST', '/activity', item.payload)
         await pool.query('DELETE FROM outbox WHERE id=$1', [item.id])
       } catch (err) {
         await pool.query('UPDATE outbox SET attempts=attempts+1, last_error=$1 WHERE id=$2',
@@ -599,20 +673,29 @@ export function makeHub(pool) {
   async function invite(categoryId, opts = {}) {
     const { rows: ls } = await pool.query('SELECT * FROM linked_shelves WHERE category_id=$1', [categoryId])
     if (!ls[0]) throw new Error('shelf is not published')
-    return call('POST', `/shelves/${ls[0].hub_shelf_id}/invite`, opts)
+    const hubUrl = ls[0].hub_url || await getHubUrl()
+    return call(hubUrl, 'POST', `/shelves/${ls[0].hub_shelf_id}/invite`, opts)
   }
 
   async function members(categoryId) {
     const { rows: ls } = await pool.query('SELECT * FROM linked_shelves WHERE category_id=$1', [categoryId])
     if (!ls[0]) return []
-    return call('GET', `/shelves/${ls[0].hub_shelf_id}/members`)
+    const hubUrl = ls[0].hub_url || await getHubUrl()
+    return call(hubUrl, 'GET', `/shelves/${ls[0].hub_shelf_id}/members`)
   }
 
-  // Renaming has to reach the hub or other instances keep showing the old name
-  // on everything this person has ever posted to a shared shelf.
+  // Renaming has to reach every hub this instance holds an identity on, or
+  // other instances keep showing the old name on everything posted there —
+  // unlike a token, a username genuinely should stay the same person
+  // everywhere, so this is the one identity field that fans out.
   async function setUsername(username) {
-    if (!await hubToken()) return
-    await call('PUT', '/me', { username })
+    const { rows } = await pool.query('SELECT hub_url FROM hub_identities')
+    for (const { hub_url } of rows) {
+      try {
+        await call(hub_url, 'PUT', '/me', { username })
+        await pool.query('UPDATE hub_identities SET username=$1 WHERE hub_url=$2', [username, hub_url])
+      } catch { /* that hub's unreachable right now; its name goes stale for a tick */ }
+    }
     await setSetting('hub_username', username)
   }
 
@@ -624,14 +707,19 @@ export function makeHub(pool) {
   async function ticketFor(categoryId) {
     const { rows } = await pool.query('SELECT * FROM linked_shelves WHERE category_id=$1', [categoryId])
     if (!rows[0]) throw new Error('not a linked shelf')
-    const out = await call('POST', `/shelves/${rows[0].hub_shelf_id}/ticket`)
+    const hubUrl = rows[0].hub_url || await getHubUrl()
+    const out = await call(hubUrl, 'POST', `/shelves/${rows[0].hub_shelf_id}/ticket`)
     // The hub knows the current origin even if our last sync predates it.
     const origin = out.origin || rows[0].origin
     if (!origin) throw new Error("that shelf's owner hasn't published a drive address")
     return { ...out, origin, hubShelfId: rows[0].hub_shelf_id }
   }
 
-  const redeemTicket = (ticket) => call('GET', `/tickets/${encodeURIComponent(ticket)}`)
+  // The caller (drive.js's ticketGate) already knows which hub a ticket came
+  // from — it looked up the shelf locally by hub_shelf_id before redeeming —
+  // so unlike everything else here it passes hubUrl in explicitly rather than
+  // this resolving it, since there's no local categoryId to resolve it from.
+  const redeemTicket = (hubUrl, ticket) => call(hubUrl, 'GET', `/tickets/${encodeURIComponent(ticket)}`)
 
   async function linkedShelf(categoryId) {
     const { rows } = await pool.query('SELECT * FROM linked_shelves WHERE category_id=$1', [categoryId])
@@ -656,10 +744,16 @@ export function makeHub(pool) {
     postMessage, postActivity, postReaction, joinShelfRoom, events,
     invite, members, linkedShelf, setUsername, startLoop,
     ticketFor, redeemTicket,
-    identity: async () => ({
-      token: await hubToken(),
-      user_id: await getSetting('hub_user_id'),
-      username: await getSetting('hub_username')
-    })
+    // hubUrl defaults to the instance-wide default — pass a specific shelf's
+    // hub_url when the caller is comparing against a hub_user_id scoped to
+    // that shelf (a person's id is only meaningful within one hub).
+    identity: async (hubUrl) => {
+      const id = await getIdentityFor(hubUrl || await getHubUrl())
+      return {
+        token: id?.token || null,
+        user_id: id?.user_id != null ? String(id.user_id) : null,
+        username: id?.username || null
+      }
+    }
   }
 }

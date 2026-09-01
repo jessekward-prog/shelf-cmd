@@ -45,16 +45,22 @@ function CopyField({ value }) {
 export default function ShelfHubsView({ isAdmin }) {
   const [config, setConfig] = useState(null) // null = loading
   const [hubs, setHubs] = useState(null)
+  const [shelfHubs, setShelfHubs] = useState(null)
   const [qr, setQr] = useState(null)
   const [toggling, setToggling] = useState(false)
   const [sharingInput, setSharingInput] = useState('')
   const [savedSharing, setSavedSharing] = useState(false)
   const [newLabel, setNewLabel] = useState('')
   const [newUrl, setNewUrl] = useState('')
+  const [showMigrate, setShowMigrate] = useState(false)
+  const [migrateDest, setMigrateDest] = useState('')
+  const [migrating, setMigrating] = useState(false)
+  const [migrateDone, setMigrateDone] = useState(null)
 
   const load = () => {
     api.getHubConfig().then((c) => { setConfig(c); setSharingInput(c.sharingHubUrl) }).catch(() => setConfig({ error: true }))
     api.getKnownHubs().then(setHubs).catch(() => setHubs([]))
+    api.getShelfHubs().then(setShelfHubs).catch(() => setShelfHubs([]))
   }
   useEffect(load, [])
 
@@ -92,6 +98,29 @@ export default function ShelfHubsView({ isAdmin }) {
   const removeHub = async (id) => {
     await api.deleteKnownHub(id)
     api.getKnownHubs().then(setHubs)
+  }
+
+  const repointShelf = async (categoryId, url) => {
+    await api.setShelfHub(categoryId, url)
+    api.getShelfHubs().then(setShelfHubs)
+  }
+
+  // The actual data transfer happens outside this app (scripts/migrate-hub.sh,
+  // run by hand — see its own comments for why). This just does the "tell
+  // shelf-cmd where things moved" half, once that's done.
+  const runMigrateRepoint = async () => {
+    const dest = migrateDest.trim()
+    if (!dest) return
+    setMigrating(true)
+    try {
+      const { shelvesRepointed } = await api.migrateHub(config.hostedHubUrl, dest)
+      setMigrateDone(shelvesRepointed)
+      setShowMigrate(false)
+      setMigrateDest('')
+      load()
+    } finally {
+      setMigrating(false)
+    }
   }
 
   if (!isAdmin) {
@@ -155,6 +184,52 @@ export default function ShelfHubsView({ isAdmin }) {
               <div style={{ fontSize: 11, color: 'var(--s-text-3)', marginTop: 10, lineHeight: 1.5 }}>
                 Hand this URL to anyone who wants to point their own instance at your hub instead of the default.
               </div>
+
+              <div style={{ marginTop: 14, paddingTop: 14, borderTop: '1px solid var(--s-border)' }}>
+                <button
+                  onClick={() => setShowMigrate((v) => !v)}
+                  style={{ fontSize: 11, color: 'var(--s-text-2)', letterSpacing: '0.04em' }}
+                >
+                  {showMigrate ? '− ' : '+ '}outgrown this? migrate to an always-on host
+                </button>
+
+                {migrateDone !== null && !showMigrate && (
+                  <div style={{ fontSize: 11, color: 'var(--s-accent)', marginTop: 8 }}>
+                    moved {migrateDone} shelf{migrateDone === 1 ? '' : 's'} to the new address, and turned this hosting off.
+                  </div>
+                )}
+
+                {showMigrate && (
+                  <div style={{ marginTop: 10, display: 'flex', flexDirection: 'column', gap: 10 }}>
+                    <div style={{ fontSize: 11, color: 'var(--s-text-3)', lineHeight: 1.6 }}>
+                      1. Deploy <a href="https://github.com/jessekward-prog/shelf-hub" target="_blank" rel="noreferrer" style={{ color: 'var(--s-accent)' }}>shelf-hub</a> somewhere always-on (Railway or similar) and get its database URL.
+                      2. Run this from a machine with <code style={codeStyle}>psql</code>, filling in that URL:
+                    </div>
+                    <pre style={{
+                      margin: 0, padding: 10, background: 'var(--s-bg)', border: '1px solid var(--s-border)',
+                      borderRadius: 6, fontSize: 10.5, color: 'var(--s-text-1)', whiteSpace: 'pre-wrap', wordBreak: 'break-all'
+                    }}>
+                      {`./scripts/migrate-hub.sh "${config.hostedHubDbUrl || '<this instance\'s DATABASE_URL>'}" "<new hub's database url>" hosted_hub`}
+                    </pre>
+                    <div style={{ fontSize: 11, color: 'var(--s-text-3)', lineHeight: 1.6 }}>
+                      3. Once that's done, paste the new hub's <b style={{ color: 'var(--s-text-1)' }}>address</b> (not the database URL — the one others will point at) below to move every shelf hosted here over to it, and turn this hosting off.
+                    </div>
+                    <div style={{ display: 'flex', gap: 8 }}>
+                      <input
+                        value={migrateDest} onChange={(e) => setMigrateDest(e.target.value)}
+                        placeholder="https://your-new-hub.example.com"
+                        style={{ ...inputStyle, flex: 1 }}
+                      />
+                      <button onClick={runMigrateRepoint} disabled={migrating || !migrateDest.trim()} style={smallBtn}>
+                        {migrating ? 'moving…' : 'repoint shelves'}
+                      </button>
+                    </div>
+                    <div style={{ fontSize: 10.5, color: 'var(--s-text-3)', lineHeight: 1.5 }}>
+                      Anyone else pointed at this hub needs to repoint themselves too, the same way, on their own instance — that part can't be done from here.
+                    </div>
+                  </div>
+                )}
+              </div>
             </>
           )
         ) : (
@@ -165,12 +240,46 @@ export default function ShelfHubsView({ isAdmin }) {
       <div style={cardStyle}>
         <div style={{ fontSize: 13, color: 'var(--s-text-0)', fontWeight: 500, marginBottom: 10 }}>sharing through</div>
         <div style={{ fontSize: 11, color: 'var(--s-text-3)', marginBottom: 10, lineHeight: 1.5 }}>
-          {config.isDefault ? 'using the built-in default hub.' : 'using a custom hub.'} Everyone you share a shelf with needs to be pointed at this same one.
+          {config.isDefault ? 'using the built-in default hub' : 'using a custom hub'} for any <b style={{ color: 'var(--s-text-1)' }}>new</b> shelf you share — an already-shared shelf keeps using whatever hub it was first shared through (see below), so changing this never moves anything that's already live.
         </div>
         <form onSubmit={(e) => { e.preventDefault(); saveSharing(sharingInput.trim()) }} style={{ display: 'flex', gap: 8 }}>
           <input value={sharingInput} onChange={(e) => setSharingInput(e.target.value)} placeholder="hub URL" style={{ ...inputStyle, flex: 1 }} />
           <button type="submit" style={smallBtn}>{savedSharing ? 'saved' : 'use this'}</button>
         </form>
+      </div>
+
+      <div style={cardStyle}>
+        <div style={{ fontSize: 13, color: 'var(--s-text-0)', fontWeight: 500, marginBottom: 10 }}>your shared shelves</div>
+        {shelfHubs === null ? (
+          <div style={{ fontSize: 12, color: 'var(--s-text-3)' }}>loading…</div>
+        ) : shelfHubs.length === 0 ? (
+          <div style={{ fontSize: 12, color: 'var(--s-text-3)' }}>none shared yet.</div>
+        ) : (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            {shelfHubs.map((s) => (
+              <div key={s.category_id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 10px', borderRadius: 6, background: 'var(--s-surface-2)', border: '1px solid var(--s-border)' }}>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 12, color: 'var(--s-text-0)' }}>
+                    {s.name}{!s.is_owner && <span style={{ color: 'var(--s-text-3)' }}> · joined, not yours to repoint</span>}
+                  </div>
+                  <div style={{ fontSize: 10, color: 'var(--s-text-3)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {s.hub_url || 'instance default'}
+                  </div>
+                </div>
+                {s.is_owner && (
+                  <select
+                    value={s.hub_url || ''}
+                    onChange={(e) => repointShelf(s.category_id, e.target.value)}
+                    style={{ ...inputStyle, flex: '0 0 auto', width: 150 }}
+                  >
+                    <option value="">instance default</option>
+                    {hubs?.map((h) => <option key={h.id} value={h.url}>{h.label}</option>)}
+                  </select>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
       </div>
 
       <div style={cardStyle}>

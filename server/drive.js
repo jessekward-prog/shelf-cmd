@@ -275,18 +275,25 @@ export function mountDrive({ app, pool, adminOnly, adminOrToken, lmComplete, hub
     const ticket = String(req.query.ticket || '')
     if (!ticket) return res.status(401).json({ error: 'ticket required' })
     try {
+      // The URL already names the (hub-scoped) shelf, so the hub it lives on
+      // can be looked up locally before redeeming — a ticket is only valid on
+      // the hub it was issued from, and there's no other way to know which
+      // one that is (hub_shelf_id alone isn't globally unique across hubs).
+      const hubShelfId = Number(req.params.shelfId)
+      const { rows } = await pool.query(
+        'SELECT category_id, hub_url FROM linked_shelves WHERE hub_shelf_id=$1 AND is_owner=TRUE', [hubShelfId])
+      if (!rows[0]) return res.status(404).json({ error: 'shelf not published here' })
+      const hubUrl = rows[0].hub_url || await hub.getHubUrl()
+
       let who = seen.get(ticket)
       if (!who) {
-        who = await hub.redeemTicket(ticket)
+        who = await hub.redeemTicket(hubUrl, ticket)
         seen.set(ticket, who)
         setTimeout(() => seen.delete(ticket), 5 * 60 * 1000).unref?.()
       }
-      if (who.shelf_id !== Number(req.params.shelfId)) {
+      if (who.shelf_id !== hubShelfId) {
         return res.status(403).json({ error: 'ticket is for another shelf' })
       }
-      const { rows } = await pool.query(
-        'SELECT category_id FROM linked_shelves WHERE hub_shelf_id=$1 AND is_owner=TRUE', [who.shelf_id])
-      if (!rows[0]) return res.status(404).json({ error: 'shelf not published here' })
       req.sharedCategoryId = rows[0].category_id
       next()
     } catch (err) {

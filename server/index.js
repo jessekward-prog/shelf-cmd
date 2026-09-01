@@ -537,13 +537,53 @@ app.get('/api/hub-config', adminOnly, async (req, res) => {
   )
   const settingsMap = Object.fromEntries(rows.map(r => [r.key, r.value]))
   const publicUrl = (process.env.PUBLIC_URL || '').replace(/\/+$/, '')
+  // For the "migrate this hub" pg_dump command on the Shelf Hubs page — same
+  // DATABASE_URL this instance's own hosted-hub pool already connects with
+  // (server/hosted-hub.js), just surfaced so the admin doesn't have to know
+  // to go find it themselves.
+  const dbUrl = process.env.DATABASE_URL || ''
+  const hostedHubDbUrl = dbUrl
+    ? dbUrl + (dbUrl.includes('?') ? '&' : '?') + 'options=-c%20search_path%3Dhosted_hub'
+    : null
   res.json({
     hostedHubEnabled: settingsMap.hosted_hub_enabled === 'true',
     hostedHubUrl: publicUrl ? `${publicUrl}/relay` : null,
+    hostedHubDbUrl,
     publicUrlSet: !!publicUrl,
     sharingHubUrl: await hub.getHubUrl(),
     isDefault: !settingsMap.hub_url_override
   })
+})
+
+// The "repoint my shelves" step of a hub migration (see scripts/migrate-hub.sh
+// for the actual data transfer, which happens outside this app). Bulk version
+// of PUT /api/shelf-hubs/:categoryId — every shelf pinned to the old address
+// moves to the new one in one go, including ones that were inheriting the
+// instance-wide default rather than explicitly pinned.
+app.post('/api/hub-migrate', adminOnly, async (req, res) => {
+  const from = String(req.body.from_url || '').trim().replace(/\/+$/, '')
+  const to = String(req.body.to_url || '').trim().replace(/\/+$/, '')
+  if (!from || !to) return res.status(400).json({ error: 'from_url and to_url required' })
+
+  const currentDefault = await hub.getHubUrl()
+  const { rowCount } = await pool.query(
+    'UPDATE linked_shelves SET hub_url=$1 WHERE hub_url=$2 OR (hub_url IS NULL AND $2=$3)',
+    [to, from, currentDefault]
+  )
+  if (from === currentDefault) {
+    await pool.query(
+      "INSERT INTO settings (key, value) VALUES ('hub_url_override', $1) ON CONFLICT (key) DO UPDATE SET value=$1",
+      [to]
+    )
+    hub.reconnect()
+  }
+  const publicUrl = (process.env.PUBLIC_URL || '').replace(/\/+$/, '')
+  if (publicUrl && from === `${publicUrl}/relay`) {
+    await pool.query(
+      "INSERT INTO settings (key, value) VALUES ('hosted_hub_enabled', 'false') ON CONFLICT (key) DO UPDATE SET value='false'"
+    )
+  }
+  res.json({ ok: true, shelvesRepointed: rowCount })
 })
 
 app.put('/api/hub-config', adminOnly, async (req, res) => {
@@ -586,6 +626,30 @@ app.post('/api/known-hubs', adminOnly, async (req, res) => {
 
 app.delete('/api/known-hubs/:id', adminOnly, async (req, res) => {
   await pool.query("DELETE FROM known_hubs WHERE id=$1 AND kind != 'hosted'", [req.params.id])
+  res.json({ ok: true })
+})
+
+// Which hub each shared shelf actually lives on — the instance-wide default
+// above only decides where a *new* share goes; an already-shared shelf stays
+// pinned to whatever hub it was published/linked to (see hub.js's callFor).
+app.get('/api/shelf-hubs', adminOnly, async (req, res) => {
+  const { rows } = await pool.query(
+    `SELECT c.id AS category_id, c.name, l.hub_url, l.is_owner
+       FROM categories c JOIN linked_shelves l ON l.category_id = c.id
+      WHERE c.is_collab ORDER BY c.name`
+  )
+  res.json(rows)
+})
+
+app.put('/api/shelf-hubs/:categoryId', adminOnly, async (req, res) => {
+  const categoryId = Number(req.params.categoryId)
+  const { rows } = await pool.query('SELECT is_owner FROM linked_shelves WHERE category_id=$1', [categoryId])
+  if (!rows[0]) return res.status(404).json({ error: 'not a shared shelf' })
+  // Repointing a shelf you don't own doesn't do anything useful — only the
+  // owner's instance ever publishes to it, so only their choice matters.
+  if (!rows[0].is_owner) return res.status(403).json({ error: 'only the shelf owner can change its hub' })
+  const url = String(req.body.hub_url || '').trim().replace(/\/+$/, '') || null
+  await pool.query('UPDATE linked_shelves SET hub_url=$1 WHERE category_id=$2', [url, categoryId])
   res.json({ ok: true })
 })
 
@@ -661,9 +725,12 @@ app.get('/api/hub', adminOnly, async (req, res) => {
 app.get('/api/categories/:id/members', adminOnly, async (req, res) => {
   const categoryId = Number(req.params.id)
   // Membership lives on the hub — it spans instances, so there is nothing local to read.
-  if (!await hub.linkedShelf(categoryId)) return res.json([])
+  const shelf = await hub.linkedShelf(categoryId)
+  if (!shelf) return res.json([])
   try {
-    const me = await hub.identity()
+    // A person's id is only meaningful within the one hub this shelf is on —
+    // is_me has to compare against the identity scoped to that same hub.
+    const me = await hub.identity(shelf.hub_url)
     const members = await hub.members(categoryId)
     res.json(members.map(m => ({ ...m, is_me: String(m.id) === me.user_id })))
   } catch (err) {
@@ -771,8 +838,9 @@ app.delete('/api/subcategories/:id', adminOnly, async (req, res) => {
 
 app.get('/api/categories/:id/cards', adminOnly, async (req, res) => {
   const { subcategory_id } = req.query
-  const me = await hub.identity()
   const shelf = await hub.linkedShelf(Number(req.params.id))
+  // hub_user_id is only meaningful within the one hub this shelf is on.
+  const me = await hub.identity(shelf?.hub_url)
   // Only shared categories get a byline — your own cards stay unattributed.
   // hub_users covers people who posted from another instance.
   let query = `SELECT c.*, CASE WHEN cat.is_collab THEN COALESCE(u.username, hu.username) END AS author,
@@ -906,8 +974,8 @@ async function ownedCard(req, res, { enrich = false } = {}) {
   if (!rows[0]) { res.status(404).json({ error: 'not found' }); return null }
   const card = rows[0]
   if (card.hub_card_id && !enrich) {
-    const me = await hub.identity()
     const shelf = await hub.linkedShelf(card.category_id)
+    const me = await hub.identity(shelf?.hub_url)
     const mine = card.hub_user_id != null && String(card.hub_user_id) === me.user_id
     if (!mine && !shelf?.is_owner) {
       res.status(403).json({ error: 'posted from another shelf' })
