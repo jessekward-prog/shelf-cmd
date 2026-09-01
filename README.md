@@ -17,12 +17,20 @@ Requires [Docker](https://docs.docker.com/get-docker/).
 ```bash
 git clone https://github.com/jessekward-prog/shelf-cmd
 cd shelf-cmd
-docker compose up -d --build
+docker compose up -d
 ```
 
 Open **http://localhost:3016**. On first launch it asks you to **create a PIN** —
 this is a fresh install, nothing is pre-set, pick your own. That's it; you have a
 working shelf.
+
+This pulls a pre-built image and **updates itself** — a small
+[Watchtower](https://containrrr.dev/watchtower/) container checks hourly and
+restarts `app` when a new version is published, so `git pull` is never needed.
+Prefer to build from your own checkout instead (e.g. you're modifying the code)?
+Swap `image: ghcr.io/jessekward-prog/shelf-cmd:latest` for `build: .` under
+`app` in `docker-compose.yml` and drop the `watchtower` service — see the
+"Updating" section below for that path.
 
 To reach it from your phone or another machine, use your host's LAN address
 (e.g. `http://192.168.1.20:3016`) or put it behind a reverse proxy / tunnel at a
@@ -115,6 +123,9 @@ set `TWITCH_PARENT=your-domain.com` — Twitch's player requires it to match the
 address bar exactly.
 
 ## Updating
+
+With the default setup (an `image:` for `app`), nothing to do — Watchtower
+handles it. If you switched to `build: .`:
 
 ```bash
 git pull

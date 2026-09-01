@@ -9,7 +9,14 @@ services:
       - pgdata:/var/lib/postgresql/data
 
   app:
-    build: .
+    # Published by .github/workflows/docker-publish.yml on every push to
+    # master — Watchtower below pulls a new :latest automatically. Swap this
+    # for `build: .` instead if you'd rather build from your own checkout
+    # (e.g. local changes) and skip auto-updates.
+    image: ghcr.io/jessekward-prog/shelf-cmd:latest
+    container_name: shelf-cmd-app
+    labels:
+      - com.centurylinklabs.watchtower.enable=true
     ports:
       - "3016:3016"
     environment:
@@ -34,6 +41,16 @@ services:
       - uploads:/app/uploads
     depends_on:
       - db
+
+  # Auto-update: polls for a new `app` image every hour and recreates the
+  # container when one lands — only touches containers labeled
+  # watchtower.enable=true above, so `db` is never restarted by this.
+  # Remove this service if you switched `app` to `build: .`.
+  watchtower:
+    image: containrrr/watchtower
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    command: --label-enable --cleanup --interval 3600
 
 volumes:
   pgdata:
