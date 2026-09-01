@@ -629,6 +629,27 @@ app.delete('/api/known-hubs/:id', adminOnly, async (req, res) => {
   res.json({ ok: true })
 })
 
+// Round-trips a hub's own /health route (a real `SELECT 1` on its side, not
+// just "did something answer") server-side, so this works for a hub with no
+// public DNS/CORS setup too and a browser never has to reach an arbitrary
+// third-party URL directly.
+app.get('/api/hub-test', adminOnly, async (req, res) => {
+  const url = String(req.query.url || '').trim().replace(/\/+$/, '')
+  if (!url) return res.status(400).json({ error: 'url required' })
+  const started = Date.now()
+  try {
+    const controller = new AbortController()
+    const timeout = setTimeout(() => controller.abort(), 5000)
+    const r = await fetch(`${url}/health`, { signal: controller.signal })
+    clearTimeout(timeout)
+    const ms = Date.now() - started
+    const body = await r.json().catch(() => ({}))
+    res.json({ ok: r.ok && body.ok !== false, status: r.status, ms })
+  } catch (err) {
+    res.json({ ok: false, error: err.name === 'AbortError' ? 'timed out' : err.message, ms: Date.now() - started })
+  }
+})
+
 // Which hub each shared shelf actually lives on — the instance-wide default
 // above only decides where a *new* share goes; an already-shared shelf stays
 // pinned to whatever hub it was published/linked to (see hub.js's callFor).

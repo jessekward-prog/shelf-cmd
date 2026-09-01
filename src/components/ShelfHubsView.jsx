@@ -66,6 +66,7 @@ export default function ShelfHubsView({ isAdmin, onHostingChange }) {
   const [migrateDest, setMigrateDest] = useState('')
   const [migrating, setMigrating] = useState(false)
   const [migrateDone, setMigrateDone] = useState(null)
+  const [testResults, setTestResults] = useState({}) // url -> { ok, ms, error } | 'testing'
 
   const load = () => {
     api.getHubConfig().then((c) => { setConfig(c); setSharingInput(c.sharingHubUrl) }).catch(() => setConfig({ error: true }))
@@ -110,6 +111,34 @@ export default function ShelfHubsView({ isAdmin, onHostingChange }) {
   const removeHub = async (id) => {
     await api.deleteKnownHub(id)
     api.getKnownHubs().then(setHubs)
+  }
+
+  // Round-trips the hub's own /health (a real DB query on its side) via the
+  // server, not the browser — proves the hub is actually up and reachable
+  // from where sharing traffic actually comes from, not just that a URL
+  // resolves in this tab.
+  const testHub = async (url) => {
+    setTestResults((r) => ({ ...r, [url]: 'testing' }))
+    const result = await api.testHub(url).catch((err) => ({ ok: false, error: err.message }))
+    setTestResults((r) => ({ ...r, [url]: result }))
+  }
+
+  const TestBadge = ({ url }) => {
+    const r = testResults[url]
+    return (
+      <button
+        onClick={() => testHub(url)}
+        disabled={r === 'testing'}
+        style={{
+          fontSize: 10, padding: '3px 8px', borderRadius: 999, flexShrink: 0, fontWeight: 600,
+          border: `1px solid ${r === 'testing' ? 'var(--s-border)' : r?.ok ? 'var(--s-accent)' : r ? '#c0392b' : 'var(--s-border)'}`,
+          color: r === 'testing' ? 'var(--s-text-3)' : r?.ok ? 'var(--s-accent)' : r ? '#e0564f' : 'var(--s-text-2)'
+        }}
+        title={r && r !== 'testing' && !r.ok ? (r.error || `HTTP ${r.status}`) : 'ping this hub\'s /health'}
+      >
+        {r === 'testing' ? 'testing…' : r?.ok ? `✓ ${r.ms}ms` : r ? '✗ failed' : 'test'}
+      </button>
+    )
   }
 
   const repointShelf = async (categoryId, url) => {
@@ -272,6 +301,7 @@ export default function ShelfHubsView({ isAdmin, onHostingChange }) {
         </div>
         <form onSubmit={(e) => { e.preventDefault(); saveSharing(sharingInput.trim()) }} style={{ display: 'flex', gap: 8 }}>
           <input value={sharingInput} onChange={(e) => setSharingInput(e.target.value)} placeholder="hub URL" style={{ ...inputStyle, flex: 1 }} />
+          {sharingInput.trim() && <TestBadge url={sharingInput.trim()} />}
           <button type="submit" style={smallBtn}>{savedSharing ? 'saved' : 'use this'}</button>
         </form>
       </div>
@@ -330,6 +360,7 @@ export default function ShelfHubsView({ isAdmin, onHostingChange }) {
                   <div style={{ fontSize: 12, color: 'var(--s-text-0)' }}>{h.label}</div>
                   <div style={{ fontSize: 10, color: 'var(--s-text-3)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{h.url}</div>
                 </div>
+                <TestBadge url={h.url} />
                 <button onClick={() => saveSharing(h.url)} style={{ fontSize: 11, color: 'var(--s-text-2)', padding: '4px 8px', flexShrink: 0 }}>use</button>
                 {h.kind !== 'hosted' && (
                   <button onClick={() => removeHub(h.id)} style={{ fontSize: 14, color: 'var(--s-text-3)', padding: '4px 6px', flexShrink: 0 }}>×</button>
