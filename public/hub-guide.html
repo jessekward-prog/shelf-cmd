@@ -159,11 +159,12 @@
       <p class="eyebrow">03 · Glossary</p>
       <h2>What the labels on the Shelf Hubs page mean</h2>
       <dl class="glossary">
-        <div><dt>host a hub here</dt><dd>The toggle that turns <em>this install</em> into a hub. Off by default. Turning it on doesn't move any of your own sharing to it automatically — it just makes the option exist for whoever you hand the address to.</dd></div>
-        <div><dt>which hub is active</dt><dd>The one hub this instance uses when <em>you</em> share a <b>new</b> shelf. Doesn't affect shelves you've already shared — see below.</dd></div>
-        <div><dt>the shared default</dt><dd>The hub every install ships pointed at, unless you change it. Free, always-on, not something you administer.</dd></div>
-        <div><dt>hosted on this instance</dt><dd>Your active hub is the one you just turned on above — this box is now serving both roles at once.</dd></div>
-        <div><dt>your shared shelves → "whichever hub is active"</dt><dd>That specific shelf has no hub of its own pinned — it just follows whatever "which hub is active" currently says. Pick an explicit hub from the dropdown to pin it and stop it following changes above.</dd></div>
+        <div><dt>local hub</dt><dd>This install's own embedded hub — the <b>host a hub here</b> toggle. Off by default. Turning it on doesn't move any of your own sharing to it automatically — it just makes the option exist for whoever you hand the address to.</dd></div>
+        <div><dt>cloud hub</dt><dd>The shared Railway default every install ships pointed at, unless you change it. Free, always-on, not something you administer — there's no toggle for it because there's nothing to turn on.</dd></div>
+        <div><dt>which hub is active</dt><dd>The one hub this instance uses when <em>you</em> share a <b>new</b> shelf — set with the <b>use cloud</b> / <b>use local</b> buttons, or a custom hub's own address. Doesn't affect shelves you've already shared — see below.</dd></div>
+        <div><dt>the shared default</dt><dd>Shown next to "which hub is active" when it's currently pointed at the cloud hub specifically.</dd></div>
+        <div><dt>hosted on this instance</dt><dd>Shown next to "which hub is active" when it's currently pointed at your own local hub.</dd></div>
+        <div><dt>your shared shelves → "whichever hub is active"</dt><dd>That specific shelf has no hub of its own pinned — it just follows whatever "which hub is active" currently says. Pick <b>local</b> or <b>cloud</b> explicitly from that shelf's own dropdown to pin it there and stop it following changes above — this is how "Gift Ideas" can stay on local while "AI" stays on cloud, at the same time.</dd></div>
         <div><dt>your hubs</dt><dd>A personal address book — hubs you've used or added, so you can switch back without re-typing a URL. Doesn't sync anywhere; it's local to this install only.</dd></div>
       </dl>
     </div>
@@ -176,9 +177,9 @@
       <p class="eyebrow">04 · Tutorial</p>
       <h2>Host locally, free, right now</h2>
       <ol class="steps">
-        <li><div><b>Set an address this box can be reached at.</b><p>Needs <span class="inline-code">PUBLIC_URL</span> set to a real domain in <span class="inline-code">.env</span> — the same requirement Drive-sharing already has. If you can already share a shelf's Drive with someone, this is already done.</p></div></li>
+        <li><div><b>Set an address this box can be reached at.</b><p>Needs <span class="inline-code">PUBLIC_URL</span> set in <span class="inline-code">.env</span> — the same requirement Drive-sharing already has, so if you can already share a shelf's Drive with someone, this is already done. It does <b>not</b> need to be a real, DNS-registered domain — a LAN IP (<span class="inline-code">http://192.168.1.50:3016</span>) or a Tailscale address works fine too, as long as whoever you're sharing with can actually reach it. A public domain only matters if they can't.</p></div></li>
         <li><div><b>Open Shelf Hubs → flip "host a hub here" on.</b><p>Instant — no restart. You'll get a URL (yours ends in <span class="inline-code">/relay</span>) and a QR code.</p></div></li>
-        <li><div><b>Hand that URL to whoever you want sharing through it.</b><p>They paste it into their own instance's <span class="inline-code">sharing through</span> field. From then on, sharing between the two of you goes through your box specifically.</p></div></li>
+        <li><div><b>Hand that URL to whoever you want sharing through it.</b><p>They open their own instance's Shelf Hubs page and either hit <span class="inline-code">use local</span> if you handed them this box's own address directly, or drop it into "or use a custom hub" otherwise. From then on, sharing between the two of you goes through your box specifically.</p></div></li>
       </ol>
       <p class="strip">That's it — no second server, no signup, no cost. It's only reachable while this box is powered on and connected, same as your Drive already is.</p>
     </div>
@@ -206,8 +207,8 @@
       </ol>
       <p class="strip peer">
         <b>If someone else was also pointed at your local hub</b>, this step only repoints <em>your</em>
-        instance. They need to do the same thing on theirs — paste the new address into their own
-        "sharing through" field. There's no way to do that for them from here; it's a real
+        instance. They need to do the same thing on theirs — drop the new address into their own
+        "or use a custom hub" field. There's no way to do that for them from here; it's a real
         limitation, not an oversight.
       </p>
     </div>
