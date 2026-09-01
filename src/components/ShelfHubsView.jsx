@@ -32,6 +32,17 @@ function activeKind(config, hubs) {
   return hubs?.find((h) => h.url === config.sharingHubUrl)?.label || 'a custom hub'
 }
 
+// Same "what is this URL" resolution as activeKind, but for an arbitrary
+// hub_url (a specific shelf's pin) rather than the instance-wide default —
+// used by the per-shelf picker's label, so a shelf reads "cloud"/"local"
+// instead of a bare URL that means nothing at a glance.
+function hubLabel(url, config, hubs) {
+  if (!url) return null
+  if (url === config?.defaultHubUrl) return 'cloud'
+  if (config?.hostedHubUrl && url === config.hostedHubUrl) return 'local'
+  return hubs?.find((h) => h.url === url)?.label || url
+}
+
 function CopyField({ value }) {
   const [copied, setCopied] = useState(false)
   const copy = () => {
@@ -201,7 +212,10 @@ export default function ShelfHubsView({ isAdmin, onHostingChange }) {
 
       <div style={cardStyle}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
-          <div style={{ fontSize: 13, color: 'var(--s-text-0)', fontWeight: 500 }}>host a hub here</div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <div style={{ fontSize: 13, color: 'var(--s-text-0)', fontWeight: 500 }}>local hub</div>
+            <span style={{ fontSize: 10, color: 'var(--s-text-3)' }}>— hosted right here, on this instance</span>
+          </div>
           <button
             onClick={toggleHosting}
             disabled={toggling}
@@ -226,7 +240,10 @@ export default function ShelfHubsView({ isAdmin, onHostingChange }) {
             </div>
           ) : (
             <>
-              <CopyField value={config.hostedHubUrl} />
+              <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                <div style={{ flex: 1 }}><CopyField value={config.hostedHubUrl} /></div>
+                <TestBadge url={config.hostedHubUrl} />
+              </div>
               {qr && (
                 <div style={{ display: 'flex', justifyContent: 'center', marginTop: 14 }}>
                   <img src={qr} width={140} height={140} alt="hub QR code" style={{ border: '1px solid var(--s-border)', borderRadius: 8 }} />
@@ -289,6 +306,26 @@ export default function ShelfHubsView({ isAdmin, onHostingChange }) {
       </div>
 
       <div style={cardStyle}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <div style={{ fontSize: 13, color: 'var(--s-text-0)', fontWeight: 500 }}>cloud hub</div>
+            <span style={{ fontSize: 10, color: 'var(--s-text-3)' }}>— the shared default on Railway</span>
+          </div>
+          <span
+            title="Always on — Railway keeps this running independent of this instance. There's nothing here to turn off."
+            style={{
+              fontSize: 9, fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase',
+              padding: '3px 8px', borderRadius: 999, color: 'var(--s-accent)', border: '1px solid var(--s-accent-glow)', background: 'var(--s-accent-faint)'
+            }}
+          >always on</span>
+        </div>
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+          <div style={{ flex: 1 }}><CopyField value={config.defaultHubUrl} /></div>
+          <TestBadge url={config.defaultHubUrl} />
+        </div>
+      </div>
+
+      <div style={cardStyle}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10, flexWrap: 'wrap' }}>
           <div style={{ fontSize: 13, color: 'var(--s-text-0)', fontWeight: 500 }}>which hub is active</div>
           <span style={{
@@ -296,14 +333,38 @@ export default function ShelfHubsView({ isAdmin, onHostingChange }) {
             padding: '2px 7px', borderRadius: 999, color: 'var(--s-accent)', border: '1px solid var(--s-accent-glow)', background: 'var(--s-accent-faint)'
           }}>{activeKind(config, hubs)}</span>
         </div>
-        <div style={{ fontSize: 11, color: 'var(--s-text-3)', marginBottom: 10, lineHeight: 1.5 }}>
+        <div style={{ fontSize: 11, color: 'var(--s-text-3)', marginBottom: 12, lineHeight: 1.5 }}>
           This is where any <b style={{ color: 'var(--s-text-1)' }}>new</b> shelf you share goes. A shelf you've <b style={{ color: 'var(--s-text-1)' }}>already</b> shared keeps using whatever hub it went to at the time (see "your shared shelves" below) — changing this never moves anything that's already live.
         </div>
-        <form onSubmit={(e) => { e.preventDefault(); saveSharing(sharingInput.trim()) }} style={{ display: 'flex', gap: 8 }}>
-          <input value={sharingInput} onChange={(e) => setSharingInput(e.target.value)} placeholder="hub URL" style={{ ...inputStyle, flex: 1 }} />
-          {sharingInput.trim() && <TestBadge url={sharingInput.trim()} />}
-          <button type="submit" style={smallBtn}>{savedSharing ? 'saved' : 'use this'}</button>
-        </form>
+        <div style={{ display: 'flex', gap: 8, marginBottom: 10 }}>
+          <button
+            onClick={() => saveSharing(config.defaultHubUrl)}
+            style={{
+              ...smallBtn, flex: 1, background: config.isDefault ? 'var(--s-accent)' : 'transparent',
+              border: '1px solid var(--s-border)', color: config.isDefault ? 'var(--s-bg)' : 'var(--s-text-2)'
+            }}
+          >use cloud</button>
+          <button
+            onClick={() => saveSharing(config.hostedHubUrl)}
+            disabled={!config.hostedHubEnabled || !config.publicUrlSet}
+            title={!config.hostedHubEnabled ? 'turn on the local hub above first' : undefined}
+            style={{
+              ...smallBtn, flex: 1,
+              background: !config.isDefault && config.sharingHubUrl === config.hostedHubUrl ? 'var(--s-accent)' : 'transparent',
+              border: '1px solid var(--s-border)',
+              color: !config.isDefault && config.sharingHubUrl === config.hostedHubUrl ? 'var(--s-bg)' : 'var(--s-text-2)',
+              opacity: (!config.hostedHubEnabled || !config.publicUrlSet) ? 0.5 : 1
+            }}
+          >use local</button>
+        </div>
+        <details>
+          <summary style={{ fontSize: 11, color: 'var(--s-text-3)', cursor: 'pointer' }}>or use a custom hub</summary>
+          <form onSubmit={(e) => { e.preventDefault(); saveSharing(sharingInput.trim()) }} style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+            <input value={sharingInput} onChange={(e) => setSharingInput(e.target.value)} placeholder="hub URL" style={{ ...inputStyle, flex: 1 }} />
+            {sharingInput.trim() && <TestBadge url={sharingInput.trim()} />}
+            <button type="submit" style={smallBtn}>{savedSharing ? 'saved' : 'use this'}</button>
+          </form>
+        </details>
       </div>
 
       <div style={cardStyle}>
@@ -321,7 +382,7 @@ export default function ShelfHubsView({ isAdmin, onHostingChange }) {
                     {s.name}{!s.is_owner && <span style={{ color: 'var(--s-text-3)' }}> · joined, not yours to repoint</span>}
                   </div>
                   <div style={{ fontSize: 10, color: 'var(--s-text-3)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                    {s.hub_url || '→ whichever hub is active, above'}
+                    {s.hub_url ? hubLabel(s.hub_url, config, hubs) : '→ whichever hub is active, above'}
                   </div>
                 </div>
                 {s.is_owner && (
@@ -331,7 +392,10 @@ export default function ShelfHubsView({ isAdmin, onHostingChange }) {
                     style={{ ...inputStyle, flex: '0 0 auto', width: 190 }}
                   >
                     <option value="">whichever hub is active</option>
-                    {hubs?.map((h) => <option key={h.id} value={h.url}>{h.label}</option>)}
+                    <option value={config.defaultHubUrl}>cloud</option>
+                    {config.hostedHubUrl && <option value={config.hostedHubUrl}>local</option>}
+                    {hubs?.filter((h) => h.url !== config.defaultHubUrl && h.url !== config.hostedHubUrl)
+                      .map((h) => <option key={h.id} value={h.url}>{h.label}</option>)}
                   </select>
                 )}
               </div>
