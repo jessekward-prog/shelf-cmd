@@ -206,11 +206,17 @@ export function makeHub(pool) {
 
     // hub_shelf_id alone isn't globally unique — it's only unique within one
     // hub — so the dedup check has to confirm the hub matches too. NULL on an
-    // old row means "was on the default when created," which is exactly what
-    // $2 already is here, so COALESCE treats that as a match too.
+    // old row means "created before the hub_url column existed," which was
+    // only ever possible back when DEFAULT_HUB_URL was the only hub that
+    // could exist — NOT "matches whatever hub is being checked right now."
+    // Coalescing against $2 (the checked hub) instead of the true default
+    // made a NULL row match ANY hub with the same hub_shelf_id, which is how
+    // an unrelated shelf on a totally different hub (Gift Ideas, hub_shelf_id
+    // 1, hub_url NULL) got reported as "already linked" for a brand new
+    // shelf that also happened to be hub_shelf_id 1 on a second hub.
     const { rows: already } = await pool.query(
-      'SELECT category_id FROM linked_shelves WHERE hub_shelf_id=$1 AND COALESCE(hub_url, $2) = $2',
-      [out.shelf.id, hubUrl]
+      'SELECT category_id FROM linked_shelves WHERE hub_shelf_id=$1 AND COALESCE(hub_url, $3) = $2',
+      [out.shelf.id, hubUrl, DEFAULT_HUB_URL]
     )
     if (already[0]) return { category_id: already[0].category_id, already_linked: true }
 
@@ -481,9 +487,14 @@ export function makeHub(pool) {
   // against a shelf actually pinned there — otherwise an id collision with a
   // shelf on a different hub could misattribute the event.
   async function categoryIdFor(hubShelfId, hubUrl) {
+    // Same fix as link()'s dedup check above: a NULL hub_url row predates the
+    // column and was only ever possible on DEFAULT_HUB_URL, so it must be
+    // compared against that fixed value, not against whatever hub is being
+    // checked right now — coalescing against the checked value made a NULL
+    // row match any hub with the same hub_shelf_id.
     const { rows } = await pool.query(
-      'SELECT category_id FROM linked_shelves WHERE hub_shelf_id=$1 AND COALESCE(hub_url, $2) = $2',
-      [hubShelfId, hubUrl]
+      'SELECT category_id FROM linked_shelves WHERE hub_shelf_id=$1 AND COALESCE(hub_url, $3) = $2',
+      [hubShelfId, hubUrl, DEFAULT_HUB_URL]
     )
     return rows[0]?.category_id || null
   }
@@ -564,13 +575,15 @@ export function makeHub(pool) {
     socket.on('reaction:update', async ({ message_id, reactions }) => {
       // Same hub_message_id-isn't-globally-unique concern as categoryIdFor —
       // only match a message whose shelf is actually pinned to this socket's
-      // own hub (or unpinned, meaning it inherits the default this socket is
-      // already connected to).
+      // own hub (or unpinned, meaning it predates hub_url and was only ever
+      // possible on the true default — see categoryIdFor's comment for why
+      // that has to be DEFAULT_HUB_URL specifically, not whatever hub this
+      // socket happens to be connected to).
       const { rows } = await pool.query(
         `SELECT sm.id, sm.category_id FROM shelf_messages sm
            JOIN linked_shelves ls ON ls.category_id = sm.category_id
-          WHERE sm.hub_message_id=$1 AND COALESCE(ls.hub_url, $2) = $2`,
-        [message_id, hubUrl]
+          WHERE sm.hub_message_id=$1 AND COALESCE(ls.hub_url, $3) = $2`,
+        [message_id, hubUrl, DEFAULT_HUB_URL]
       )
       const row = rows[0]
       if (!row) return
