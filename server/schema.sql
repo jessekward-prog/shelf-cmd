@@ -192,9 +192,16 @@ WHERE NOT EXISTS (SELECT 1 FROM categories);
 ALTER TABLE linked_shelves ADD COLUMN IF NOT EXISTS origin TEXT;
 
 -- Which hub this specific shelf is pinned to, set once at publish/link time
--- (see hub.js's callFor). NULL on rows from before this column existed, or
--- any shelf that's never had its hub changed — meaning "use the instance-wide
--- default," so nothing needs backfilling for it to keep working.
+-- (see hub.js's callFor). NULL only ever meant "created before this column
+-- existed" — back when DEFAULT_HUB_URL was the only hub that could exist —
+-- never "follow whatever the instance-wide default happens to be right now".
+-- A NULL row DOES silently follow a *temporary* default change (e.g. briefly
+-- pointing at a friend's hub to redeem an invite), which is how a real
+-- production shelf got its name/icon overwritten by an unrelated shelf on
+-- that friend's hub sharing the same hub_shelf_id. index.js's initDb()
+-- backfills any remaining NULL rows to DEFAULT_HUB_URL on boot so this can't
+-- recur — see the backfill there for why it can't live in this file (it
+-- needs the same env-var-aware constant hub.js's runtime code uses).
 ALTER TABLE linked_shelves ADD COLUMN IF NOT EXISTS hub_url TEXT;
 
 -- hub_shelf_id used to be globally unique back when there was only ever one

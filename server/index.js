@@ -66,6 +66,17 @@ async function initDb() {
     "INSERT INTO users (username, token, is_admin) SELECT 'admin', $1, TRUE WHERE NOT EXISTS (SELECT 1 FROM users WHERE is_admin)",
     [randomBytes(24).toString('hex')]
   )
+  // A NULL linked_shelves.hub_url only ever meant "predates this column, back
+  // when DEFAULT_HUB_URL was the only hub that could exist" — but it also
+  // silently follows any *temporary* change to the instance-wide default,
+  // which is how a real shelf's name/icon got overwritten by an unrelated
+  // one sharing the same hub_shelf_id on a briefly-active different hub (see
+  // schema.sql's comment on this column). Pinning it explicitly here closes
+  // that off for good, for every remaining legacy row, on every boot.
+  await pool.query(
+    'UPDATE linked_shelves SET hub_url=$1 WHERE hub_url IS NULL',
+    [hub.DEFAULT_HUB_URL]
+  )
 }
 
 async function fetchOEmbed(endpoint) {
