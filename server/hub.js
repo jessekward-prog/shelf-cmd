@@ -751,7 +751,7 @@ export function makeHub(pool) {
   }
 
   return {
-    getHubUrl, reconnect,
+    getHubUrl, reconnect, DEFAULT_HUB_URL,
     publish, link, syncOne, postCard, deleteCard, updateCard,
     postTab, postGuide, deleteGuideRemote,
     postMessage, postActivity, postReaction, joinShelfRoom, events,

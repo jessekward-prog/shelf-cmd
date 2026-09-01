@@ -551,7 +551,7 @@ app.get('/api/hub-config', adminOnly, async (req, res) => {
     hostedHubDbUrl,
     publicUrlSet: !!publicUrl,
     sharingHubUrl: await hub.getHubUrl(),
-    isDefault: !settingsMap.hub_url_override
+    isDefault: !settingsMap.hub_url_override || settingsMap.hub_url_override === hub.DEFAULT_HUB_URL
   })
 })
 
