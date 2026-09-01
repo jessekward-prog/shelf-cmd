@@ -83,7 +83,10 @@ export async function ensureGuideTable(pool) {
   // Set once this guide has been mirrored to the hub — lets a collaborator's
   // pull recognise it instead of duplicating it, same as cards' hub_card_id.
   await pool.query('ALTER TABLE guides ADD COLUMN IF NOT EXISTS hub_guide_id INT')
-  await pool.query('CREATE UNIQUE INDEX IF NOT EXISTS guides_hub_id ON guides (hub_guide_id) WHERE hub_guide_id IS NOT NULL')
+  // hub_guide_id is only unique within the hub it came from, not globally —
+  // same fix, same reason as shelf-cmd/server/schema.sql's cards_hub_id.
+  await pool.query('DROP INDEX IF EXISTS guides_hub_id')
+  await pool.query('CREATE UNIQUE INDEX IF NOT EXISTS guides_hub_id ON guides (hub_guide_id, category_id) WHERE hub_guide_id IS NOT NULL')
   // Mirrors files' own share tokens — a public, no-auth link straight to the
   // guide's already-standalone HTML.
   await pool.query(`CREATE TABLE IF NOT EXISTS guide_share_tokens (

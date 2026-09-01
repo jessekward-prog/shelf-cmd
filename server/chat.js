@@ -143,7 +143,7 @@ export function mountChat({ app, pool, adminOnly, adminOrToken, hub, lmComplete 
       const { rows } = await pool.query(
         `INSERT INTO shelf_messages (category_id, hub_message_id, hub_user_id, body, created_at, reply_to_id)
          VALUES ($1,$2,$3,$4,$5,$6)
-         ON CONFLICT (hub_message_id) WHERE hub_message_id IS NOT NULL DO NOTHING
+         ON CONFLICT (hub_message_id, category_id) WHERE hub_message_id IS NOT NULL DO NOTHING
          RETURNING *`,
         [categoryId, remote.id, remote.user_id, remote.body, remote.created_at, replyTo?.id || null]
       )

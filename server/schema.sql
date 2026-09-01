@@ -89,8 +89,10 @@ DROP TABLE IF EXISTS invites;
 -- ── Hub sync ────────────────────────────────────────────────────────────────
 -- A linked shelf is a local category whose contents are mirrored from the hub.
 -- We keep a full local copy on purpose: the shelf still renders when the hub or
--- the other person's box is unreachable, and it means the hub holds no unique
--- data, so it can be rebuilt from any member.
+-- the other person's box is unreachable. Content (cards/guides/messages) can
+-- be rebuilt from any member this way — membership and hub identity can't;
+-- those exist only on the hub itself (see scripts/migrate-hub.sh for actually
+-- moving a hub, which is why that's a real database transfer, not this).
 CREATE TABLE IF NOT EXISTS linked_shelves (
   category_id  INT PRIMARY KEY REFERENCES categories(id) ON DELETE CASCADE,
   hub_shelf_id INT NOT NULL UNIQUE,
@@ -118,8 +120,17 @@ CREATE TABLE IF NOT EXISTS hub_users (
   id       INT PRIMARY KEY,
   username TEXT NOT NULL
 );
-CREATE UNIQUE INDEX IF NOT EXISTS cards_hub_id ON cards (hub_card_id) WHERE hub_card_id IS NOT NULL;
-CREATE UNIQUE INDEX IF NOT EXISTS subcategories_hub_tab ON subcategories (hub_tab_id) WHERE hub_tab_id IS NOT NULL;
+-- A hub-assigned id is only unique *within* that hub, not globally, so the
+-- index has to include category_id too — otherwise two shelves happening to
+-- live on different hubs can be assigned the same numeric id and collide
+-- here. (Same fix as linked_shelves.hub_shelf_id above, same reason.) The
+-- old single-column index has to be dropped explicitly first — CREATE INDEX
+-- IF NOT EXISTS is a no-op once a same-named index already exists, even with
+-- a different definition.
+DROP INDEX IF EXISTS cards_hub_id;
+CREATE UNIQUE INDEX IF NOT EXISTS cards_hub_id ON cards (hub_card_id, category_id) WHERE hub_card_id IS NOT NULL;
+DROP INDEX IF EXISTS subcategories_hub_tab;
+CREATE UNIQUE INDEX IF NOT EXISTS subcategories_hub_tab ON subcategories (hub_tab_id, category_id) WHERE hub_tab_id IS NOT NULL;
 
 -- Writes made while the hub is unreachable wait here and flush on reconnect,
 -- so a dropped connection costs you a delay rather than the link you saved.
@@ -186,6 +197,21 @@ ALTER TABLE linked_shelves ADD COLUMN IF NOT EXISTS origin TEXT;
 -- default," so nothing needs backfilling for it to keep working.
 ALTER TABLE linked_shelves ADD COLUMN IF NOT EXISTS hub_url TEXT;
 
+-- hub_shelf_id used to be globally unique back when there was only ever one
+-- hub — now it's only unique *within* one hub, so a plain UNIQUE(hub_shelf_id)
+-- lets two shelves on two different hubs collide on the same id. Every row
+-- created since hub_url existed always has one set (publish/link resolve and
+-- store it explicitly, never leave it NULL), so the composite constraint
+-- protects correctly going forward.
+ALTER TABLE linked_shelves DROP CONSTRAINT IF EXISTS linked_shelves_hub_shelf_id_key;
+DO $$ BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint WHERE conname = 'linked_shelves_hub_shelf_id_hub_url_key'
+  ) THEN
+    ALTER TABLE linked_shelves ADD CONSTRAINT linked_shelves_hub_shelf_id_hub_url_key UNIQUE (hub_shelf_id, hub_url);
+  END IF;
+END $$;
+
 -- Archived hides a shelf from the everyday nav without deleting it (and
 -- everything on it — cards, drive files, guides, a collab link).
 ALTER TABLE categories ADD COLUMN IF NOT EXISTS archived BOOLEAN NOT NULL DEFAULT FALSE;
@@ -203,7 +229,9 @@ CREATE TABLE IF NOT EXISTS shelf_messages (
   body           TEXT NOT NULL,
   created_at     TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
-CREATE UNIQUE INDEX IF NOT EXISTS shelf_messages_hub_id ON shelf_messages (hub_message_id) WHERE hub_message_id IS NOT NULL;
+-- Same hub-scoping fix as cards_hub_id above.
+DROP INDEX IF EXISTS shelf_messages_hub_id;
+CREATE UNIQUE INDEX IF NOT EXISTS shelf_messages_hub_id ON shelf_messages (hub_message_id, category_id) WHERE hub_message_id IS NOT NULL;
 -- Points at the LOCAL row of the message being replied to, resolved from the
 -- hub's own reply_to_id (a hub message id) at mirror time — see hub.js.
 ALTER TABLE shelf_messages ADD COLUMN IF NOT EXISTS reply_to_id INT REFERENCES shelf_messages(id) ON DELETE SET NULL;
@@ -229,7 +257,9 @@ CREATE TABLE IF NOT EXISTS shelf_activity (
   summary         TEXT NOT NULL,
   created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
-CREATE UNIQUE INDEX IF NOT EXISTS shelf_activity_hub_id ON shelf_activity (hub_activity_id) WHERE hub_activity_id IS NOT NULL;
+-- Same hub-scoping fix as cards_hub_id above.
+DROP INDEX IF EXISTS shelf_activity_hub_id;
+CREATE UNIQUE INDEX IF NOT EXISTS shelf_activity_hub_id ON shelf_activity (hub_activity_id, category_id) WHERE hub_activity_id IS NOT NULL;
 
 -- Hubs this instance knows about — local bookkeeping only, not synced
 -- anywhere. 'hosted' tracks this instance's own toggle (server/hosted-hub.js);

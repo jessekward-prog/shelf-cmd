@@ -254,7 +254,7 @@ export function makeHub(pool) {
         await pool.query(
           `INSERT INTO subcategories (category_id, name, sort_order, hub_tab_id)
            VALUES ($1,$2,$3,$4)
-           ON CONFLICT (hub_tab_id) WHERE hub_tab_id IS NOT NULL
+           ON CONFLICT (hub_tab_id, category_id) WHERE hub_tab_id IS NOT NULL
            DO UPDATE SET name=$2, sort_order=$3`,
           [categoryId, t.name, t.sort_order, t.id]
         )
@@ -276,18 +276,20 @@ export function makeHub(pool) {
       const { cards, seq } = await call(hubUrl, 'GET', `/shelves/${shelf.hub_shelf_id}/cards?since=${shelf.last_seq}`)
       for (const c of cards) {
         if (c.deleted_at) {
-          // Tombstone: the only way a mirror ever learns about a deletion
-          await pool.query('DELETE FROM cards WHERE hub_card_id=$1', [c.id])
+          // Tombstone: the only way a mirror ever learns about a deletion.
+          // Scoped to this category too — hub_card_id alone isn't globally
+          // unique across hubs, only within the one this shelf lives on.
+          await pool.query('DELETE FROM cards WHERE hub_card_id=$1 AND category_id=$2', [c.id, categoryId])
           continue
         }
         const { rows: tab } = await pool.query(
-          'SELECT id FROM subcategories WHERE hub_tab_id=$1', [c.tab_id]
+          'SELECT id FROM subcategories WHERE hub_tab_id=$1 AND category_id=$2', [c.tab_id, categoryId]
         )
         await pool.query(
           `INSERT INTO cards (category_id, subcategory_id, hub_card_id, hub_user_id, type, url, title,
                               description, thumbnail_url, youtube_id, notes, metadata, category, status)
            VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,'ready')
-           ON CONFLICT (hub_card_id) WHERE hub_card_id IS NOT NULL
+           ON CONFLICT (hub_card_id, category_id) WHERE hub_card_id IS NOT NULL
            DO UPDATE SET subcategory_id=$2, hub_user_id=$4, title=$7, description=$8,
                          thumbnail_url=$9, notes=$11, metadata=$12,
                          category=COALESCE($13, cards.category)`,
@@ -302,13 +304,13 @@ export function makeHub(pool) {
       const { guides, seq: guideSeq } = await call(hubUrl, 'GET', `/shelves/${shelf.hub_shelf_id}/guides?since=${shelf.last_seq}`)
       for (const g of guides) {
         if (g.deleted_at) {
-          await pool.query('DELETE FROM guides WHERE hub_guide_id=$1', [g.id])
+          await pool.query('DELETE FROM guides WHERE hub_guide_id=$1 AND category_id=$2', [g.id, categoryId])
           continue
         }
         await pool.query(
           `INSERT INTO guides (category_id, hub_guide_id, title, source, filename, chapters, tagline, category, html)
            VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
-           ON CONFLICT (hub_guide_id) WHERE hub_guide_id IS NOT NULL
+           ON CONFLICT (hub_guide_id, category_id) WHERE hub_guide_id IS NOT NULL
            DO UPDATE SET title=$3, tagline=$7, category=$8`,
           [categoryId, g.id, g.title, g.source, g.filename, g.chapters, g.tagline, g.category, g.html]
         )
@@ -322,11 +324,11 @@ export function makeHub(pool) {
       // Rows arrive ordered by seq, so a reply's target — if it's part of this
       // same batch — has already been inserted by the time we reach it.
       for (const m of messages) {
-        const replyToId = m.reply_to_id ? await resolveLocalReplyId(m.reply_to_id) : null
+        const replyToId = m.reply_to_id ? await resolveLocalReplyId(m.reply_to_id, categoryId) : null
         const { rows } = await pool.query(
           `INSERT INTO shelf_messages (category_id, hub_message_id, hub_user_id, body, created_at, reply_to_id)
            VALUES ($1,$2,$3,$4,$5,$6)
-           ON CONFLICT (hub_message_id) WHERE hub_message_id IS NOT NULL DO NOTHING
+           ON CONFLICT (hub_message_id, category_id) WHERE hub_message_id IS NOT NULL DO NOTHING
            RETURNING *`,
           [categoryId, m.id, m.user_id, m.body, m.created_at, replyToId]
         )
@@ -343,7 +345,7 @@ export function makeHub(pool) {
         const { rows } = await pool.query(
           `INSERT INTO shelf_activity (category_id, hub_activity_id, hub_user_id, kind, summary, created_at)
            VALUES ($1,$2,$3,$4,$5,$6)
-           ON CONFLICT (hub_activity_id) WHERE hub_activity_id IS NOT NULL DO NOTHING
+           ON CONFLICT (hub_activity_id, category_id) WHERE hub_activity_id IS NOT NULL DO NOTHING
            RETURNING *`,
           [categoryId, a.id, a.user_id, a.kind, a.summary, a.created_at]
         )
@@ -489,8 +491,10 @@ export function makeHub(pool) {
   // A reply's reply_to_id from the hub is a HUB message id; the local mirror
   // needs the LOCAL row it maps to. Null if that original was never synced
   // here (deleted, or a very unlucky race) — the reply just loses its quote.
-  async function resolveLocalReplyId(hubMessageId) {
-    const { rows } = await pool.query('SELECT id FROM shelf_messages WHERE hub_message_id=$1', [hubMessageId])
+  async function resolveLocalReplyId(hubMessageId, categoryId) {
+    const { rows } = await pool.query(
+      'SELECT id FROM shelf_messages WHERE hub_message_id=$1 AND category_id=$2', [hubMessageId, categoryId]
+    )
     return rows[0]?.id || null
   }
 
@@ -530,11 +534,11 @@ export function makeHub(pool) {
     socket.on('message:new', async (m) => {
       const categoryId = await categoryIdFor(m.shelf_id, hubUrl)
       if (!categoryId) return
-      const replyToId = m.reply_to_id ? await resolveLocalReplyId(m.reply_to_id) : null
+      const replyToId = m.reply_to_id ? await resolveLocalReplyId(m.reply_to_id, categoryId) : null
       const { rows } = await pool.query(
         `INSERT INTO shelf_messages (category_id, hub_message_id, hub_user_id, body, created_at, reply_to_id)
          VALUES ($1,$2,$3,$4,$5,$6)
-         ON CONFLICT (hub_message_id) WHERE hub_message_id IS NOT NULL DO NOTHING
+         ON CONFLICT (hub_message_id, category_id) WHERE hub_message_id IS NOT NULL DO NOTHING
          RETURNING *`,
         [categoryId, m.id, m.user_id, m.body, m.created_at, replyToId]
       )
@@ -550,7 +554,7 @@ export function makeHub(pool) {
       const { rows } = await pool.query(
         `INSERT INTO shelf_activity (category_id, hub_activity_id, hub_user_id, kind, summary, created_at)
          VALUES ($1,$2,$3,$4,$5,$6)
-         ON CONFLICT (hub_activity_id) WHERE hub_activity_id IS NOT NULL DO NOTHING
+         ON CONFLICT (hub_activity_id, category_id) WHERE hub_activity_id IS NOT NULL DO NOTHING
          RETURNING *`,
         [categoryId, a.id, a.user_id, a.kind, a.summary, a.created_at]
       )
@@ -558,7 +562,16 @@ export function makeHub(pool) {
     })
 
     socket.on('reaction:update', async ({ message_id, reactions }) => {
-      const { rows } = await pool.query('SELECT id, category_id FROM shelf_messages WHERE hub_message_id=$1', [message_id])
+      // Same hub_message_id-isn't-globally-unique concern as categoryIdFor —
+      // only match a message whose shelf is actually pinned to this socket's
+      // own hub (or unpinned, meaning it inherits the default this socket is
+      // already connected to).
+      const { rows } = await pool.query(
+        `SELECT sm.id, sm.category_id FROM shelf_messages sm
+           JOIN linked_shelves ls ON ls.category_id = sm.category_id
+          WHERE sm.hub_message_id=$1 AND COALESCE(ls.hub_url, $2) = $2`,
+        [message_id, hubUrl]
+      )
       const row = rows[0]
       if (!row) return
       await mirrorReactions(row.id, reactions)
