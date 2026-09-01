@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import { createPortal } from 'react-dom'
 import { motion } from 'framer-motion'
 import * as api from '../api.js'
 
@@ -36,7 +37,13 @@ export default function ShareModal({ file, onClose, getLink, note, title }) {
     })
   }
 
-  return (
+  // Portaled straight to <body> — several callers (e.g. Card.jsx) render this
+  // deep inside a framer-motion `layout` ancestor, and a `position: fixed`
+  // descendant of anything with a live CSS transform (which `layout` applies
+  // during animation) resolves against THAT ancestor instead of the viewport.
+  // The modal was flickering between centered and pinned-to-the-card as a
+  // result — a plain DOM child of body never has that problem.
+  return createPortal(
     <motion.div
       initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
       className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-4"
@@ -82,6 +89,7 @@ export default function ShareModal({ file, onClose, getLink, note, title }) {
           </>
         )}
       </motion.div>
-    </motion.div>
+    </motion.div>,
+    document.body
   )
 }
