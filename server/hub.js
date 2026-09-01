@@ -11,23 +11,24 @@
 import { io as ioClient } from 'socket.io-client'
 import { EventEmitter } from 'events'
 
-// Zero-config sharing is the actual point of the app — collaborators
-// shouldn't need to know a hub exists, let alone configure one. So this stays
-// a real default rather than requiring every instance to opt in by hand.
-// What changed instead is on the hub's side: POST /shelves (the only
-// unauthenticated route — it mints a fresh account) is now rate-limited, so
-// a publicly-known default URL costs an abuser very little to hit but can't
-// be turned into unlimited free accounts. See shelf-hub/server.js.
-//
-// Overridable live from the Shelf Hubs page (the `hub_url_override` setting,
-// see getHubUrl below) — this env var is just the fallback when nothing's
-// been picked in the UI.
-const DEFAULT_HUB_URL = (process.env.HUB_URL || 'https://shelf-hub-production.up.railway.app').replace(/\/+$/, '')
+// No baked-in fallback here on purpose — the previous default silently
+// pointed every self-hosted instance at jessekward-prog's own Railway hub,
+// which is fine for instances *he* runs (they set HUB_URL explicitly) but
+// wrong for a stranger's self-host: they'd be sharing through someone else's
+// server without knowing it. Unset now means "no cloud hub" — the Shelf Hubs
+// page points them at deploying their own instead (see shelf-hub in
+// known_hubs / the README). Still overridable live from that page (the
+// `hub_url_override` setting, see getHubUrl below); HUB_URL is just its
+// instance-wide fallback.
+const DEFAULT_HUB_URL = (process.env.HUB_URL || '').replace(/\/+$/, '')
 
-// This instance's own address, published so members can reach its drive. Unset
-// means the drive simply isn't offered — files are never mirrored, so there is
-// no fallback route to them.
-const PUBLIC_URL = (process.env.PUBLIC_URL || '').replace(/\/+$/, '')
+// This instance's own address, published so members can reach its drive and
+// so other instances can be handed a working URL for this instance's hosted
+// hub. env PUBLIC_URL wins if set (an explicit deploy-time choice); otherwise
+// the `public_url` setting, which the Shelf Hubs page can set live — either by
+// auto-detecting the request's own host when hosting is switched on, or by
+// hand if that guess is wrong. Unset means the drive/hosted-hub address simply
+// isn't offered.
 
 export function makeHub(pool) {
   // ── Credentials ───────────────────────────────────────────────────────────
@@ -46,7 +47,17 @@ export function makeHub(pool) {
 
   async function getHubUrl() {
     const override = await getSetting('hub_url_override')
-    return (override || DEFAULT_HUB_URL).replace(/\/+$/, '')
+    const url = (override || DEFAULT_HUB_URL).replace(/\/+$/, '')
+    if (!url) throw new Error('no cloud hub configured — deploy your own shelf-hub and add it on the Shelf Hubs page, or turn on the local hub')
+    return url
+  }
+
+  async function getPublicUrl() {
+    return (process.env.PUBLIC_URL || await getSetting('public_url') || '').replace(/\/+$/, '')
+  }
+
+  async function setPublicUrl(url) {
+    await setSetting('public_url', url.replace(/\/+$/, ''))
   }
 
   // Every credential this instance holds, keyed by which hub it's for — a
@@ -249,8 +260,9 @@ export function makeHub(pool) {
       // The owner advertises where its drive can be reached; everyone else
       // records it, because that's the only way to the files.
       if (shelf.is_owner) {
-        if (PUBLIC_URL && meta.origin !== PUBLIC_URL) {
-          await call(hubUrl, 'PATCH', `/shelves/${shelf.hub_shelf_id}`, { origin: PUBLIC_URL })
+        const publicUrl = await getPublicUrl()
+        if (publicUrl && meta.origin !== publicUrl) {
+          await call(hubUrl, 'PATCH', `/shelves/${shelf.hub_shelf_id}`, { origin: publicUrl })
         }
       } else if (meta.origin !== shelf.origin) {
         await pool.query('UPDATE linked_shelves SET origin=$1 WHERE category_id=$2',
@@ -764,7 +776,7 @@ export function makeHub(pool) {
   }
 
   return {
-    getHubUrl, reconnect, DEFAULT_HUB_URL,
+    getHubUrl, getPublicUrl, setPublicUrl, reconnect, DEFAULT_HUB_URL,
     publish, link, syncOne, postCard, deleteCard, updateCard,
     postTab, postGuide, deleteGuideRemote,
     postMessage, postActivity, postReaction, joinShelfRoom, events,
@@ -772,9 +784,14 @@ export function makeHub(pool) {
     ticketFor, redeemTicket,
     // hubUrl defaults to the instance-wide default — pass a specific shelf's
     // hub_url when the caller is comparing against a hub_user_id scoped to
-    // that shelf (a person's id is only meaningful within one hub).
+    // that shelf (a person's id is only meaningful within one hub). Called on
+    // every card-list/members request regardless of whether the shelf is
+    // hub-linked at all, so "no cloud hub configured" (getHubUrl() throwing,
+    // see above) has to resolve to "no identity" here rather than propagate —
+    // this is a status lookup, not a sharing action.
     identity: async (hubUrl) => {
-      const id = await getIdentityFor(hubUrl || await getHubUrl())
+      const resolvedUrl = hubUrl || await getHubUrl().catch(() => null)
+      const id = resolvedUrl ? await getIdentityFor(resolvedUrl) : null
       return {
         token: id?.token || null,
         user_id: id?.user_id != null ? String(id.user_id) : null,

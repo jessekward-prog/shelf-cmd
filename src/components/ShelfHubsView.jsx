@@ -27,7 +27,7 @@ const smallBtn = {
 // same instance, or something you added to the directory.
 function activeKind(config, hubs) {
   if (!config) return null
-  if (config.isDefault) return 'the shared default'
+  if (config.isDefault) return config.defaultHubUrl ? 'the shared default' : 'no hub configured'
   if (config.hostedHubUrl && config.sharingHubUrl === config.hostedHubUrl) return 'hosted on this instance'
   return hubs?.find((h) => h.url === config.sharingHubUrl)?.label || 'a custom hub'
 }
@@ -80,7 +80,10 @@ export default function ShelfHubsView({ isAdmin, onHostingChange }) {
   const [testResults, setTestResults] = useState({}) // url -> { ok, ms, error } | 'testing'
 
   const load = () => {
-    api.getHubConfig().then((c) => { setConfig(c); setSharingInput(c.sharingHubUrl) }).catch(() => setConfig({ error: true }))
+    // sharingHubUrl is null now that "no cloud hub configured" is a real
+    // state (see hub.js) — this feeds a controlled <input>, which needs a
+    // string, not null.
+    api.getHubConfig().then((c) => { setConfig(c); setSharingInput(c.sharingHubUrl || '') }).catch(() => setConfig({ error: true }))
     api.getKnownHubs().then(setHubs).catch(() => setHubs([]))
     api.getShelfHubs().then(setShelfHubs).catch(() => setShelfHubs([]))
   }
@@ -98,10 +101,20 @@ export default function ShelfHubsView({ isAdmin, onHostingChange }) {
     return () => { alive = false }
   }, [config?.hostedHubEnabled, config?.hostedHubUrl])
 
+  const [publicUrlInput, setPublicUrlInput] = useState('')
+  const [editingPublicUrl, setEditingPublicUrl] = useState(false)
+
   const toggleHosting = async () => {
     setToggling(true)
     try { await api.setHubConfig({ hostedHubEnabled: !config.hostedHubEnabled }); load() }
     finally { setToggling(false) }
+  }
+
+  const savePublicUrl = async (url) => {
+    if (!url.trim()) return
+    await api.setHubConfig({ publicUrl: url.trim() })
+    setEditingPublicUrl(false)
+    load()
   }
 
   const saveSharing = async (url) => {
@@ -236,14 +249,45 @@ export default function ShelfHubsView({ isAdmin, onHostingChange }) {
         {config.hostedHubEnabled ? (
           !config.publicUrlSet ? (
             <div style={{ fontSize: 12, color: 'var(--s-text-2)', lineHeight: 1.6 }}>
-              on, but not reachable yet — set <code style={codeStyle}>PUBLIC_URL</code> to a real address in <code style={codeStyle}>.env</code> first.
+              <div style={{ marginBottom: 8 }}>on, but no address to hand out yet.</div>
+              {config.detectedUrl && (
+                <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                  <div style={{ flex: 1 }}><CopyField value={config.detectedUrl} /></div>
+                  <button onClick={() => savePublicUrl(config.detectedUrl)} style={smallBtn}>use this</button>
+                </div>
+              )}
+              <div style={{ fontSize: 10.5, color: 'var(--s-text-3)', marginTop: 8, lineHeight: 1.5 }}>
+                That's the address this page loaded from just now — right if you're already reaching this instance through its real, public address (a tunnel or reverse proxy). Wrong if you're on a local network address; type the real one below instead.
+              </div>
+              <form onSubmit={(e) => { e.preventDefault(); savePublicUrl(publicUrlInput) }} style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+                <input value={publicUrlInput} onChange={(e) => setPublicUrlInput(e.target.value)} placeholder="https://your-real-address.example.com" style={{ ...inputStyle, flex: 1 }} />
+                <button type="submit" style={smallBtn}>use this</button>
+              </form>
             </div>
           ) : (
             <>
               <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                <div style={{ flex: 1 }}><CopyField value={config.hostedHubUrl} /></div>
+                <div style={{ flex: 1 }}>
+                  {editingPublicUrl ? (
+                    <form onSubmit={(e) => { e.preventDefault(); savePublicUrl(publicUrlInput) }} style={{ display: 'flex', gap: 8 }}>
+                      <input
+                        value={publicUrlInput} onChange={(e) => setPublicUrlInput(e.target.value)}
+                        placeholder="https://your-real-address.example.com" style={{ ...inputStyle, flex: 1 }} autoFocus
+                      />
+                      <button type="submit" style={smallBtn}>save</button>
+                    </form>
+                  ) : (
+                    <CopyField value={config.hostedHubUrl} />
+                  )}
+                </div>
                 <TestBadge url={config.hostedHubUrl} />
               </div>
+              {!editingPublicUrl && (
+                <button
+                  onClick={() => { setPublicUrlInput(config.hostedHubUrl.replace(/\/relay$/, '')); setEditingPublicUrl(true) }}
+                  style={{ fontSize: 10.5, color: 'var(--s-text-3)', marginTop: 6 }}
+                >wrong address? change it</button>
+              )}
               {qr && (
                 <div style={{ display: 'flex', justifyContent: 'center', marginTop: 14 }}>
                   <img src={qr} width={140} height={140} alt="hub QR code" style={{ border: '1px solid var(--s-border)', borderRadius: 8 }} />
@@ -309,20 +353,30 @@ export default function ShelfHubsView({ isAdmin, onHostingChange }) {
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
             <div style={{ fontSize: 13, color: 'var(--s-text-0)', fontWeight: 500 }}>cloud hub</div>
-            <span style={{ fontSize: 10, color: 'var(--s-text-3)' }}>— the shared default on Railway</span>
+            <span style={{ fontSize: 10, color: 'var(--s-text-3)' }}>— an always-on hub set for this instance</span>
           </div>
-          <span
-            title="Always on — Railway keeps this running independent of this instance. There's nothing here to turn off."
-            style={{
-              fontSize: 9, fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase',
-              padding: '3px 8px', borderRadius: 999, color: 'var(--s-accent)', border: '1px solid var(--s-accent-glow)', background: 'var(--s-accent-faint)'
-            }}
-          >always on</span>
+          {config.defaultHubUrl && (
+            <span
+              title="Always on — kept running independent of this instance. There's nothing here to turn off."
+              style={{
+                fontSize: 9, fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase',
+                padding: '3px 8px', borderRadius: 999, color: 'var(--s-accent)', border: '1px solid var(--s-accent-glow)', background: 'var(--s-accent-faint)'
+              }}
+            >always on</span>
+          )}
         </div>
-        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-          <div style={{ flex: 1 }}><CopyField value={config.defaultHubUrl} /></div>
-          <TestBadge url={config.defaultHubUrl} />
-        </div>
+        {config.defaultHubUrl ? (
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+            <div style={{ flex: 1 }}><CopyField value={config.defaultHubUrl} /></div>
+            <TestBadge url={config.defaultHubUrl} />
+          </div>
+        ) : (
+          <div style={{ fontSize: 12, color: 'var(--s-text-3)', lineHeight: 1.6 }}>
+            none set — this instance doesn't come with one baked in, so sharing needs either the local hub above (free, hosted right here) or your own always-on{' '}
+            <a href="https://github.com/jessekward-prog/shelf-hub" target="_blank" rel="noreferrer" style={{ color: 'var(--s-accent)' }}>shelf-hub</a>
+            {' '}deploy, added via <code style={codeStyle}>HUB_URL</code> or the "your hubs" list below.
+          </div>
+        )}
       </div>
 
       <div style={cardStyle}>
@@ -339,9 +393,12 @@ export default function ShelfHubsView({ isAdmin, onHostingChange }) {
         <div style={{ display: 'flex', gap: 8, marginBottom: 10 }}>
           <button
             onClick={() => saveSharing(config.defaultHubUrl)}
+            disabled={!config.defaultHubUrl}
+            title={!config.defaultHubUrl ? 'no cloud hub configured — see the card above' : undefined}
             style={{
               ...smallBtn, flex: 1, background: config.isDefault ? 'var(--s-accent)' : 'transparent',
-              border: '1px solid var(--s-border)', color: config.isDefault ? 'var(--s-bg)' : 'var(--s-text-2)'
+              border: '1px solid var(--s-border)', color: config.isDefault ? 'var(--s-bg)' : 'var(--s-text-2)',
+              opacity: !config.defaultHubUrl ? 0.5 : 1
             }}
           >use cloud</button>
           <button
@@ -392,7 +449,7 @@ export default function ShelfHubsView({ isAdmin, onHostingChange }) {
                     style={{ ...inputStyle, flex: '0 0 auto', width: 190 }}
                   >
                     <option value="">whichever hub is active</option>
-                    <option value={config.defaultHubUrl}>cloud</option>
+                    {config.defaultHubUrl && <option value={config.defaultHubUrl}>cloud</option>}
                     {config.hostedHubUrl && <option value={config.hostedHubUrl}>local</option>}
                     {hubs?.filter((h) => h.url !== config.defaultHubUrl && h.url !== config.hostedHubUrl)
                       .map((h) => <option key={h.id} value={h.url}>{h.label}</option>)}

@@ -173,10 +173,30 @@ const LM_URL = () => process.env.LM_STUDIO_URL || 'http://localhost:1234'
 // here and in guide.js honour it unchanged. Ceiling: one model per process,
 // which is exactly one instance. Upgrade path is passing it per call.
 const ENV_LM_MODEL = process.env.LM_STUDIO_MODEL || ''
+const ENV_LM_URL = process.env.LM_STUDIO_URL || ''
+const ENV_LM_API_KEY = process.env.LM_STUDIO_API_KEY || ''
 
 async function applyLmModel() {
   const { rows } = await pool.query("SELECT value FROM settings WHERE key='lm_model'")
   process.env.LM_STUDIO_MODEL = rows[0]?.value || ENV_LM_MODEL
+}
+
+// Same live-override deal as the model, for the endpoint itself — the box
+// this container can actually reach a locally-running LM Studio/Ollama/
+// text-generation-webui on is rarely knowable at deploy time (`localhost`
+// from inside a container is the container, not the host), so this lets
+// the MY AI panel fix it without an env edit + restart.
+async function applyLmUrl() {
+  const { rows } = await pool.query("SELECT value FROM settings WHERE key='lm_url'")
+  process.env.LM_STUDIO_URL = rows[0]?.value || ENV_LM_URL
+}
+
+// Newer LM Studio builds require a bearer key by default — a plain URL that
+// used to work now 401s with nothing in the response to explain why. Same
+// live-override pattern as the URL/model, so that's fixable from the panel too.
+async function applyLmApiKey() {
+  const { rows } = await pool.query("SELECT value FROM settings WHERE key='lm_api_key'")
+  process.env.LM_STUDIO_API_KEY = rows[0]?.value || ENV_LM_API_KEY
 }
 
 // Reasoning models leak their scratchpad into `content`, or spend the whole budget thinking
@@ -516,7 +536,10 @@ app.post('/api/pin/verify', async (req, res) => {
 // offers real ids instead of asking someone to type one from memory.
 app.get('/api/lm', adminOnly, async (req, res) => {
   const { rows } = await pool.query("SELECT value FROM settings WHERE key='lm_model'")
-  const out = { url: LM_URL(), selected: rows[0]?.value || '', env_default: ENV_LM_MODEL, models: [] }
+  const out = {
+    url: LM_URL(), selected: rows[0]?.value || '', env_default: ENV_LM_MODEL, models: [],
+    apiKeySet: !!process.env.LM_STUDIO_API_KEY
+  }
   try {
     const r = await fetch(`${LM_URL()}/v1/models`, { headers: lmHeaders(), signal: AbortSignal.timeout(8000) })
     if (!r.ok) throw new Error(`endpoint returned ${r.status}`)
@@ -529,13 +552,35 @@ app.get('/api/lm', adminOnly, async (req, res) => {
 })
 
 app.put('/api/lm', adminOnly, async (req, res) => {
-  const model = (req.body.model || '').trim()
-  await pool.query(
-    "INSERT INTO settings (key, value) VALUES ('lm_model', $1) ON CONFLICT (key) DO UPDATE SET value=$1",
-    [model]
-  )
-  await applyLmModel()
-  res.json({ selected: process.env.LM_STUDIO_MODEL || '' })
+  if (typeof req.body.url === 'string') {
+    const url = req.body.url.trim().replace(/\/+$/, '')
+    await pool.query(
+      "INSERT INTO settings (key, value) VALUES ('lm_url', $1) ON CONFLICT (key) DO UPDATE SET value=$1",
+      [url]
+    )
+    await applyLmUrl()
+  }
+  if (typeof req.body.apiKey === 'string') {
+    const apiKey = req.body.apiKey.trim()
+    if (apiKey) {
+      await pool.query(
+        "INSERT INTO settings (key, value) VALUES ('lm_api_key', $1) ON CONFLICT (key) DO UPDATE SET value=$1",
+        [apiKey]
+      )
+    } else {
+      await pool.query("DELETE FROM settings WHERE key='lm_api_key'")
+    }
+    await applyLmApiKey()
+  }
+  if (typeof req.body.model === 'string') {
+    const model = req.body.model.trim()
+    await pool.query(
+      "INSERT INTO settings (key, value) VALUES ('lm_model', $1) ON CONFLICT (key) DO UPDATE SET value=$1",
+      [model]
+    )
+    await applyLmModel()
+  }
+  res.json({ url: LM_URL(), selected: process.env.LM_STUDIO_MODEL || '', apiKeySet: !!process.env.LM_STUDIO_API_KEY })
 })
 
 // ── Shelf Hubs page ───────────────────────────────────────────────────────────
@@ -547,7 +592,13 @@ app.get('/api/hub-config', adminOnly, async (req, res) => {
     "SELECT key, value FROM settings WHERE key IN ('hosted_hub_enabled','hub_url_override')"
   )
   const settingsMap = Object.fromEntries(rows.map(r => [r.key, r.value]))
-  const publicUrl = (process.env.PUBLIC_URL || '').replace(/\/+$/, '')
+  const publicUrl = await hub.getPublicUrl()
+  // What the "local hub" toggle would save PUBLIC_URL as if you flip it on
+  // right now and haven't set one yet — the request's own host. Right most of
+  // the time for anyone reaching this instance through its real public
+  // address already (a tunnel, a reverse proxy), which is how this stack
+  // normally runs — see ShelfHubsView's toggle-on flow.
+  const detectedUrl = `${req.get('x-forwarded-proto') || req.protocol}://${req.get('x-forwarded-host') || req.get('host')}`
   // For the "migrate this hub" pg_dump command on the Shelf Hubs page — same
   // DATABASE_URL this instance's own hosted-hub pool already connects with
   // (server/hosted-hub.js), just surfaced so the admin doesn't have to know
@@ -556,14 +607,20 @@ app.get('/api/hub-config', adminOnly, async (req, res) => {
   const hostedHubDbUrl = dbUrl
     ? dbUrl + (dbUrl.includes('?') ? '&' : '?') + 'options=-c%20search_path%3Dhosted_hub'
     : null
+  // No cloud hub configured is a normal, expected state now (see hub.js) —
+  // getHubUrl() throws rather than silently handing back someone else's
+  // server, so this endpoint has to catch that instead of 500ing the whole
+  // page.
+  const sharingHubUrl = await hub.getHubUrl().catch(() => null)
   res.json({
     hostedHubEnabled: settingsMap.hosted_hub_enabled === 'true',
     hostedHubUrl: publicUrl ? `${publicUrl}/relay` : null,
     hostedHubDbUrl,
     publicUrlSet: !!publicUrl,
-    sharingHubUrl: await hub.getHubUrl(),
-    isDefault: !settingsMap.hub_url_override || settingsMap.hub_url_override === hub.DEFAULT_HUB_URL,
-    defaultHubUrl: hub.DEFAULT_HUB_URL
+    detectedUrl,
+    sharingHubUrl,
+    isDefault: !settingsMap.hub_url_override,
+    defaultHubUrl: hub.DEFAULT_HUB_URL || null
   })
 })
 
@@ -577,19 +634,19 @@ app.post('/api/hub-migrate', adminOnly, async (req, res) => {
   const to = String(req.body.to_url || '').trim().replace(/\/+$/, '')
   if (!from || !to) return res.status(400).json({ error: 'from_url and to_url required' })
 
-  const currentDefault = await hub.getHubUrl()
+  const currentDefault = await hub.getHubUrl().catch(() => null)
   const { rowCount } = await pool.query(
     'UPDATE linked_shelves SET hub_url=$1 WHERE hub_url=$2 OR (hub_url IS NULL AND $2=$3)',
     [to, from, currentDefault]
   )
-  if (from === currentDefault) {
+  if (currentDefault && from === currentDefault) {
     await pool.query(
       "INSERT INTO settings (key, value) VALUES ('hub_url_override', $1) ON CONFLICT (key) DO UPDATE SET value=$1",
       [to]
     )
     hub.reconnect()
   }
-  const publicUrl = (process.env.PUBLIC_URL || '').replace(/\/+$/, '')
+  const publicUrl = await hub.getPublicUrl()
   if (publicUrl && from === `${publicUrl}/relay`) {
     await pool.query(
       "INSERT INTO settings (key, value) VALUES ('hosted_hub_enabled', 'false') ON CONFLICT (key) DO UPDATE SET value='false'"
@@ -604,6 +661,20 @@ app.put('/api/hub-config', adminOnly, async (req, res) => {
       "INSERT INTO settings (key, value) VALUES ('hosted_hub_enabled', $1) ON CONFLICT (key) DO UPDATE SET value=$1",
       [String(req.body.hostedHubEnabled)]
     )
+    // Flipping hosting on with no PUBLIC_URL configured anywhere yet — save
+    // the address this request itself came in on as a first guess, so
+    // turning the toggle on is enough by itself. Only a guess: an admin
+    // reaching the instance over a LAN/local address gets that saved, which
+    // is wrong for anyone outside the LAN — the "change" field on the Shelf
+    // Hubs page lets them fix it without touching .env.
+    if (req.body.hostedHubEnabled && !(await hub.getPublicUrl())) {
+      const guess = `${req.get('x-forwarded-proto') || req.protocol}://${req.get('x-forwarded-host') || req.get('host')}`
+      await hub.setPublicUrl(guess)
+    }
+  }
+  if (typeof req.body.publicUrl === 'string') {
+    const url = req.body.publicUrl.trim()
+    if (url) await hub.setPublicUrl(url)
   }
   if (typeof req.body.sharingHubUrl === 'string') {
     const url = req.body.sharingHubUrl.trim().replace(/\/+$/, '')
@@ -752,7 +823,7 @@ app.get('/api/hub', adminOnly, async (req, res) => {
        FROM linked_shelves l JOIN categories c ON c.id = l.category_id ORDER BY c.name`
   )
   const { rows: queued } = await pool.query('SELECT count(*)::int n FROM outbox')
-  res.json({ url: await hub.getHubUrl(), identity: await hub.identity(), shelves: rows, queued: queued[0].n })
+  res.json({ url: await hub.getHubUrl().catch(() => null), identity: await hub.identity(), shelves: rows, queued: queued[0].n })
 })
 
 app.get('/api/categories/:id/members', adminOnly, async (req, res) => {
@@ -1340,7 +1411,7 @@ async function classifyCard({ title, description, type }) {
 async function extractTools(plan) {
   try {
     const text = await lmComplete([
-      { role: 'user', content: `Read this plan and list every tool, software, or app someone would need to download or find online. Output one name per line, nothing else:\n\n${plan}` }
+      { role: 'user', content: `Read this plan and list only concrete software, libraries, CLIs, or apps someone would install or sign up for to follow it. Skip generic platforms or sites mentioned only as inspiration/reference (e.g. Pinterest, Instagram, Dribbble) unless the plan has the reader install something from them. Output one name per line, nothing else:\n\n${plan}` }
     ], { maxTokens: 600, temperature: 0.3, timeout: 60000 })
     return text
       .split('\n')
@@ -1358,8 +1429,15 @@ async function searchGitHub(query) {
     )
     if (!res.ok) return null
     const data = await res.json()
-    const top = data.items?.[0]
-    return top ? top.html_url : null
+    // Star-sorted repo search returns whatever ranks highest for the query terms —
+    // for a plain platform/product name (not an actual GitHub tool) that's often an
+    // unrelated top-starred repo. Only trust a hit whose own name contains the
+    // tool's leading word, so e.g. "Pinterest" can't get linked to some SDK that
+    // merely mentions it in its description.
+    const anchor = query.toLowerCase().match(/[a-z0-9]{4,}/)?.[0]
+    if (!anchor) return null
+    const match = data.items?.find(r => r.full_name.toLowerCase().includes(anchor))
+    return match ? match.html_url : null
   } catch { return null }
 }
 
@@ -1463,6 +1541,8 @@ app.use(express.static(join(__dirname, '../dist')))
 app.get('*', (req, res) => res.sendFile(join(__dirname, '../dist/index.html')))
 
 initDb().then(async () => {
+  await applyLmUrl()
+  await applyLmApiKey()
   await applyLmModel()
   httpServer.listen(PORT, () => console.log(`shelf-cmd running on :${PORT}`))
   // Pull linked shelves and flush anything queued while the hub was unreachable

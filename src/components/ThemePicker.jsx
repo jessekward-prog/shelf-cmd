@@ -133,6 +133,16 @@ const inputStyle = {
 
 const labelStyle = { fontSize: 10, color: 'var(--s-text-3)', letterSpacing: '0.12em' }
 
+// Every local runner worth listing speaks the same OpenAI-compatible shape
+// (/v1/models, /v1/chat/completions) at its own default port, so a base URL
+// for any of them just drops straight in here — nothing else in the backend
+// needs to know or care which one it's talking to.
+const LM_PRESETS = [
+  { label: 'LM Studio', port: 1234 },
+  { label: 'Ollama', port: 11434 },
+  { label: 'text-generation-webui', port: 5000 }
+]
+
 // The AI this instance runs everything through — scraping, descriptions, plans,
 // guides, the legend classifier. Listed straight off the endpoint, so you pick a
 // model you actually have loaded instead of guessing at an id in a .env.
@@ -140,16 +150,30 @@ function ServerModel() {
   const [lm, setLm] = useState(null)
   const [open, setOpen] = useState(false)
   const [saved, setSaved] = useState(false)
+  const [editingUrl, setEditingUrl] = useState(false)
+  const [urlInput, setUrlInput] = useState('')
+  const [apiKeyInput, setApiKeyInput] = useState('')
 
   useEffect(() => {
     if (open && !lm) api.getLm().then(setLm).catch(err => setLm({ models: [], error: err.message }))
   }, [open, lm])
+
+  useEffect(() => { if (lm?.error) setEditingUrl(true) }, [lm?.error])
 
   const pick = async (model) => {
     const { selected } = await api.setLmModel(model)
     setLm(prev => ({ ...prev, selected }))
     setSaved(true)
     setTimeout(() => setSaved(false), 1500)
+  }
+
+  const saveUrl = async (url) => {
+    if (!url.trim()) return
+    const updated = await api.setLmConnection(url.trim(), apiKeyInput.trim())
+    setEditingUrl(false)
+    setApiKeyInput('')
+    setLm({ ...updated, models: [], selected: '' })
+    api.getLm().then(setLm)
   }
 
   return (
@@ -169,13 +193,72 @@ function ServerModel() {
         <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
           <span style={{ fontSize: 9, color: 'var(--s-text-3)', lineHeight: 1.4 }}>
             {lm ? lm.url : 'loading…'} — used by scrape, plans, guides and the legend.
+            {lm && !editingUrl && (
+              <>
+                {' '}
+                <button
+                  onClick={() => { setUrlInput(lm.url); setEditingUrl(true) }}
+                  style={{ background: 'none', border: 'none', padding: 0, color: 'var(--s-text-2)', textDecoration: 'underline', cursor: 'pointer', fontFamily: 'inherit', fontSize: 9 }}
+                >change</button>
+              </>
+            )}
           </span>
+
           {lm?.error && (
             <span style={{ fontSize: 9, color: 'var(--s-text-2)', lineHeight: 1.4 }}>
-              can't reach it: {lm.error}. Set LM_STUDIO_URL and restart.
+              can't reach it: {lm.error}
+              {/401/.test(lm.error) && ' — this endpoint wants an API key (below), not just a URL.'}
             </span>
           )}
-          {lm && !lm.error && (
+
+          {editingUrl ? (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
+              <span style={{ fontSize: 9, color: 'var(--s-text-3)', lineHeight: 1.4 }}>
+                Pick what you're running locally, or type its address. If this instance runs in Docker,
+                `localhost` means the container, not your PC — use <code>host.docker.internal</code> to reach
+                the host machine instead (falls back to the host's real LAN IP if that name doesn't resolve).
+              </span>
+              <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+                {LM_PRESETS.map(p => (
+                  <button
+                    key={p.label}
+                    onClick={() => setUrlInput(`http://host.docker.internal:${p.port}`)}
+                    style={{
+                      fontSize: 9, padding: '3px 7px', borderRadius: 4, cursor: 'pointer',
+                      background: 'var(--s-surface-2)', border: '1px solid var(--s-border)', color: 'var(--s-text-2)'
+                    }}
+                  >{p.label}</button>
+                ))}
+              </div>
+              <input
+                value={urlInput}
+                onChange={(e) => setUrlInput(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && saveUrl(urlInput)}
+                placeholder="http://host.docker.internal:1234"
+                style={inputStyle}
+              />
+              <input
+                value={apiKeyInput}
+                onChange={(e) => setApiKeyInput(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && saveUrl(urlInput)}
+                type="password"
+                placeholder={lm?.apiKeySet ? 'API key (leave blank to keep current)' : 'API key (only if it needs one)'}
+                style={inputStyle}
+              />
+              <div style={{ display: 'flex', gap: 5 }}>
+                <button
+                  onClick={() => saveUrl(urlInput)}
+                  style={{ fontSize: 9, padding: '3px 8px', borderRadius: 4, background: 'var(--s-accent)', color: 'var(--s-bg)', cursor: 'pointer' }}
+                >save</button>
+                {lm && !lm.error && (
+                  <button
+                    onClick={() => setEditingUrl(false)}
+                    style={{ fontSize: 9, padding: '3px 8px', borderRadius: 4, background: 'none', border: '1px solid var(--s-border)', color: 'var(--s-text-3)', cursor: 'pointer' }}
+                  >cancel</button>
+                )}
+              </div>
+            </div>
+          ) : lm && !lm.error && (
             <select
               value={lm.selected || ''}
               onChange={(e) => pick(e.target.value)}

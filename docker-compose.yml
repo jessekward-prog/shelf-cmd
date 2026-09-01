@@ -19,18 +19,34 @@ services:
       - com.centurylinklabs.watchtower.enable=true
     ports:
       - "3016:3016"
+    # Lets the container resolve host.docker.internal to the machine it's
+    # running on — Docker Desktop (Mac/Windows) already does this by default,
+    # but plain Docker on Linux needs it spelled out. Without this, an
+    # LM_STUDIO_URL of "localhost" points at the container itself, not
+    # wherever LM Studio/Ollama/etc are actually running.
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     environment:
       PORT: 3016
       DATABASE_URL: postgresql://shelf:shelf@db:5432/shelf
       TWITCH_PARENT: ${TWITCH_PARENT:-localhost}
+      # Base URL for your local LLM runner (any OpenAI-compatible one works) —
+      # from inside this container, host.docker.internal reaches the machine
+      # this compose file runs on. Leave unset and pick it later from the
+      # "MY AI" panel in Settings instead; it can also be set here directly:
+      #   LM Studio (default port 1234):            http://host.docker.internal:1234
+      #   Ollama (default port 11434):               http://host.docker.internal:11434
+      #   text-generation-webui (OpenAI ext, 5000):  http://host.docker.internal:5000
       LM_STUDIO_URL: ${LM_STUDIO_URL:-}
       LM_STUDIO_MODEL: ${LM_STUDIO_MODEL:-}
       LM_STUDIO_API_KEY: ${LM_STUDIO_API_KEY:-}
       # Raises the guide-generation GitHub API calls from 60/hr (shared across the
       # whole box) to 5000/hr. A plain personal access token with public read scope.
       GITHUB_TOKEN: ${GITHUB_TOKEN:-}
-      # Shared shelves federate through a hub. Unset = the public default hub
-      # (baked into the app). Point at your own shelf-hub for full independence.
+      # Shared shelves federate through a hub. Unset = no cloud hub — sharing
+      # works via the local hub (Shelf Hubs page, hosted-hub.js) instead, or
+      # deploy your own shelf-hub (github.com/jessekward-prog/shelf-hub) and
+      # point this at it.
       HUB_URL: ${HUB_URL:-}
       HUB_SYNC: ${HUB_SYNC:-}
       HUB_SYNC_MS: ${HUB_SYNC_MS:-}

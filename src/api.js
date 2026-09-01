@@ -48,6 +48,10 @@ export const cardShareUrl = (token) => `${location.origin}/s/c/${token}`
 
 export const getLm = () => req('GET', '/lm')
 export const setLmModel = (model) => req('PUT', '/lm', { model })
+// apiKey omitted entirely (not sent as '') leaves whatever key is already
+// saved untouched — the field never round-trips the real secret back to the
+// browser, so "leave blank" has to mean "no change," not "clear it."
+export const setLmConnection = (url, apiKey) => req('PUT', '/lm', { url, ...(apiKey ? { apiKey } : {}) })
 
 // ── Shelf Hubs page ──────────────────────────────────────────────────────────
 export const getHubConfig   = () => req('GET', '/hub-config')
