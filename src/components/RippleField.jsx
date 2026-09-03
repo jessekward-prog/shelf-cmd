@@ -21,7 +21,16 @@ function useMeasure(ref) {
   return size
 }
 
-export default function RippleField({ ambientMs = 2800 }) {
+function resolveColor(color) {
+  if (!color) return '#000'
+  if (color.startsWith('var(')) {
+    const name = color.slice(4, -1).split(',')[0].trim()
+    return getComputedStyle(document.documentElement).getPropertyValue(name).trim() || '#000'
+  }
+  return color
+}
+
+export default function RippleField({ ambientMs = 2800, color = '#000' }) {
   const wrapRef = useRef(null)
   const canvasRef = useRef(null)
   const ripples = useRef([])
@@ -47,6 +56,7 @@ export default function RippleField({ ambientMs = 2800 }) {
     const c = canvasRef.current
     c.width = W; c.height = H
     const ctx = c.getContext('2d')
+    ctx.fillStyle = resolveColor(color)
 
     let raf
     const draw = (now) => {
@@ -67,7 +77,6 @@ export default function RippleField({ ambientMs = 2800 }) {
           const thr = BAYER[by * 4 + bx] / 16
           if (v <= thr * 1.1 + 0.05) continue
           ctx.globalAlpha = Math.min(0.5, v)
-          ctx.fillStyle = '#000'
           ctx.fillRect(x, y, dot, dot)
         }
       }
@@ -75,7 +84,7 @@ export default function RippleField({ ambientMs = 2800 }) {
     }
     raf = requestAnimationFrame(draw)
     return () => cancelAnimationFrame(raf)
-  }, [W, H])
+  }, [W, H, color])
 
   return (
     <div ref={wrapRef} style={{ position: 'absolute', inset: 0 }}>

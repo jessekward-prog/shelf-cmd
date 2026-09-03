@@ -56,7 +56,7 @@ export default function GuideModal({ onClose, onSaved, categoryId }) {
         className="w-full max-w-md rounded-xl p-5 relative overflow-hidden"
         style={{ background: 'var(--s-surface)', border: '1px solid var(--s-border)' }}
       >
-        {busy && <div style={{ position: 'absolute', inset: 0, zIndex: 0 }}><RippleField /></div>}
+        {busy && <div style={{ position: 'absolute', inset: 0, zIndex: 0 }}><RippleField color="var(--s-accent)" /></div>}
 
         <div style={{ position: 'relative', zIndex: 1 }}>
         <p className="text-sm font-medium mb-1" style={{ color: 'var(--s-accent)' }}>generate a guide</p>

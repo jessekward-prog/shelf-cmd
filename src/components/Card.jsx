@@ -325,7 +325,11 @@ export default function Card({ card, onDelete, onUpdate, nowPlayingId, onPlay, o
         border: `1px solid ${card.category ? (CATEGORY_COLOR[card.category] || CATEGORY_COLOR.reference) + '55' : 'var(--s-border)'}`
       }}
     >
-      {(scraping || planGenerating) && <div style={{ position: 'absolute', inset: 0, zIndex: 0 }}><RippleField /></div>}
+      {(scraping || planGenerating) && (
+        <div style={{ position: 'absolute', inset: 0, zIndex: 0 }}>
+          <RippleField color={card.category ? CATEGORY_COLOR[card.category] || CATEGORY_COLOR.reference : 'var(--s-accent)'} />
+        </div>
+      )}
 
       <div style={{ position: 'relative', zIndex: 1 }}>
       {hasMedia && (
