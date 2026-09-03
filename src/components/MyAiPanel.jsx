@@ -1,5 +1,4 @@
 import { useState, useEffect } from 'react'
-import { createPortal } from 'react-dom'
 import { motion, AnimatePresence } from 'framer-motion'
 import * as api from '../api.js'
 
@@ -71,11 +70,11 @@ function Tutorial() {
 }
 
 // Own sidebar row (promoted out of the theme popover so a fresh self-host
-// isn't hunting for it) — collapsed by default, opens as a slide-up modal
-// (bottom sheet on mobile, centered on desktop) instead of a popover, since
-// the sidebar has no room above it. Every field starts genuinely blank: this
-// instance's own saved address only ever shows up here for its own admin to
-// edit, never a guess and never anyone else's.
+// isn't hunting for it) — collapsed by default, slides open in place like
+// Hostess's own MY AI accordion (height 0 -> auto, pushing the row below it
+// down) rather than floating over the sidebar. Every field starts genuinely
+// blank: this instance's own saved address only ever shows up here for its
+// own admin to edit, never a guess and never anyone else's.
 export default function MyAiPanel({ isAdmin }) {
   const [open, setOpen] = useState(false)
   const [lm, setLm] = useState(null)
@@ -111,7 +110,7 @@ export default function MyAiPanel({ isAdmin }) {
   const connected = !!(lm && !lm.error)
 
   return (
-    <div style={{ position: 'relative' }}>
+    <div>
       <button
         onClick={() => setOpen(v => !v)}
         className="glow-focus"
@@ -130,24 +129,14 @@ export default function MyAiPanel({ isAdmin }) {
         }} />
       </button>
 
-      {createPortal(
-        <AnimatePresence>
-          {open && (
+      <AnimatePresence initial={false}>
+        {open && (
           <motion.div
-            initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-            className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-4"
-            style={{ background: 'rgba(0,0,0,0.7)' }}
-            onClick={(e) => e.target === e.currentTarget && setOpen(false)}
+            initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }}
+            transition={{ duration: 0.22, ease: [0.32, 0.72, 0, 1] }}
+            style={{ overflow: 'hidden' }}
           >
-            <motion.div
-              initial={{ y: 40, opacity: 0 }} animate={{ y: 0, opacity: 1 }} exit={{ y: 40, opacity: 0 }}
-              transition={{ type: 'spring', damping: 22, stiffness: 300 }}
-              className="w-full max-w-md rounded-xl p-5"
-              style={{
-                background: 'var(--s-surface)', border: '1px solid var(--s-border)',
-                maxHeight: '85vh', display: 'flex', flexDirection: 'column', gap: 8, overflowY: 'auto'
-              }}
-            >
+            <div style={{ padding: '4px 10px 10px', display: 'flex', flexDirection: 'column', gap: 8 }}>
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                 <span style={{ fontSize: 10, color: 'var(--s-text-3)', letterSpacing: '0.12em' }}>MY AI</span>
                 <button
@@ -225,12 +214,10 @@ export default function MyAiPanel({ isAdmin }) {
                   {saved && <span style={{ fontSize: 9, color: 'var(--s-accent)' }}>model set</span>}
                 </>
               )}
-            </motion.div>
+            </div>
           </motion.div>
-          )}
-        </AnimatePresence>,
-        document.body
-      )}
+        )}
+      </AnimatePresence>
     </div>
   )
 }
