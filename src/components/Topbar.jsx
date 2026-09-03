@@ -1,5 +1,6 @@
 import { useEffect, useRef } from 'react'
 import ThemePicker from './ThemePicker.jsx'
+import { usePWAInstall } from '../hooks/usePWAInstall'
 
 function SearchIcon({ active }) {
   return (
@@ -30,6 +31,7 @@ export default function Topbar({
 }) {
   const localRef = useRef(null)
   const ref = searchRef || localRef
+  const { canInstall, install } = usePWAInstall()
 
   // `/` focuses search, ⌘/Ctrl+K opens add — the two things you do all day.
   useEffect(() => {
@@ -111,6 +113,20 @@ export default function Topbar({
           <span style={{ fontSize: 15, lineHeight: 1 }}>+</span>
           Add card
         </button>
+
+        {canInstall && (
+          <button
+            onClick={install}
+            title="Install as an app — a real icon instead of a browser tab"
+            className="glow-focus"
+            style={{
+              padding: '6px 12px', borderRadius: 8, fontSize: 12.5, fontFamily: 'inherit',
+              border: '1px solid var(--s-border)', color: 'var(--s-text-2)', background: 'transparent'
+            }}
+          >
+            Install as App
+          </button>
+        )}
 
         <ThemePicker current={theme} onChange={onTheme} user={user} onRenamed={onRenamed} placement="down" />
       </div>
