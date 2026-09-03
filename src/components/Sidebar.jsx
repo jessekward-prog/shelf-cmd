@@ -3,6 +3,8 @@ import { motion, AnimatePresence, Reorder } from 'framer-motion'
 import { CollabIcon, LinkIcon } from './MembersBar.jsx'
 import ShelfIcon from './ShelfIcons.jsx'
 import MyAiPanel from './MyAiPanel.jsx'
+import WaveBackground from './WaveBackground.jsx'
+import { THEMES } from '../themes.js'
 
 // Same pulse used for "generating a guide" (GuideModal.jsx) — reused here so
 // a live hub reads as "something's actively running", not just "on".
@@ -131,8 +133,9 @@ export default function Sidebar({
   onAddCat, onAddSub, onDeleteSub, onShareCat,
   onReorderCats, onReorderCatsEnd, onReorderSubs, onReorderSubsEnd,
   onJoin, onManage, activeView, onView, cardCount,
-  favorites, onToggleFavorite, hubHosting, isAdmin
+  favorites, onToggleFavorite, hubHosting, isAdmin, theme
 }) {
+  const isCrt = (THEMES.find(t => t.id === theme) || THEMES[0]).group === 'crt'
   const [reordering, setReordering] = useState(false)
   const [collapsed, setCollapsed] = useState(() => {
     try { return JSON.parse(localStorage.getItem('shelf_shelves_collapsed')) || false } catch { return false }
@@ -157,10 +160,11 @@ export default function Sidebar({
         width: 240,
         background: 'var(--s-surface)',
         borderRight: '1px solid var(--s-border)',
-        height: '100dvh', position: 'sticky', top: 0
+        height: '100dvh', position: 'sticky', top: 0, overflow: 'hidden'
       }}
     >
-      <nav className="flex-1 overflow-y-auto py-4 px-2">
+      {isCrt && <WaveBackground />}
+      <nav className="flex-1 overflow-y-auto py-4 px-2" style={{ position: 'relative', zIndex: 1 }}>
         <div className="flex items-center justify-between" style={{ padding: '0 12px', marginBottom: 6 }}>
           <button
             onClick={() => setCollapsed(c => !c)}

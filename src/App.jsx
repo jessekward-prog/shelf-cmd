@@ -338,6 +338,7 @@ export default function App({ me }) {
         onToggleFavorite={toggleFavorite}
         hubHosting={hubHosting}
         isAdmin={me.is_admin}
+        theme={theme}
       />
 
       <div className="lg:flex-1 lg:min-w-0 lg:flex lg:flex-col">
