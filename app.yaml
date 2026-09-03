@@ -1,3 +1,4 @@
 name: shelf-cmd
 port: 3016
 postgres: true
+dataDir: /app/uploads
