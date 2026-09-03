@@ -374,7 +374,7 @@ export default function Sidebar({
         </>
       </nav>
 
-      <div style={{ padding: '8px', borderTop: '1px solid var(--s-border)' }}>
+      <div style={{ padding: '8px', borderTop: '1px solid var(--s-border)', display: 'flex', flexDirection: 'column-reverse' }}>
         <MyAiPanel isAdmin={isAdmin} />
         <Row active={activeView === 'hubs'} onClick={() => onView('hubs')}>
           <HubsIcon />

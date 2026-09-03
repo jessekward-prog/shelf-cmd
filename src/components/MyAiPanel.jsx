@@ -70,11 +70,15 @@ function Tutorial() {
 }
 
 // Own sidebar row (promoted out of the theme popover so a fresh self-host
-// isn't hunting for it) — collapsed by default, slides open in place like
-// Hostess's own MY AI accordion (height 0 -> auto, pushing the row below it
-// down) rather than floating over the sidebar. Every field starts genuinely
-// blank: this instance's own saved address only ever shows up here for its
-// own admin to edit, never a guess and never anyone else's.
+// isn't hunting for it) — collapsed by default, slides open like Hostess's
+// own MY AI accordion (height 0 -> auto). column-reverse (here and on the
+// wrapping row in Sidebar.jsx) keeps the toggle itself glued to a fixed
+// spot at the bottom of the sidebar and grows the panel upward into the
+// shelf list instead, so the whole footer isn't shoved down the moment it
+// opens and the button doesn't wander out from under the cursor. Every
+// field starts genuinely blank: this instance's own saved address only
+// ever shows up here for its own admin to edit, never a guess and never
+// anyone else's.
 export default function MyAiPanel({ isAdmin }) {
   const [open, setOpen] = useState(false)
   const [lm, setLm] = useState(null)
@@ -110,7 +114,7 @@ export default function MyAiPanel({ isAdmin }) {
   const connected = !!(lm && !lm.error)
 
   return (
-    <div>
+    <div style={{ display: 'flex', flexDirection: 'column-reverse' }}>
       <button
         onClick={() => setOpen(v => !v)}
         className="glow-focus"
