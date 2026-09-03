@@ -325,7 +325,7 @@ export default function Card({ card, onDelete, onUpdate, nowPlayingId, onPlay, o
         border: `1px solid ${card.category ? (CATEGORY_COLOR[card.category] || CATEGORY_COLOR.reference) + '55' : 'var(--s-border)'}`
       }}
     >
-      {planGenerating && <div style={{ position: 'absolute', inset: 0, zIndex: 0 }}><RippleField /></div>}
+      {(scraping || planGenerating) && <div style={{ position: 'absolute', inset: 0, zIndex: 0 }}><RippleField /></div>}
 
       <div style={{ position: 'relative', zIndex: 1 }}>
       {hasMedia && (
