@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import { createPortal } from 'react-dom'
 import { motion, AnimatePresence } from 'framer-motion'
 import * as api from '../api.js'
 
@@ -70,8 +71,9 @@ function Tutorial() {
 }
 
 // Own sidebar row (promoted out of the theme popover so a fresh self-host
-// isn't hunting for it) — collapsed by default, opens upward since it sits
-// near the bottom of the sidebar. Every field starts genuinely blank: this
+// isn't hunting for it) — collapsed by default, opens as a slide-up modal
+// (bottom sheet on mobile, centered on desktop) instead of a popover, since
+// the sidebar has no room above it. Every field starts genuinely blank: this
 // instance's own saved address only ever shows up here for its own admin to
 // edit, never a guess and never anyone else's.
 export default function MyAiPanel({ isAdmin }) {
@@ -128,20 +130,22 @@ export default function MyAiPanel({ isAdmin }) {
         }} />
       </button>
 
-      <AnimatePresence>
-        {open && (
-          <>
-            <div style={{ position: 'fixed', inset: 0, zIndex: 49 }} onClick={() => setOpen(false)} />
+      {createPortal(
+        <AnimatePresence>
+          {open && (
+          <motion.div
+            initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-4"
+            style={{ background: 'rgba(0,0,0,0.7)' }}
+            onClick={(e) => e.target === e.currentTarget && setOpen(false)}
+          >
             <motion.div
-              initial={{ opacity: 0, y: 6, scale: 0.97 }}
-              animate={{ opacity: 1, y: 0, scale: 1 }}
-              exit={{ opacity: 0, y: 4, scale: 0.97 }}
-              transition={{ duration: 0.12 }}
+              initial={{ y: 40, opacity: 0 }} animate={{ y: 0, opacity: 1 }} exit={{ y: 40, opacity: 0 }}
+              transition={{ type: 'spring', damping: 22, stiffness: 300 }}
+              className="w-full max-w-md rounded-xl p-5"
               style={{
-                position: 'absolute', left: 8, right: 8, bottom: '100%', marginBottom: 6, zIndex: 50,
-                background: 'var(--s-surface)', border: '1px solid var(--s-border)', borderRadius: 10,
-                padding: 12, display: 'flex', flexDirection: 'column', gap: 8,
-                maxHeight: '70vh', overflowY: 'auto'
+                background: 'var(--s-surface)', border: '1px solid var(--s-border)',
+                maxHeight: '85vh', display: 'flex', flexDirection: 'column', gap: 8, overflowY: 'auto'
               }}
             >
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
@@ -166,8 +170,8 @@ export default function MyAiPanel({ isAdmin }) {
               {showTutorial && <Tutorial />}
 
               {lm && (
-                <span style={{ fontSize: 9, color: 'var(--s-text-3)', lineHeight: 1.4 }}>
-                  currently: {lm.url}
+                <span style={{ fontSize: 9, lineHeight: 1.4 }}>
+                  <span style={{ color: '#3fb37f', fontWeight: 700 }}>currently: {lm.url}</span>
                   {lm.error && <span style={{ color: 'var(--s-text-2)' }}> — can't reach it: {lm.error}
                     {/401/.test(lm.error) && ' (wants an API key, below)'}</span>}
                 </span>
@@ -222,9 +226,11 @@ export default function MyAiPanel({ isAdmin }) {
                 </>
               )}
             </motion.div>
-          </>
-        )}
-      </AnimatePresence>
+          </motion.div>
+          )}
+        </AnimatePresence>,
+        document.body
+      )}
     </div>
   )
 }
