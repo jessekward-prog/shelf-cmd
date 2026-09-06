@@ -3,4 +3,4 @@ port: 3016
 postgres: true
 dataDir: /app/uploads
 description: Self-host your personal system for saving, organizing, and sharing web links.
-icon: public/logo.svg
+icon: public/icon-512.png
