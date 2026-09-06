@@ -1548,3 +1548,14 @@ initDb().then(async () => {
   // Pull linked shelves and flush anything queued while the hub was unreachable
   if (process.env.HUB_SYNC !== 'off') hub.startLoop(Number(process.env.HUB_SYNC_MS) || 30000)
 })
+
+// Node running as PID 1 gets no default signal disposition from the kernel, so
+// without this SIGTERM is dropped: the platform waits out its grace period and
+// then SIGKILLs us mid-write. Close cleanly instead.
+for (const sig of ['SIGTERM', 'SIGINT']) {
+  process.on(sig, () => {
+    httpServer.close(() => process.exit(0));
+    // Don't let a hung keep-alive connection outlast the grace period.
+    setTimeout(() => process.exit(0), 4000).unref();
+  });
+}
