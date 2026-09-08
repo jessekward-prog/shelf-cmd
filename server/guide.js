@@ -12,6 +12,7 @@
 import { chromium } from 'playwright-extra'
 import { randomBytes } from 'crypto'
 import { logActivity } from './chat.js'
+import { buildShareUrl } from './gateway.js'
 
 const GITHUB_RE = /^https?:\/\/(?:www\.)?github\.com\/([^/\s#?]+)\/([^/\s#?]+)/i
 
@@ -516,7 +517,7 @@ function renderHtml({ title, tagline, source, badges, chapters, meta, files }) {
 
 // ── Endpoint ─────────────────────────────────────────────────────────────────
 
-export function mountGuide({ app, pool, adminOnly, adminOrToken, hub }) {
+export function mountGuide({ app, pool, adminOnly, adminOrToken, hub, publicRouter }) {
   // Protect the routes with the host's auth middleware when provided; the routes
   // are otherwise open, so pass your admin/auth guard in a multi-user setup.
   const guard = adminOnly || ((req, res, next) => next())
@@ -649,16 +650,16 @@ export function mountGuide({ app, pool, adminOnly, adminOrToken, hub }) {
     const { rows: exists } = await pool.query('SELECT id FROM guides WHERE id=$1', [req.params.id])
     if (!exists[0]) return res.status(404).json({ error: 'not found' })
     const { rows: have } = await pool.query('SELECT token FROM guide_share_tokens WHERE guide_id=$1 LIMIT 1', [req.params.id])
-    if (have[0]) return res.json({ token: have[0].token })
+    if (have[0]) return res.json({ token: have[0].token, url: buildShareUrl(`/s/g/${have[0].token}`) })
     const token = randomBytes(18).toString('hex')
     await pool.query('INSERT INTO guide_share_tokens (token, guide_id) VALUES ($1,$2)', [token, req.params.id])
-    res.json({ token })
+    res.json({ token, url: buildShareUrl(`/s/g/${token}`) })
   })
 
   // Public read-only link — no auth. The guide's HTML is already a complete
   // standalone page, so this just serves it straight rather than forcing a
   // download the way /download (which needs the owner's own token) does.
-  app.get('/s/g/:token', async (req, res) => {
+  publicRouter.get('/s/g/:token', async (req, res) => {
     const { rows } = await pool.query(
       'SELECT g.html FROM guide_share_tokens t JOIN guides g ON g.id = t.guide_id WHERE t.token=$1', [req.params.token]
     )

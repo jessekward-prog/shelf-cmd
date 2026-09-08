@@ -9,6 +9,7 @@ import { unlink, readFile, stat } from 'fs/promises'
 import { Readable } from 'stream'
 import { join, extname } from 'path'
 import { logActivity } from './chat.js'
+import { buildShareUrl } from './gateway.js'
 
 const UPLOADS_DIR = process.env.UPLOADS_DIR || join(process.cwd(), 'uploads')
 const THUMBS_DIR = join(UPLOADS_DIR, 'thumbs')
@@ -134,7 +135,7 @@ function cleanBlurb(raw) {
   return s.trim()
 }
 
-export function mountDrive({ app, pool, adminOnly, adminOrToken, lmComplete, hub }) {
+export function mountDrive({ app, pool, adminOnly, adminOrToken, lmComplete, hub, publicRouter }) {
   const storage = multer.diskStorage({
     destination: (_req, _file, cb) => cb(null, UPLOADS_DIR),
     filename: (_req, file, cb) => cb(null, randomBytes(16).toString('hex') + extname(file.originalname).slice(0, 12))
@@ -383,12 +384,12 @@ export function mountDrive({ app, pool, adminOnly, adminOrToken, lmComplete, hub
     const key = `${req.params.id}:${prefix}`
     const { rows: have } = await pool.query(
       'SELECT token FROM folder_share_tokens WHERE folder_key=$1 LIMIT 1', [key])
-    if (have[0]) return res.json({ token: have[0].token })
+    if (have[0]) return res.json({ token: have[0].token, url: buildShareUrl(`/s/f/${have[0].token}`) })
     const token = randomBytes(18).toString('hex')
     await pool.query(
       'INSERT INTO folder_share_tokens (token, folder_key, category_id, prefix) VALUES ($1,$2,$3,$4)',
       [token, key, req.params.id, prefix])
-    res.json({ token })
+    res.json({ token, url: buildShareUrl(`/s/f/${token}`) })
   })
 
   // Zip a folder subtree. Used by the owner's download and the public share link.
@@ -440,7 +441,7 @@ export function mountDrive({ app, pool, adminOnly, adminOrToken, lmComplete, hub
   app.get('/api/categories/:id/folder/zip', adminOrToken, (req, res) =>
     streamZip(res, req.params.id, String(req.query.prefix || '')))
 
-  app.get('/s/f/:token', async (req, res) => {
+  publicRouter.get('/s/f/:token', async (req, res) => {
     const { rows } = await pool.query(
       'SELECT category_id, prefix FROM folder_share_tokens WHERE token=$1', [req.params.token])
     if (!rows[0]) return res.status(404).send('This link has expired or was revoked.')
@@ -454,14 +455,14 @@ export function mountDrive({ app, pool, adminOnly, adminOrToken, lmComplete, hub
 
   app.post('/api/files/:id/share', adminOnly, async (req, res) => {
     const { rows: have } = await pool.query('SELECT token FROM file_share_tokens WHERE file_id=$1 LIMIT 1', [req.params.id])
-    if (have[0]) return res.json({ token: have[0].token })
+    if (have[0]) return res.json({ token: have[0].token, url: buildShareUrl(`/s/${have[0].token}`) })
     const token = randomBytes(18).toString('hex')
     await pool.query('INSERT INTO file_share_tokens (token, file_id) VALUES ($1,$2)', [token, req.params.id])
-    res.json({ token })
+    res.json({ token, url: buildShareUrl(`/s/${token}`) })
   })
 
   // Public download by share token — no auth, this is the shareable link.
-  app.get('/s/:token', async (req, res) => {
+  publicRouter.get('/s/:token', async (req, res) => {
     const { rows } = await pool.query(
       'SELECT f.* FROM file_share_tokens t JOIN files f ON f.id=t.file_id WHERE t.token=$1', [req.params.token])
     if (!rows[0]) return res.status(404).send('This link has expired or was revoked.')

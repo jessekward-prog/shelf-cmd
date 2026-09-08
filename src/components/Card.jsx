@@ -512,8 +512,8 @@ export default function Card({ card, onDelete, onUpdate, nowPlayingId, onPlay, o
           <ShareModal
             file={{ id: card.id, name: card.title || 'this card' }}
             getLink={async () => {
-              const { token } = await api.shareCard(card.id)
-              return api.cardShareUrl(token)
+              const { token, url } = await api.shareCard(card.id)
+              return url || api.cardShareUrl(token)
             }}
             title="share this card"
             note="Anyone with this link can view this card."

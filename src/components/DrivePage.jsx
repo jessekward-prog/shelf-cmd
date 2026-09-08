@@ -227,8 +227,8 @@ export default function DrivePage({ categoryId, subcategoryId, joined }) {
             key="folder"
             file={{ name: shareFolder.name + '/' }}
             getLink={async () => {
-              const { token } = await api.shareFolder(categoryId, shareFolder.prefix)
-              return api.folderShareUrl(token)
+              const { token, url } = await api.shareFolder(categoryId, shareFolder.prefix)
+              return url || api.folderShareUrl(token)
             }}
             note="Anyone with this link can download the whole folder as a .zip."
             onClose={() => setShareFolder(null)}

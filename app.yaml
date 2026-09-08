@@ -4,3 +4,7 @@ postgres: true
 dataDir: /app/uploads
 description: Self-host your personal system for saving, organizing, and sharing web links.
 icon: public/icon-512.png
+publicGateway:
+  port: 3017
+env:
+  - PUBLIC_GATEWAY

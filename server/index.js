@@ -15,12 +15,20 @@ import { mountDrive } from './drive.js'
 import { mountGuide, ensureGuideTable, CATEGORIES } from './guide.js'
 import { mountChat, logActivity } from './chat.js'
 import { mountHostedHub } from './hosted-hub.js'
+import { buildShareUrl } from './gateway.js'
 chromium.use(StealthPlugin())
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const app = express()
 const httpServer = createServer(app)
 const PORT = process.env.PORT || 3016
+const PUBLIC_GATEWAY = process.env.PUBLIC_GATEWAY === 'true'
+const GATEWAY_PORT = process.env.GATEWAY_PORT || 3017
+// Everything a stranger with a share link needs, and nothing else — this is
+// the router that also gets mounted standalone on the gateway port below
+// when PUBLIC_GATEWAY is on, so a share link works even for someone with no
+// Tailscale access to the main app.
+const publicRouter = express.Router()
 const TWITCH_PARENT = process.env.TWITCH_PARENT || 'shelf.cmdward.xyz'
 
 app.use(cors())
@@ -1152,10 +1160,10 @@ app.post('/api/cards/:id/share', async (req, res) => {
   const card = await ownedCard(req, res)
   if (!card) return
   const { rows: have } = await pool.query('SELECT token FROM card_share_tokens WHERE card_id=$1 LIMIT 1', [card.id])
-  if (have[0]) return res.json({ token: have[0].token })
+  if (have[0]) return res.json({ token: have[0].token, url: buildShareUrl(`/s/c/${have[0].token}`) })
   const token = randomBytes(18).toString('hex')
   await pool.query('INSERT INTO card_share_tokens (token, card_id) VALUES ($1,$2)', [token, card.id])
-  res.json({ token })
+  res.json({ token, url: buildShareUrl(`/s/c/${token}`) })
 })
 
 // Public read-only card page — no auth, this is the shareable link. The card
@@ -1216,7 +1224,7 @@ ${card.thumbnail_url ? `<meta property="og:image" content="${escHtml(card.thumbn
 </body>
 </html>`
 }
-app.get('/s/c/:token', async (req, res) => {
+publicRouter.get('/s/c/:token', async (req, res) => {
   const { rows } = await pool.query(
     'SELECT c.* FROM card_share_tokens t JOIN cards c ON c.id = t.card_id WHERE t.token=$1', [req.params.token]
   )
@@ -1528,10 +1536,12 @@ app.delete('/api/notes/:id', adminOnly, async (req, res) => {
 
 // Drive: file storage per shelf. lmComplete is hoisted, so the blurb generator
 // resolves fine even though it's defined further up.
-mountDrive({ app, pool, adminOnly, adminOrToken, lmComplete, hub })
-mountGuide({ app, pool, adminOnly, adminOrToken, hub })
+mountDrive({ app, pool, adminOnly, adminOrToken, lmComplete, hub, publicRouter })
+mountGuide({ app, pool, adminOnly, adminOrToken, hub, publicRouter })
 mountChat({ app, pool, adminOnly, adminOrToken, hub, lmComplete })
 mountHostedHub({ app, httpServer, mainPool: pool })
+
+app.use(publicRouter)
 
 // Unknown /api paths must not fall through to the SPA, or a stale client gets
 // HTML where it expected JSON and fails with a parse error instead of a 404.
@@ -1547,6 +1557,12 @@ initDb().then(async () => {
   httpServer.listen(PORT, () => console.log(`shelf-cmd running on :${PORT}`))
   // Pull linked shelves and flush anything queued while the hub was unreachable
   if (process.env.HUB_SYNC !== 'off') hub.startLoop(Number(process.env.HUB_SYNC_MS) || 30000)
+
+  if (PUBLIC_GATEWAY) {
+    const gatewayApp = express()
+    gatewayApp.use(publicRouter)
+    gatewayApp.listen(GATEWAY_PORT, () => console.log(`Public share gateway listening on :${GATEWAY_PORT}`))
+  }
 })
 
 // Node running as PID 1 gets no default signal disposition from the kernel, so

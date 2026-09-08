@@ -237,8 +237,8 @@ export default function GuidesView({ onGenerate, refreshKey, categoryId }) {
           <ShareModal
             file={{ id: sharingGuide.id, name: sharingGuide.title || 'this guide' }}
             getLink={async () => {
-              const { token } = await api.shareGuide(sharingGuide.id)
-              return api.guideShareUrl(token)
+              const { token, url } = await api.shareGuide(sharingGuide.id)
+              return url || api.guideShareUrl(token)
             }}
             title="share this guide"
             note="Anyone with this link can open this guide."

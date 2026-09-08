@@ -14,7 +14,7 @@ export default function ShareModal({ file, onClose, getLink, note, title }) {
     let alive = true
     const resolve = getLink
       ? getLink()
-      : api.shareFile(file.id).then(({ token }) => api.shareUrl(token))
+      : api.shareFile(file.id).then(({ token, url }) => url || api.shareUrl(token))
     resolve
       .then(async (link) => {
         if (!alive) return
