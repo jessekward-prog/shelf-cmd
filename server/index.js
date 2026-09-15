@@ -1415,8 +1415,13 @@ async function scrapeAndUpdate(card, html, finalUrl) {
   }
 
   const metadata = { ...(card.metadata || {}) }
-  if (price) metadata.price = price
-  if (currency) metadata.currency = currency
+  // Currency is only trustworthy on a pass that actually read a price —
+  // otherwise a failed price scrape overwrites a correct stored currency with
+  // the 'USD' default.
+  if (price) {
+    metadata.price = price
+    if (currency) metadata.currency = currency
+  }
   if (identifiers && Object.keys(identifiers).length) {
     metadata.identifiers = { ...(metadata.identifiers || {}), ...identifiers }
   }
