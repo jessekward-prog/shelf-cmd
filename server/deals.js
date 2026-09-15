@@ -22,6 +22,15 @@
  * no: it gets dropped from SOURCES rather than disguised. See the note there
  * about eBay. */
 import { chromium } from 'playwright'
+import { EventEmitter } from 'events'
+
+/* Progress is reported, never simulated. Every event emitted below corresponds
+ * to a step the lookup is actually performing at that moment. A ~40s silent
+ * button is indistinguishable from a hang, but a staged animation on a timer
+ * would be worse than silence: it would keep cheerfully advancing after the
+ * job had already died. Consumers get the truth or nothing. */
+export const progress = new EventEmitter()
+const step = (cardId, data) => { if (cardId) progress.emit('step', { cardId, ...data }) }
 
 const LM_URL = () => process.env.LM_STUDIO_URL || 'http://localhost:1234'
 
@@ -106,18 +115,19 @@ export const SOURCES = [
 // One browser for the whole run, pages visited one at a time. Launching
 // chromium is the expensive part (~1s); re-launching it per source would
 // triple the cost of a lookup for no benefit.
-async function search(query, sources, perSource) {
+async function search(query, sources, perSource, ctx = {}) {
   if (!query || !sources.length) return []
   const browser = await chromium.launch({ headless: true })
   const out = []
   try {
-    const ctx = await browser.newContext({
+    const browserCtx = await browser.newContext({
       userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
       locale: 'en-AU',
       extraHTTPHeaders: { 'Accept-Language': 'en-AU,en;q=0.9' },
     })
     for (const src of sources) {
-      const page = await ctx.newPage()
+      step(ctx.cardId, { step: 'search', kind: ctx.kind, source: src.name })
+      const page = await browserCtx.newPage()
       try {
         await page.goto(src.url(query), { waitUntil: 'domcontentloaded', timeout: PACING.navTimeoutMs })
         await page.waitForTimeout(PACING.renderWaitMs)
@@ -240,19 +250,24 @@ export async function findDeals(card, { sources = SOURCES, perSource = 6 } = {})
   const ids = card.metadata?.identifiers || {}
   const ownPrice = money(card.metadata?.price)
   const usable = sources.filter(s => s.enabled !== false)
+  const cardId = card.id
 
   const exact = []
   for (const { q, basis } of exactQueries(ids)) {
-    const rows = await search(q, usable, 3)
+    const rows = await search(q, usable, 3, { cardId, kind: 'exact' })
     for (const r of rows) exact.push({ ...r, basis })
     if (exact.length) break   // a GTIN hit is definitive; don't also fuzzy-match
   }
 
+  step(cardId, { step: 'query' })
   const query = await compressQuery(card.title)
-  const found = await search(query, usable, perSource)
+  const found = await search(query, usable, perSource, { cardId, kind: 'similar' })
   // Anything already returned as an exact match shouldn't repeat as "similar".
   const exactUrls = new Set(exact.map(r => r.url))
-  const similar = await rankResults(card.title, found.filter(r => !exactUrls.has(r.url)))
+  const candidates = found.filter(r => !exactUrls.has(r.url))
+  step(cardId, { step: 'rank', count: candidates.length })
+  const similar = await rankResults(card.title, candidates)
+  step(cardId, { step: 'done' })
 
   const cheaper = ownPrice ? exact.filter(r => r.price < ownPrice) : exact
 

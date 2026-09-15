@@ -16,7 +16,7 @@ import { mountGuide, ensureGuideTable, CATEGORIES } from './guide.js'
 import { mountChat, logActivity } from './chat.js'
 import { mountHostedHub } from './hosted-hub.js'
 import { buildShareUrl } from './gateway.js'
-import { findDeals } from './deals.js'
+import { findDeals, progress as dealsProgress } from './deals.js'
 chromium.use(StealthPlugin())
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
@@ -1470,6 +1470,31 @@ app.post('/api/cards/:id/scrape', adminOnly, async (req, res) => {
 })
 
 // ── Deals: the same item cheaper, and similar items ─────────────────────────
+
+// Live progress for the lookup below. It takes ~40s across real retailer pages,
+// and a button that just says "checking…" for that long is indistinguishable
+// from a hang. Same SSE shape as the chat stream, including the ?t= token —
+// EventSource can't send an Authorization header.
+app.get('/api/cards/:id/deals/stream', adminOrToken, (req, res) => {
+  const cardId = Number(req.params.id)
+  res.writeHead(200, {
+    'Content-Type': 'text/event-stream',
+    'Cache-Control': 'no-cache',
+    Connection: 'keep-alive'
+  })
+  res.write(': connected\n\n')
+
+  const onStep = (e) => {
+    if (e.cardId === cardId) res.write(`event: step\ndata: ${JSON.stringify(e)}\n\n`)
+  }
+  dealsProgress.on('step', onStep)
+
+  const heartbeat = setInterval(() => res.write(': ping\n\n'), 20000)
+  req.on('close', () => {
+    clearInterval(heartbeat)
+    dealsProgress.off('step', onStep)
+  })
+})
 
 // Slow by design — it drives a real browser across several retailers, so it is
 // a deliberate per-card action, not something the card list triggers on render.

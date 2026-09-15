@@ -1,5 +1,5 @@
 import { useState, useCallback } from 'react'
-import { motion, AnimatePresence } from 'framer-motion'
+import { motion, AnimatePresence, useReducedMotion } from 'framer-motion'
 import * as api from '../api.js'
 import { CATEGORY_COLOR } from './GuidesView.jsx'
 import ShareModal from './ShareModal.jsx'
@@ -36,6 +36,19 @@ function PriceBadge({ price, currency }) {
       {symbol}{parseFloat(price).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
     </div>
   )
+}
+
+// Turns a progress event into something a person can read. Each string maps to
+// a step the server is genuinely performing — nothing here is on a timer.
+function stepLabel(e) {
+  if (!e) return 'starting…'
+  if (e.step === 'search') {
+    return e.kind === 'exact' ? `checking ${e.source} for an exact match…` : `searching ${e.source}…`
+  }
+  if (e.step === 'query') return 'working out a search term…'
+  if (e.step === 'rank') return `sorting ${e.count} result${e.count === 1 ? '' : 's'}…`
+  if (e.step === 'done') return 'wrapping up…'
+  return 'checking…'
 }
 
 // One fetched listing. The source and the link are always shown: every row here
@@ -301,6 +314,10 @@ export default function Card({ card, onDelete, onUpdate, nowPlayingId, onPlay, o
   const [planExpanded, setPlanExpanded] = useState(false)
   const [dealsLoading, setDealsLoading] = useState(false)
   const [dealsExpanded, setDealsExpanded] = useState(false)
+  const [dealsStep, setDealsStep] = useState(null)
+  // index.css's reduced-motion rule can't reach Framer's JS-driven animations,
+  // and the status dot below pulses indefinitely — so it checks for itself.
+  const reduceMotion = useReducedMotion()
   const [sharing, setSharing] = useState(false)
 
   const hasEmbed = !!card.metadata?.embed_url
@@ -329,6 +346,16 @@ export default function Card({ card, onDelete, onUpdate, nowPlayingId, onPlay, o
   const handleFindDeals = useCallback(async (e) => {
     e.stopPropagation()
     setDealsLoading(true)
+    setDealsStep(null)
+
+    // Subscribe before starting the lookup, or the first phases are missed.
+    const es = new EventSource(api.dealsStreamUrl(card.id))
+    es.addEventListener('step', (ev) => {
+      try { setDealsStep(JSON.parse(ev.data)) } catch {}
+    })
+    // Give the stream a moment to connect, but never let it hold up the lookup.
+    await new Promise(resolve => { es.onopen = resolve; setTimeout(resolve, 1500) })
+
     try {
       const updated = await api.findDeals(card.id)
       onUpdate(updated)
@@ -336,7 +363,9 @@ export default function Card({ card, onDelete, onUpdate, nowPlayingId, onPlay, o
     } catch (err) {
       console.error('find deals failed:', err.message)
     } finally {
+      es.close()
       setDealsLoading(false)
+      setDealsStep(null)
     }
   }, [card.id, onUpdate])
 
@@ -437,6 +466,30 @@ export default function Card({ card, onDelete, onUpdate, nowPlayingId, onPlay, o
         )}
 
         {canEdit && <NotesEditor card={card} onSave={handleSaveNotes} />}
+
+        {/* Live lookup status — the card stops looking static while ~40s of real
+            page fetching happens, and says what is actually happening. */}
+        {dealsLoading && (
+          <div className="mt-3 flex items-center gap-2 text-xs" style={{ color: 'var(--s-text-3)' }}>
+            <motion.span
+              animate={reduceMotion ? { opacity: 1 } : { opacity: [1, 0.25, 1] }}
+              transition={reduceMotion ? { duration: 0 } : { duration: 1.3, repeat: Infinity, ease: 'easeInOut' }}
+              style={{ width: 6, height: 6, borderRadius: '50%', background: 'var(--s-accent)', flexShrink: 0 }}
+            />
+            <AnimatePresence mode="wait">
+              <motion.span
+                key={stepLabel(dealsStep)}
+                initial={reduceMotion ? false : { opacity: 0, y: 2 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={reduceMotion ? { opacity: 1 } : { opacity: 0, y: -2 }}
+                transition={{ duration: reduceMotion ? 0 : 0.18 }}
+                className="truncate"
+              >
+                {stepLabel(dealsStep)}
+              </motion.span>
+            </AnimatePresence>
+          </div>
+        )}
 
         {/* Deals panel — cheaper exact matches first, similar items behind a toggle */}
         {deals && (deals.cheaper?.length > 0 || deals.similar?.length > 0) && (
