@@ -16,6 +16,7 @@ import { mountGuide, ensureGuideTable, CATEGORIES } from './guide.js'
 import { mountChat, logActivity } from './chat.js'
 import { mountHostedHub } from './hosted-hub.js'
 import { buildShareUrl } from './gateway.js'
+import { findDeals } from './deals.js'
 chromium.use(StealthPlugin())
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
@@ -1270,7 +1271,43 @@ function heroImage(html) {
   return html.match(/<link[^>]+rel="image_src"[^>]+href="(https?:[^"]+)"/)?.[1] || null
 }
 
-function extractFromHtml(html) {
+const stripTags = (h) => decodeHtmlEntities(h.replace(/<[^>]+>/g, ' ')).replace(/\s+/g, ' ').trim()
+
+// Currency isn't in Amazon's price blob, but the storefront TLD settles it.
+const TLD_CURRENCY = [['.com.au', 'AUD'], ['.co.uk', 'GBP'], ['.co.jp', 'JPY'], ['.com.br', 'BRL'],
+                      ['.ca', 'CAD'], ['.de', 'EUR'], ['.fr', 'EUR'], ['.it', 'EUR'], ['.es', 'EUR'],
+                      ['.nl', 'EUR'], ['.in', 'INR'], ['.com', 'USD']]
+function currencyFromUrl(url = '') {
+  const host = (url.match(/^https?:\/\/([^/]+)/)?.[1] || '').toLowerCase()
+  return TLD_CURRENCY.find(([tld]) => host.endsWith(tld))?.[1] || null
+}
+
+// Identifiers that let us find the SAME item elsewhere rather than something
+// that merely looks like it. A UPC/EAN is a real GTIN and is the only exact
+// handle we get; ASIN pins the Amazon listing; brand+model is the fallback
+// when there's no GTIN. Amazon's detail table is a plain <th>/<td> grid.
+const ID_KEYS = {
+  'upc': 'gtin', 'ean': 'gtin', 'gtin': 'gtin',
+  'model number': 'model', 'item model number': 'model', 'model name': 'model',
+  'part number': 'mpn', 'manufacturer part number': 'mpn',
+  'brand': 'brand', 'manufacturer': 'manufacturer'
+}
+function extractIdentifiers(html, url = '') {
+  const ids = {}
+  const asin = url.match(/\/(?:dp|gp\/product)\/(B[A-Z0-9]{9})/)?.[1]
+  if (asin) ids.asin = asin
+  for (const m of html.matchAll(/<tr[^>]*>\s*<th[^>]*>([\s\S]{0,200}?)<\/th>\s*<td[^>]*>([\s\S]{0,300}?)<\/td>/g)) {
+    const field = ID_KEYS[stripTags(m[1]).toLowerCase()]
+    const value = stripTags(m[2])
+    if (field && value && value.length < 60 && !ids[field]) ids[field] = value
+  }
+  // A GTIN is 8-14 digits; reject the junk a mislabelled cell can leave behind.
+  if (ids.gtin && !/^\d{8,14}$/.test(ids.gtin.replace(/[\s-]/g, ''))) delete ids.gtin
+  else if (ids.gtin) ids.gtin = ids.gtin.replace(/[\s-]/g, '')
+  return ids
+}
+
+function extractFromHtml(html, url = '') {
   const getMeta = (prop) =>
     html.match(new RegExp(`property="${prop}"[^>]*content="([^"]+)"`))?.[1] ||
     html.match(new RegExp(`content="([^"]+)"[^>]*property="${prop}"`))?.[1] ||
@@ -1310,6 +1347,14 @@ function extractFromHtml(html) {
     currency = getMeta('product:price:currency') || getMeta('og:price:currency') || 'USD'
   }
 
+  // Amazon builds its price in JS and ships no price meta tag, but the number
+  // is in an embedded JSON blob — stabler than scraping .a-price spans.
+  if (!price) {
+    const amt = html.match(/"priceAmount"\s*:\s*([\d.]+)/)?.[1]
+    if (amt && Number(amt) > 0) price = amt
+  }
+  if (price) currency = currencyFromUrl(url) || currency
+
   if (!image) image = heroImage(html) || ''
 
   const imgCandidates = [...new Set(
@@ -1318,11 +1363,11 @@ function extractFromHtml(html) {
       .filter(s => /\.(jpg|jpeg|png|webp)/i.test(s) && !isJunkImage(s))
   )].slice(0, 25)
 
-  return { title, image: image || null, price, currency, ogDescription, imgCandidates }
+  return { title, image: image || null, price, currency, ogDescription, imgCandidates, identifiers: extractIdentifiers(html, url) }
 }
 
 async function scrapeAndUpdate(card, html) {
-  let { title, image, price, currency, ogDescription, imgCandidates } = extractFromHtml(html)
+  let { title, image, price, currency, ogDescription, imgCandidates, identifiers } = extractFromHtml(html, card.url)
   if (/facebook\.com|fb\.watch/.test(card.url)) title = cleanFacebookTitle(title)
 
   const lmUrl = process.env.LM_STUDIO_URL || 'http://localhost:1234'
@@ -1363,6 +1408,9 @@ async function scrapeAndUpdate(card, html) {
   const metadata = { ...(card.metadata || {}) }
   if (price) metadata.price = price
   if (currency) metadata.currency = currency
+  if (identifiers && Object.keys(identifiers).length) {
+    metadata.identifiers = { ...(metadata.identifiers || {}), ...identifiers }
+  }
 
   return {
     title: title || card.title,
@@ -1401,6 +1449,28 @@ app.post('/api/cards/:id/scrape', adminOnly, async (req, res) => {
     res.json(rows[0])
   } catch (err) {
     console.error('scrape error:', err.message)
+    res.status(500).json({ error: err.message })
+  }
+})
+
+// ── Deals: the same item cheaper, and similar items ─────────────────────────
+
+// Slow by design — it drives a real browser across several retailers, so it is
+// a deliberate per-card action, not something the card list triggers on render.
+app.post('/api/cards/:id/deals', adminOnly, async (req, res) => {
+  try {
+    const card = await ownedCard(req, res, { enrich: true })
+    if (!card) return
+
+    const deals = await findDeals(card)
+    const metadata = { ...(card.metadata || {}), deals }
+    const { rows } = await pool.query(
+      `UPDATE cards SET metadata=$1 WHERE id=$2 RETURNING *`,
+      [JSON.stringify(metadata), card.id]
+    )
+    res.json(rows[0])
+  } catch (err) {
+    console.error('deals error:', err.message)
     res.status(500).json({ error: err.message })
   }
 })

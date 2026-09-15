@@ -38,6 +38,30 @@ function PriceBadge({ price, currency }) {
   )
 }
 
+// One fetched listing. The source and the link are always shown: every row here
+// was scraped from a real page, and the user gets to check it.
+function DealRow({ deal, ownPrice }) {
+  const saving = ownPrice && deal.price < ownPrice ? ownPrice - deal.price : 0
+  return (
+    <a
+      href={deal.url}
+      target="_blank"
+      rel="noopener noreferrer"
+      onClick={(e) => e.stopPropagation()}
+      className="flex items-center gap-2 text-xs py-1 px-1.5 rounded"
+      style={{ color: 'var(--s-text-2)', textDecoration: 'none' }}
+    >
+      <span className="font-bold" style={{ color: saving ? 'var(--s-accent)' : 'var(--s-text-2)' }}>
+        ${parseFloat(deal.price).toFixed(2)}
+      </span>
+      <span className="flex-1 truncate" title={deal.title}>{deal.title}</span>
+      <span style={{ color: 'var(--s-text-3)', whiteSpace: 'nowrap' }}>
+        {deal.source}{saving ? ` · save $${saving.toFixed(2)}` : ''}
+      </span>
+    </a>
+  )
+}
+
 // Pop-out (picture-in-picture) control — lifts the media into the floating player
 function PopButton({ onClick }) {
   return (
@@ -275,11 +299,16 @@ export default function Card({ card, onDelete, onUpdate, nowPlayingId, onPlay, o
   const [descExpanded, setDescExpanded] = useState(false)
   const [planGenerating, setPlanGenerating] = useState(false)
   const [planExpanded, setPlanExpanded] = useState(false)
+  const [dealsLoading, setDealsLoading] = useState(false)
+  const [dealsExpanded, setDealsExpanded] = useState(false)
   const [sharing, setSharing] = useState(false)
 
   const hasEmbed = !!card.metadata?.embed_url
   const hasMedia = hasEmbed || card.thumbnail_url
   const plan = card.metadata?.plan || null
+  const deals = card.metadata?.deals || null
+  // Only offer a price lookup on cards that are actually a purchasable thing.
+  const isProduct = !!(card.metadata?.price || card.metadata?.identifiers)
 
   const handleSaveNotes = async (id, notes) => {
     const updated = await api.updateCard(id, { title: card.title, description: card.description, notes })
@@ -294,6 +323,20 @@ export default function Card({ card, onDelete, onUpdate, nowPlayingId, onPlay, o
       onUpdate(updated)
     } finally {
       setScraping(false)
+    }
+  }, [card.id, onUpdate])
+
+  const handleFindDeals = useCallback(async (e) => {
+    e.stopPropagation()
+    setDealsLoading(true)
+    try {
+      const updated = await api.findDeals(card.id)
+      onUpdate(updated)
+      setDealsExpanded(true)
+    } catch (err) {
+      console.error('find deals failed:', err.message)
+    } finally {
+      setDealsLoading(false)
     }
   }, [card.id, onUpdate])
 
@@ -395,6 +438,42 @@ export default function Card({ card, onDelete, onUpdate, nowPlayingId, onPlay, o
 
         {canEdit && <NotesEditor card={card} onSave={handleSaveNotes} />}
 
+        {/* Deals panel — cheaper exact matches first, similar items behind a toggle */}
+        {deals && (deals.cheaper?.length > 0 || deals.similar?.length > 0) && (
+          <div className="mt-3">
+            {deals.cheaper?.length > 0 && (
+              <div className="mb-1">
+                <div className="text-xs mb-0.5" style={{ color: 'var(--s-accent)' }}>same item, cheaper</div>
+                {deals.cheaper.map(d => <DealRow key={d.url} deal={d} ownPrice={deals.own_price} />)}
+              </div>
+            )}
+            {deals.similar?.length > 0 && (
+              <>
+                <button
+                  onClick={(e) => { e.stopPropagation(); setDealsExpanded(v => !v) }}
+                  className="text-xs flex items-center gap-1"
+                  style={{ color: 'var(--s-text-3)' }}
+                >
+                  <span style={{ fontSize: 10 }}>{dealsExpanded ? '▾' : '▸'}</span>
+                  {deals.similar.length} similar
+                </button>
+                <AnimatePresence>
+                  {dealsExpanded && (
+                    <motion.div
+                      initial={{ opacity: 0, height: 0 }}
+                      animate={{ opacity: 1, height: 'auto' }}
+                      exit={{ opacity: 0, height: 0 }}
+                      style={{ overflow: 'hidden' }}
+                    >
+                      {deals.similar.map(d => <DealRow key={d.url} deal={d} ownPrice={deals.own_price} />)}
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+              </>
+            )}
+          </div>
+        )}
+
         {/* Plan panel */}
         {plan && (
           <div className="mt-3">
@@ -443,6 +522,14 @@ export default function Card({ card, onDelete, onUpdate, nowPlayingId, onPlay, o
               style={{ color: scraping ? 'var(--s-border)' : 'var(--s-text-3)', background: 'transparent' }}
             >
               {scraping ? 'scraping…' : 'scrape'}
+            </button>}
+            {canServerAI && isProduct && <button
+              onClick={handleFindDeals}
+              disabled={dealsLoading}
+              className="text-xs px-2 py-1 rounded"
+              style={{ color: dealsLoading ? 'var(--s-border)' : deals ? 'var(--s-text-3)' : 'var(--s-accent)', background: 'transparent' }}
+            >
+              {dealsLoading ? 'checking…' : deals ? 'recheck price' : 'find cheaper'}
             </button>}
             {canServerAI && card.type === 'youtube' && (
               <button
