@@ -1271,7 +1271,13 @@ function heroImage(html) {
   return html.match(/<link[^>]+rel="image_src"[^>]+href="(https?:[^"]+)"/)?.[1] || null
 }
 
-const stripTags = (h) => decodeHtmlEntities(h.replace(/<[^>]+>/g, ' ')).replace(/\s+/g, ' ').trim()
+// Amazon's detail-table cells are padded with bidi/zero-width marks (U+200E
+// and friends), which JS's \s does not match — left in, they corrupt every
+// identifier and any search query built from one.
+const stripTags = (h) => decodeHtmlEntities(h.replace(/<[^>]+>/g, ' '))
+  .replace(/[\u200b-\u200f\u202a-\u202e\ufeff]/g, '')
+  .replace(/\s+/g, ' ')
+  .trim()
 
 // Currency isn't in Amazon's price blob, but the storefront TLD settles it.
 const TLD_CURRENCY = [['.com.au', 'AUD'], ['.co.uk', 'GBP'], ['.co.jp', 'JPY'], ['.com.br', 'BRL'],
@@ -1366,8 +1372,11 @@ function extractFromHtml(html, url = '') {
   return { title, image: image || null, price, currency, ogDescription, imgCandidates, identifiers: extractIdentifiers(html, url) }
 }
 
-async function scrapeAndUpdate(card, html) {
-  let { title, image, price, currency, ogDescription, imgCandidates, identifiers } = extractFromHtml(html, card.url)
+// `finalUrl` is the URL after redirects. It matters: a shortened share link
+// (amzn.asia/d/...) has no /dp/ segment to read an ASIN from and no country
+// TLD to read a currency from, but the page it lands on has both.
+async function scrapeAndUpdate(card, html, finalUrl) {
+  let { title, image, price, currency, ogDescription, imgCandidates, identifiers } = extractFromHtml(html, finalUrl || card.url)
   if (/facebook\.com|fb\.watch/.test(card.url)) title = cleanFacebookTitle(title)
 
   const lmUrl = process.env.LM_STUDIO_URL || 'http://localhost:1234'
@@ -1428,6 +1437,7 @@ app.post('/api/cards/:id/scrape', adminOnly, async (req, res) => {
 
     // Use a real headless Chromium browser — bypasses TLS fingerprinting and JS rendering
     let html = ''
+    let finalUrl = card.url
     const browser = await chromium.launch({ headless: true })
     try {
       const page = await browser.newPage()
@@ -1436,11 +1446,12 @@ app.post('/api/cards/:id/scrape', adminOnly, async (req, res) => {
       // Wait a beat for JS-rendered content (prices, images)
       await page.waitForTimeout(2000)
       html = await page.content()
+      finalUrl = page.url() || card.url
     } finally {
       await browser.close()
     }
 
-    const updates = await scrapeAndUpdate(card, html)
+    const updates = await scrapeAndUpdate(card, html, finalUrl)
     const { rows } = await pool.query(
       `UPDATE cards SET title=$1, thumbnail_url=$2, description=$3, metadata=$4 WHERE id=$5 RETURNING *`,
       [updates.title, updates.thumbnail_url, updates.description, JSON.stringify(updates.metadata), card.id]
