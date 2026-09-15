@@ -1235,6 +1235,41 @@ publicRouter.get('/s/c/:token', async (req, res) => {
   res.send(renderSharedCard(rows[0], `${proto}://${req.get('host')}${req.originalUrl}`))
 })
 
+// Product pages like Amazon's carry no og:image and no JSON-LD, and the first
+// <img> on the page is a "fast, free delivery" banner strip — so the old
+// "first candidate wins" fallback reliably picked marketing chrome over the
+// product. heroImage() reads the main image the page itself marks up, and
+// isJunkImage() keeps banners, avatars and 40px thumbnails out of the
+// candidate list that still feeds the fallback.
+const IMG_JUNK = /\/images\/G\/|\/sash\/|avatars|aplus-media|icon|logo|sprite|pixel|tracking|beacon|swatch|badge/i
+
+function isJunkImage(url) {
+  if (IMG_JUNK.test(url)) return true
+  // Size baked into the filename: a 400x39 strip is a banner, not a product.
+  const dims = url.match(/(\d{2,4})x(\d{2,4})/)
+  if (dims) {
+    const w = +dims[1], h = +dims[2]
+    if (h < 100 || w / h > 3 || h / w > 3) return true
+  }
+  // Amazon render-size suffixes (_SX425_, _UL232_, _US40_) under 100px are thumbnails.
+  return /_(?:S[XY]|U[LFY]|US)([1-9]?\d)_/.test(url)
+}
+
+function heroImage(html) {
+  const hires = html.match(/data-old-hires="(https?:[^"]+)"/)?.[1]
+  if (hires) return decodeHtmlEntities(hires)
+  // Amazon's #landingImage carries a {url: [w,h]} map — take the widest.
+  const dyn = html.match(/data-a-dynamic-image="([^"]+)"/)?.[1]
+  if (dyn) {
+    try {
+      const map = JSON.parse(decodeHtmlEntities(dyn))
+      const best = Object.entries(map).sort((a, b) => (b[1]?.[0] || 0) - (a[1]?.[0] || 0))[0]
+      if (best) return best[0]
+    } catch {}
+  }
+  return html.match(/<link[^>]+rel="image_src"[^>]+href="(https?:[^"]+)"/)?.[1] || null
+}
+
 function extractFromHtml(html) {
   const getMeta = (prop) =>
     html.match(new RegExp(`property="${prop}"[^>]*content="([^"]+)"`))?.[1] ||
@@ -1275,10 +1310,12 @@ function extractFromHtml(html) {
     currency = getMeta('product:price:currency') || getMeta('og:price:currency') || 'USD'
   }
 
+  if (!image) image = heroImage(html) || ''
+
   const imgCandidates = [...new Set(
     [...html.matchAll(/<img[^>]+src="(https?:[^"]+)"/gi)]
       .map(m => m[1])
-      .filter(s => /\.(jpg|jpeg|png|webp)/i.test(s) && !/icon|logo|sprite|pixel|tracking|beacon/i.test(s))
+      .filter(s => /\.(jpg|jpeg|png|webp)/i.test(s) && !isJunkImage(s))
   )].slice(0, 25)
 
   return { title, image: image || null, price, currency, ogDescription, imgCandidates }
