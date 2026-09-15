@@ -465,7 +465,9 @@ export default function Card({ card, onDelete, onUpdate, nowPlayingId, onPlay, o
                       exit={{ opacity: 0, height: 0 }}
                       style={{ overflow: 'hidden' }}
                     >
-                      {deals.similar.map(d => <DealRow key={d.url} deal={d} ownPrice={deals.own_price} />)}
+                      {/* No saving shown here on purpose: these are different
+                          products, so "save $92" against them would be a lie. */}
+                      {deals.similar.map(d => <DealRow key={d.url} deal={d} ownPrice={null} />)}
                     </motion.div>
                   )}
                 </AnimatePresence>
