@@ -3,13 +3,13 @@ import express from 'express'
 import cors from 'cors'
 import pg from 'pg'
 import { createServer } from 'http'
-import { readFile } from 'fs/promises'
+import { readFile, writeFile, mkdir } from 'fs/promises'
 import { fileURLToPath } from 'url'
 import { dirname, join } from 'path'
 import { chromium } from 'playwright-extra'
 import StealthPlugin from 'puppeteer-extra-plugin-stealth'
 import { YoutubeTranscript } from 'youtube-transcript'
-import { randomBytes } from 'crypto'
+import { randomBytes, createHash } from 'crypto'
 import { makeHub } from './hub.js'
 import { mountDrive } from './drive.js'
 import { mountGuide, ensureGuideTable, CATEGORIES } from './guide.js'
@@ -155,6 +155,28 @@ async function fetchOpenGraph(url) {
   } catch (e) {
     return {}
   }
+}
+
+// Same default drive.js uses, so cached thumbs land in the one persistent volume.
+const THUMBS_DIR = join(process.env.UPLOADS_DIR || join(process.cwd(), 'uploads'), 'thumbs')
+
+// Instagram/Facebook OG images are short-lived signed CDN URLs (cdninstagram /
+// fbcdn) that 403 once the signature expires, so a stored card renders a broken
+// image. Download the bytes while the signature is still fresh and serve our own
+// copy from /thumbs. Any other host, or any failure, falls back to the raw URL.
+async function cacheThumb(imageUrl) {
+  if (!imageUrl || !/cdninstagram\.com|fbcdn\.net/.test(imageUrl)) return imageUrl
+  try {
+    const res = await fetch(imageUrl, {
+      headers: { 'User-Agent': OG_USER_AGENTS[2], 'Referer': 'https://www.instagram.com/' },
+      signal: AbortSignal.timeout(8000)
+    })
+    if (!res.ok) return imageUrl
+    const name = createHash('md5').update(imageUrl).digest('hex') + '.jpg'
+    await mkdir(THUMBS_DIR, { recursive: true })
+    await writeFile(join(THUMBS_DIR, name), Buffer.from(await res.arrayBuffer()))
+    return `/thumbs/${name}`
+  } catch { return imageUrl }
 }
 
 async function followRedirect(url) {
@@ -361,7 +383,7 @@ async function resolvePlatform(rawUrl) {
     return {
       type: 'instagram', media_id: code || null,
       title: og.title || '',
-      thumbnail_url: og.image || null,
+      thumbnail_url: (await cacheThumb(og.image)) || null,
       og_description: og.description || null,
       embed_url: code ? `https://www.instagram.com/p/${code}/embed/` : null,
       aspect: isReel ? '9:16' : '1:1'
@@ -420,7 +442,7 @@ async function resolvePlatform(rawUrl) {
     return {
       type: 'facebook', media_id: null,
       title: cleanFacebookTitle(og.title),
-      thumbnail_url: og.image || null,
+      thumbnail_url: (await cacheThumb(og.image)) || null,
       embed_url: embedUrl,
       aspect: isReel ? '9:16' : isVideo ? '16:9' : null
     }
@@ -1182,6 +1204,10 @@ function renderSharedCard(card, shareUrl) {
   try { if (card.url) hostFallback = new URL(card.url).hostname } catch {}
   const title = card.title || hostFallback
   const desc = card.description || ''
+  // og:image must be absolute; a cached thumb is a site-relative /thumbs/ path.
+  const ogImage = card.thumbnail_url
+    ? (card.thumbnail_url.startsWith('/') ? new URL(card.thumbnail_url, shareUrl).href : card.thumbnail_url)
+    : ''
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -1190,7 +1216,7 @@ function renderSharedCard(card, shareUrl) {
 <title>${escHtml(title)}</title>
 <meta property="og:title" content="${escHtml(title)}">
 ${desc ? `<meta property="og:description" content="${escHtml(desc)}">` : ''}
-${card.thumbnail_url ? `<meta property="og:image" content="${escHtml(card.thumbnail_url)}">` : ''}
+${ogImage ? `<meta property="og:image" content="${escHtml(ogImage)}">` : ''}
 <meta property="og:url" content="${escHtml(shareUrl)}">
 <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
 <style>
@@ -1688,6 +1714,10 @@ mountDrive({ app, pool, adminOnly, adminOrToken, lmComplete, hub, publicRouter }
 mountGuide({ app, pool, adminOnly, adminOrToken, hub, publicRouter })
 mountChat({ app, pool, adminOnly, adminOrToken, hub, lmComplete })
 mountHostedHub({ app, httpServer, mainPool: pool })
+
+// Locally cached social thumbnails (see cacheThumb). On publicRouter so share
+// links work both on the main app and on the standalone gateway port.
+publicRouter.use('/thumbs', express.static(THUMBS_DIR, { maxAge: '30d' }))
 
 app.use(publicRouter)
 
