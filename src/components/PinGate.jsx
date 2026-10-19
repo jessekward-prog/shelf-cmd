@@ -104,6 +104,21 @@ export default function PinGate({ children }) {
   }, [])
 
   useEffect(() => {
+    const onKey = (e) => {
+      // e.key only reports a digit for the numpad when Num Lock is ON; with it
+      // off those same physical keys send Home/End/PageUp/Insert. e.code is
+      // physical and unaffected, so both are tested.
+      const digit = /^[0-9]$/.test(e.key) ? e.key
+        : /^Numpad[0-9]$/.test(e.code) ? e.code.slice(6)
+        : null
+      if (digit) handleDigit(digit)
+      else if (e.key === 'Backspace') handleBack()
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [handleDigit, handleBack])
+
+  useEffect(() => {
     if (digits.length < PIN_LENGTH) return
 
     if (mode === 'setup') {
