@@ -10,6 +10,7 @@
 
 import { io as ioClient } from 'socket.io-client'
 import { EventEmitter } from 'events'
+import { cacheThumb } from './thumbs.js'
 
 // No baked-in fallback here on purpose — the previous default silently
 // pointed every self-hosted instance at jessekward-prog's own Railway hub,
@@ -303,6 +304,7 @@ export function makeHub(pool) {
         const { rows: tab } = await pool.query(
           'SELECT id FROM subcategories WHERE hub_tab_id=$1 AND category_id=$2', [c.tab_id, categoryId]
         )
+        const thumb = await cacheThumb(c.thumbnail_url)
         await pool.query(
           `INSERT INTO cards (category_id, subcategory_id, hub_card_id, hub_user_id, type, url, title,
                               description, thumbnail_url, youtube_id, notes, metadata, category, status)
@@ -312,7 +314,7 @@ export function makeHub(pool) {
                          thumbnail_url=$9, notes=$11, metadata=$12,
                          category=COALESCE($13, cards.category)`,
           [categoryId, tab[0]?.id || null, c.id, c.user_id, c.type, c.url, c.title, c.description,
-           c.thumbnail_url, c.media_id, c.notes, JSON.stringify(c.metadata || {}), c.category || null]
+           thumb, c.media_id, c.notes, JSON.stringify(c.metadata || {}), c.category || null]
         )
       }
 
