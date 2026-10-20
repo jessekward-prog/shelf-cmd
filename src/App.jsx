@@ -355,8 +355,8 @@ export default function App({ me }) {
         />
 
         {/* Banner — a splash screen only makes sense on the phone */}
-        <div className="lg:hidden max-w-2xl mx-auto" style={{ borderTop: '2px solid #6b0f0f', borderBottom: '2px solid #6b0f0f' }}>
-          <img src="/banner.png" alt="Shelfstation" className="w-full block" />
+        <div className="lg:hidden max-w-2xl mx-auto flex justify-center" style={{ borderTop: '2px solid #6b0f0f', borderBottom: '2px solid #6b0f0f' }}>
+          <img src="/banner.png" alt="Shelfstation" className="block" style={{ height: 46, width: 'auto', maxWidth: '100%' }} />
         </div>
 
         {/* Centered column on mobile, full bleed beside the sidebar on desktop */}
@@ -546,7 +546,7 @@ export default function App({ me }) {
           onClick={() => setShowAddCard(true)}
           className="lg:hidden fixed right-6 w-14 h-14 rounded-full flex items-center justify-center text-2xl font-light z-40"
           style={{
-            bottom: 'calc(3.5rem + env(safe-area-inset-bottom))',
+            bottom: 'calc(3.5rem + env(safe-area-inset-bottom) + 52px)',
             background: 'var(--s-accent)',
             color: 'var(--s-bg)',
             boxShadow: '0 0 24px var(--s-accent-glow), 0 4px 16px rgba(0,0,0,0.4)'

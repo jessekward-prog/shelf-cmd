@@ -8,9 +8,32 @@
   to { transform: rotate(360deg) }
 }
 
+/* Card hover. This fires constantly while reading a shelf, so it stays at a
+   border and surface shift — the old spring-scaled 1.03 lift re-rendered and
+   re-stacked a card every time the pointer crossed one. */
+.shelf-card {
+  transition: border-color 150ms var(--ease-out), background-color 150ms var(--ease-out);
+}
+.shelf-card:hover {
+  border-color: var(--s-text-3);
+  background: var(--s-surface-2);
+}
+
+/* Single column (260px min track + gap won't fit two) — nothing to align to,
+   so a portrait poster gets its real height back instead of a letterbox. */
+@media (max-width: 555px) {
+  .poster { padding-bottom: var(--poster-true, 56.25%) !important; }
+}
+
+/* Counts and prices shouldn't jitter as their digits change. */
+.tabular { font-variant-numeric: tabular-nums; }
+
 /* ── Shelf design tokens (phosphor default) ─────────────────────────────── */
 :root {
   --s-font:    'JetBrains Mono', 'Fira Mono', monospace;
+  /* The browser defaults are too slack to read as deliberate. */
+  --ease-out:    cubic-bezier(0.23, 1, 0.32, 1);
+  --ease-in-out: cubic-bezier(0.77, 0, 0.175, 1);
   --s-overlay: 1;
   /* Where floating pills sit: above the mobile bottom bar, off the bottom edge on desktop. */
   --s-dock:    calc(3.5rem + env(safe-area-inset-bottom) + 10px);
@@ -24,8 +47,8 @@
   --s-accent-strong:rgba(232,132,10,0.9);
   --s-text-0:       #e8a040;
   --s-text-1:       #c8a060;
-  --s-text-2:       #7a5c00;
-  --s-text-3:       #4a3800;
+  --s-text-2:       #b28700;
+  --s-text-3:       #a17a00;
 }
 
 /* ── Synthwave ──────────────────────────────────────────────────────────── */
@@ -40,8 +63,8 @@ html.theme-synthwave {
   --s-accent-strong:rgba(255,46,170,0.9);
   --s-text-0:       #ff80d0;
   --s-text-1:       #cc88cc;
-  --s-text-2:       #775599;
-  --s-text-3:       #553377;
+  --s-text-2:       #a288bd;
+  --s-text-3:       #9a72c2;
 }
 html.theme-synthwave body::before {
   content: '';
@@ -61,8 +84,8 @@ html.theme-matrix {
   --s-accent-strong:rgba(0,255,0,0.9);
   --s-text-0:       #33ff33;
   --s-text-1:       #22cc22;
-  --s-text-2:       #117711;
-  --s-text-3:       #0a5510;
+  --s-text-2:       #18a818;
+  --s-text-3:       #12951c;
 }
 
 /* ── Ice Protocol ───────────────────────────────────────────────────────── */
@@ -77,8 +100,8 @@ html.theme-ice {
   --s-accent-strong:rgba(0,188,212,0.9);
   --s-text-0:       #80d8e8;
   --s-text-1:       #7099b0;
-  --s-text-2:       #456678;
-  --s-text-3:       #2a3e4c;
+  --s-text-2:       #7098ad;
+  --s-text-3:       #5b87a5;
 }
 
 /* ── Void Purple ────────────────────────────────────────────────────────── */
@@ -93,8 +116,8 @@ html.theme-void {
   --s-accent-strong:rgba(168,85,247,0.9);
   --s-text-0:       #d4a0ff;
   --s-text-1:       #9088aa;
-  --s-text-2:       #605878;
-  --s-text-3:       #3a3450;
+  --s-text-2:       #948cab;
+  --s-text-3:       #847aa8;
 }
 
 /* ── Ember ──────────────────────────────────────────────────────────────── */
@@ -109,8 +132,8 @@ html.theme-ember {
   --s-accent-strong:rgba(255,69,0,0.9);
   --s-text-0:       #ff8060;
   --s-text-1:       #c08878;
-  --s-text-2:       #6e5848;
-  --s-text-3:       #4a3828;
+  --s-text-2:       #aa907d;
+  --s-text-3:       #a37c58;
 }
 
 /* ── CMD (black + white) ────────────────────────────────────────────────── */
@@ -125,8 +148,8 @@ html.theme-cmd {
   --s-accent-strong:rgba(255,255,255,0.95);
   --s-text-0:       #ffffff;
   --s-text-1:       #b0b0b0;
-  --s-text-2:       #666666;
-  --s-text-3:       #444444;
+  --s-text-2:       #8d8d8d;
+  --s-text-3:       #7f7f7f;
 }
 
 /* ── Slate (clean dark, blue accent) ────────────────────────────────────── */
@@ -141,8 +164,8 @@ html.theme-slate {
   --s-accent-strong:rgba(91,141,238,0.9);
   --s-text-0:       #e8eaf0;
   --s-text-1:       #9aa5b8;
-  --s-text-2:       #5d6a80;
-  --s-text-3:       #404858;
+  --s-text-2:       #99a3b5;
+  --s-text-3:       #8993a9;
 }
 
 /* ── Nord (navy + frost) ────────────────────────────────────────────────── */
@@ -157,8 +180,8 @@ html.theme-nord {
   --s-accent-strong:rgba(136,192,208,0.9);
   --s-text-0:       #eceff4;
   --s-text-1:       #d8dee9;
-  --s-text-2:       #81879a;
-  --s-text-3:       #5a6178;
+  --s-text-2:       #bfc2cc;
+  --s-text-3:       #abb0c0;
 }
 
 /* ── Rose (dark rose) ───────────────────────────────────────────────────── */
@@ -173,8 +196,8 @@ html.theme-rose {
   --s-accent-strong:rgba(232,130,154,0.9);
   --s-text-0:       #f0c0cc;
   --s-text-1:       #b8889a;
-  --s-text-2:       #7a5065;
-  --s-text-3:       #4a2d40;
+  --s-text-2:       #b1889d;
+  --s-text-3:       #ab7498;
 }
 
 /* ── Paper (light) ──────────────────────────────────────────────────────── */
@@ -189,8 +212,8 @@ html.theme-paper {
   --s-accent-strong:rgba(45,106,79,0.9);
   --s-text-0:       #1a1a1a;
   --s-text-1:       #444444;
-  --s-text-2:       #888888;
-  --s-text-3:       #bbbbbb;
+  --s-text-2:       #5f5f5f;
+  --s-text-3:       #6e6e6e;
 }
 
 /* ── Vaporwave (16-bit pixel city) ─────────────────────────────────────── */
@@ -205,8 +228,8 @@ html.theme-vapor {
   --s-accent-strong:rgba(255,45,155,0.95);
   --s-text-0:       #ff9ee0;
   --s-text-1:       #cc88ff;
-  --s-text-2:       #7744aa;
-  --s-text-3:       #3a1a5c;
+  --s-text-2:       #a57ecb;
+  --s-text-3:       #9d69d4;
 }
 
 /* Orbitron wordmark — geometric, vaporwave-premium */

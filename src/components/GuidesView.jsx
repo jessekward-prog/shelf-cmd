@@ -20,11 +20,11 @@ export const CATEGORY_COLOR = Object.fromEntries(CATEGORIES.map(c => [c.id, c.co
 
 export function Legend() {
   return (
-    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px 14px', marginBottom: 14 }}>
+    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px 10px', marginBottom: 14 }}>
       {CATEGORIES.map(c => (
         <div key={c.id} style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
           <span style={{ width: 7, height: 7, borderRadius: '50%', background: c.color, flexShrink: 0 }} />
-          <span style={{ fontSize: 10, letterSpacing: '0.1em', textTransform: 'uppercase', color: 'var(--s-text-3)' }}>{c.label}</span>
+          <span style={{ fontSize: 10, letterSpacing: '0.06em', textTransform: 'uppercase', color: 'var(--s-text-2)' }}>{c.label}</span>
         </div>
       ))}
     </div>

@@ -106,6 +106,16 @@ function decodeHtmlEntities(str) {
     .replace(/&#x([0-9a-f]+);/gi, (_, h) => String.fromCharCode(parseInt(h, 16)))
 }
 
+// Instagram and Facebook wrap a post's caption in engagement stats, so the
+// og:description reads "29K likes, 14K comments - user on October 3, 2026:
+// \"the actual caption\"". The stats are stale the moment they're stored and
+// push the real text out of a card's preview, so keep only the caption.
+function cleanSocialCaption(text) {
+  if (!text) return text
+  const m = text.match(/^[\d.,KMB]+\s+likes?,\s*[\d.,KMB]+\s+comments?\s+-\s+[^:]{1,80}:\s*"([\s\S]*)"\.?\s*$/)
+  return m ? m[1].trim() : text
+}
+
 const OG_USER_AGENTS = [
   'Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)',
   'facebookexternalhit/1.1 (+http://www.facebook.com/externalhit_uatext.php)',
@@ -141,7 +151,7 @@ async function fetchOpenGraph(url) {
       ? (rawTitle.split(/[.!?\n]/)[0].slice(0, 120) || rawTitle.slice(0, 120))
       : rawTitle
     const image = decodeHtmlEntities(get('og:image') || get('twitter:image') || '') || null
-    const description = get('og:description') || get('twitter:description') || null
+    const description = cleanSocialCaption(get('og:description') || get('twitter:description')) || null
 
     // Price — look in product:price, schema.org JSON-LD, or common price meta tags
     let price = get('product:price:amount') || get('og:price:amount') || null
@@ -1011,8 +1021,15 @@ async function processCard(card) {
       metadata = { embed_url: platform.embed_url, aspect: platform.aspect }
       if (platform.price) metadata.price = platform.price
       if (platform.currency) metadata.currency = platform.currency
-      if (!description && (title || platform.og_description)) {
-        description = await generateDescription(title || platform.og_description, url)
+      // Same rule the scrape path uses: a long first-party caption is better
+      // copy than a generated blurb, and it's what plan generation reads. Fall
+      // back to the caption too, so an unreachable model leaves text behind
+      // rather than a blank card.
+      const caption = platform.og_description || ''
+      if (!description && (title || caption)) {
+        description = caption.length >= CAPTION_MIN
+          ? caption
+          : (await generateDescription(title || caption, url)) || caption || null
       }
     }
   } catch (err) {
@@ -1353,7 +1370,7 @@ function extractFromHtml(html, url = '') {
 
   let image = getMeta('og:image') || getMeta('twitter:image') || ''
   let price = null, currency = 'USD'
-  const ogDescription = decodeHtmlEntities(getMeta('og:description') || getMeta('twitter:description') || '')
+  const ogDescription = cleanSocialCaption(decodeHtmlEntities(getMeta('og:description') || getMeta('twitter:description') || ''))
 
   const ldBlocks = [...html.matchAll(/<script[^>]*type="application\/ld\+json"[^>]*>([\s\S]*?)<\/script>/gi)]
   for (const [, block] of ldBlocks) {
@@ -1395,8 +1412,24 @@ function extractFromHtml(html, url = '') {
       .filter(s => /\.(jpg|jpeg|png|webp)/i.test(s) && !isJunkImage(s))
   )].slice(0, 25)
 
-  return { title, image: image || null, price, currency, ogDescription, imgCandidates, identifiers: extractIdentifiers(html, url) }
+  // Image URLs come straight out of the markup, so their query strings still
+  // carry &amp;. Harmless on a CDN that ignores unknown params, fatal on a
+  // signed Instagram/Facebook URL — the mangled signature 403s immediately.
+  return {
+    title,
+    image: image ? decodeHtmlEntities(image) : null,
+    price, currency, ogDescription,
+    imgCandidates: imgCandidates.map(decodeHtmlEntities),
+    identifiers: extractIdentifiers(html, url)
+  }
 }
+
+// How much first-party text a page has to carry before we treat it as the
+// card's own words rather than boilerplate — the cutoff both for keeping a
+// caption over a generated blurb and for offering plan generation on a card
+// with no transcript. Social captions run 400+ chars; og:description
+// boilerplate and our own blurbs sit well under this.
+const CAPTION_MIN = 250
 
 // `finalUrl` is the URL after redirects. It matters: a shortened share link
 // (amzn.asia/d/...) has no /dp/ segment to read an ASIN from and no country
@@ -1435,8 +1468,10 @@ async function scrapeAndUpdate(card, html, finalUrl) {
     if (!finalImage) finalImage = imgCandidates[0]
   }
 
-  // Always generate a punchy description with the model
-  if (title) {
+  // Always generate a punchy description with the model — except when the page
+  // already gave us a long first-party caption (Instagram/Facebook posts), which
+  // is better copy than a blurb and is what plan generation reads.
+  if (title && (ogDescription || '').length < CAPTION_MIN) {
     finalDescription = await generateDescription(title, card.url) || ogDescription
   }
 
@@ -1454,7 +1489,7 @@ async function scrapeAndUpdate(card, html, finalUrl) {
 
   return {
     title: title || card.title,
-    thumbnail_url: finalImage || card.thumbnail_url,
+    thumbnail_url: (await cacheThumb(finalImage)) || card.thumbnail_url,
     description: finalDescription,
     metadata
   }
@@ -1638,31 +1673,44 @@ async function searchDDG(query) {
 function injectLinks(plan, resources) {
   let out = plan
   for (const { tool, url } of resources) {
-    // Match the tool name (case-insensitive, word boundary) on its first occurrence only
-    const pattern = new RegExp(`(${tool.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})`, 'i')
+    // First occurrence only, case-insensitive, and not inside a longer word —
+    // without the lookarounds a tool called "Git" links the middle of "GitHub".
+    const esc = tool.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+    const pattern = new RegExp(`(?<![A-Za-z0-9])(${esc})(?![A-Za-z0-9])`, 'i')
     out = out.replace(pattern, `$1 [→ ${url}]`)
   }
   return out
+}
+
+// What a plan gets built from. A YouTube video has a transcript; a social post
+// doesn't, but the caption on the "comment X for the links" reels is usually the
+// whole tutorial written out, which reads the same way to the model.
+async function planSource(card) {
+  if (card.type === 'youtube' && card.youtube_id) {
+    const segments = await YoutubeTranscript.fetchTranscript(card.youtube_id)
+    return { kind: 'transcript', label: 'TRANSCRIPT', text: segments.map(s => s.text).join(' ').slice(0, 10000) }
+  }
+  const caption = (card.description || '').trim()
+  if (caption.length < CAPTION_MIN) return null
+  return { kind: 'caption', label: 'POST', text: caption.slice(0, 10000) }
 }
 
 app.post('/api/cards/:id/plan', adminOnly, async (req, res) => {
   try {
     const card = await ownedCard(req, res, { enrich: true })
     if (!card) return
-    if (card.type !== 'youtube' || !card.youtube_id) return res.status(400).json({ error: 'not a youtube card' })
+    const source = await planSource(card)
+    if (!source) return res.status(400).json({ error: 'nothing to read: no transcript or caption on this card' })
 
-    const segments = await YoutubeTranscript.fetchTranscript(card.youtube_id)
-    const transcript = segments.map(s => s.text).join(' ').slice(0, 10000)
-
-    // Step 1 — generate plan from transcript
+    // Step 1 — generate plan from whatever the card gave us to read
     const rawPlan = await lmComplete([
       {
         role: 'system',
-        content: 'You are a technical assistant. You read tutorial transcripts and produce clean, actionable step-by-step plans. Output numbered markdown steps only — no preamble, no intro sentence, no sign-off.'
+        content: `You are a technical assistant. You read ${source.kind === 'transcript' ? 'tutorial transcripts' : 'tutorial posts'} and produce clean, actionable step-by-step plans. Output numbered markdown steps only — no preamble, no intro sentence, no sign-off.`
       },
       {
         role: 'user',
-        content: `Tutorial: "${card.title || card.url}"\n\nTRANSCRIPT:\n${transcript}\n\n---\nRead this transcript carefully. Flag any steps that seem outdated, ambiguous, or potentially wrong — note corrections inline with [NOTE: ...]. Then output a numbered action plan someone (or an AI coding assistant like Claude Code) could follow right now to replicate this tutorial.`
+        content: `Tutorial: "${card.title || card.url}"\n\n${source.label}:\n${source.text}\n\n---\nRead this carefully. Flag any steps that seem outdated, ambiguous, or potentially wrong — note corrections inline with [NOTE: ...]. Then output a numbered action plan someone (or an AI coding assistant like Claude Code) could follow right now to replicate this tutorial.`
       }
     ], { maxTokens: 1200, temperature: 0.4, timeout: 180000 })
 

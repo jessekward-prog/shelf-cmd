@@ -98,7 +98,12 @@ function MediaEmbed({ card, price, currency, playing, onPlay, onPop, isPopped })
   const isAudio = aspect === 'audio'
   const isPortrait = aspect === '9:16'
   const isSquare = aspect === '1:1'
-  const paddingBottom = isPortrait ? '177.78%' : isSquare ? '100%' : isAudio ? '0' : '56.25%'
+  const trueAspect = isPortrait ? '177.78%' : isSquare ? '100%' : isAudio ? '0' : '56.25%'
+  // Posters go uniform 16:9 so grid rows line up — but only once there's more
+  // than one column to line up. On a single-column phone that just letterboxes
+  // a reel for no reason, so .poster hands the true aspect back below the
+  // breakpoint where the grid stops wrapping. The player always uses it.
+  const paddingBottom = isAudio ? '0' : '56.25%'
 
   if (!embedUrl) {
     if (!card.thumbnail_url) {
@@ -113,18 +118,18 @@ function MediaEmbed({ card, price, currency, playing, onPlay, onPop, isPopped })
           style={{ borderBottom: '1px solid var(--s-surface-2)' }}
         >
           <img src={favicon} alt="" className="w-6 h-6 rounded flex-shrink-0" style={{ opacity: 0.7 }} />
-          <span className="text-xs truncate flex-1" style={{ color: 'var(--s-border)' }}>{domain}</span>
+          <span className="text-xs truncate flex-1" style={{ color: 'var(--s-text-2)' }}>{domain}</span>
           <span className="text-xs opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0" style={{ color: 'var(--s-accent)' }}>↗</span>
         </a>
       )
     }
     return (
-      <a href={card.url} target="_blank" rel="noreferrer" className="block relative group overflow-hidden">
+      <a href={card.url} target="_blank" rel="noreferrer" className="block relative group overflow-hidden" style={{ paddingBottom: '56.25%' }}>
         <img
           src={card.thumbnail_url}
           alt=""
-          className="w-full object-cover transition-transform duration-300 group-hover:scale-105"
-          style={{ maxHeight: 200, filter: 'brightness(0.85)' }}
+          className="absolute inset-0 w-full h-full object-cover transition-transform duration-300 group-hover:scale-105"
+          style={{ filter: 'brightness(0.85)' }}
         />
         <PlatformBadge type={card.type} />
         <PriceBadge price={price} currency={currency} />
@@ -154,7 +159,7 @@ function MediaEmbed({ card, price, currency, playing, onPlay, onPop, isPopped })
 
   if (playing) {
     return (
-      <div style={{ position: 'relative', paddingBottom }}>
+      <div style={{ position: 'relative', paddingBottom: trueAspect }}>
         <PlatformBadge type={card.type} />
         {onPop && <PopButton onClick={() => onPop(card)} />}
         <iframe
@@ -169,16 +174,26 @@ function MediaEmbed({ card, price, currency, playing, onPlay, onPop, isPopped })
 
   return (
     <div
-      className="relative"
+      className="relative poster"
       onClick={isPopped ? undefined : onPlay}
-      style={{ position: 'relative', paddingBottom, cursor: isPopped ? 'default' : 'pointer' }}
+      style={{ position: 'relative', paddingBottom, '--poster-true': trueAspect, cursor: isPopped ? 'default' : 'pointer' }}
     >
       {card.thumbnail_url ? (
-        <img
-          src={card.thumbnail_url}
-          alt=""
-          style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover', filter: 'brightness(0.75)' }}
-        />
+        <>
+          {isPortrait && (
+            <img
+              src={card.thumbnail_url}
+              alt=""
+              aria-hidden
+              style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover', filter: 'brightness(0.35) blur(18px)', transform: 'scale(1.15)' }}
+            />
+          )}
+          <img
+            src={card.thumbnail_url}
+            alt=""
+            style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: isPortrait ? 'contain' : 'cover', filter: 'brightness(0.75)' }}
+          />
+        </>
       ) : (
         <div style={{ position: 'absolute', inset: 0, background: 'var(--s-surface-2)' }} />
       )}
@@ -210,8 +225,7 @@ function MediaEmbed({ card, price, currency, playing, onPlay, onPop, isPopped })
   )
 }
 
-function NotesEditor({ card, onSave }) {
-  const [editing, setEditing] = useState(false)
+function NotesEditor({ card, onSave, editing, setEditing }) {
   const [value, setValue] = useState(card.notes || '')
 
   const save = async () => {
@@ -220,18 +234,14 @@ function NotesEditor({ card, onSave }) {
   }
 
   if (!editing) {
+    if (!value) return null
     return (
       <div
         onClick={() => setEditing(true)}
-        className="cursor-text mt-2 text-xs rounded px-2 py-1.5 transition-colors"
-        style={{
-          background: value ? 'transparent' : 'var(--s-surface-2)',
-          color: value ? 'var(--s-text-2)' : 'var(--s-border)',
-          border: '1px dashed var(--s-border)',
-          minHeight: 32
-        }}
+        className="cursor-text mt-2 text-xs rounded px-2 py-1.5 leading-relaxed transition-colors"
+        style={{ background: 'var(--s-surface-2)', color: 'var(--s-text-1)', border: '1px solid var(--s-border)' }}
       >
-        {value || 'add a note…'}
+        {value}
       </div>
     )
   }
@@ -254,7 +264,7 @@ function NotesEditor({ card, onSave }) {
         }}
       />
       <div className="flex gap-1 mt-1">
-        <button onClick={() => setEditing(false)} className="text-xs px-2 py-0.5 rounded" style={{ color: 'var(--s-border)' }}>cancel</button>
+        <button onClick={() => setEditing(false)} className="text-xs px-2 py-0.5 rounded" style={{ color: 'var(--s-text-3)' }}>cancel</button>
         <button onClick={save} className="text-xs px-2 py-0.5 rounded" style={{ background: 'var(--s-accent)', color: 'var(--s-bg)' }}>save</button>
       </div>
     </div>
@@ -319,6 +329,7 @@ export default function Card({ card, onDelete, onUpdate, nowPlayingId, onPlay, o
   // and the status dot below pulses indefinitely — so it checks for itself.
   const reduceMotion = useReducedMotion()
   const [sharing, setSharing] = useState(false)
+  const [noteEditing, setNoteEditing] = useState(false)
 
   const hasEmbed = !!card.metadata?.embed_url
   const hasMedia = hasEmbed || card.thumbnail_url
@@ -326,6 +337,9 @@ export default function Card({ card, onDelete, onUpdate, nowPlayingId, onPlay, o
   const deals = card.metadata?.deals || null
   // Only offer a price lookup on cards that are actually a purchasable thing.
   const isProduct = !!(card.metadata?.price || card.metadata?.identifiers)
+  // Matches the server's planSource(): a transcript, or a caption long enough
+  // to be the post's own write-up (CAPTION_MIN in server/index.js).
+  const canPlan = card.type === 'youtube' || (card.description || '').trim().length >= 250
 
   const handleSaveNotes = async (id, notes) => {
     const updated = await api.updateCard(id, { title: card.title, description: card.description, notes })
@@ -389,13 +403,9 @@ export default function Card({ card, onDelete, onUpdate, nowPlayingId, onPlay, o
       initial={{ opacity: 0, y: 16 }}
       animate={{ opacity: 1, y: 0 }}
       exit={{ opacity: 0, scale: 0.95 }}
-      whileHover={{ scale: 1.03, zIndex: 5 }}
       transition={{ type: 'spring', damping: 24, stiffness: 320 }}
-      className="rounded-xl overflow-hidden relative group"
-      style={{
-        background: 'var(--s-surface)',
-        border: `1px solid ${card.category ? (CATEGORY_COLOR[card.category] || CATEGORY_COLOR.reference) + '55' : 'var(--s-border)'}`
-      }}
+      className="rounded-xl overflow-hidden relative group shelf-card h-full flex flex-col"
+      style={{ background: 'var(--s-surface)', border: '1px solid var(--s-border)' }}
     >
       {(scraping || planGenerating) && (
         <div style={{ position: 'absolute', inset: 0, zIndex: 0 }}>
@@ -403,7 +413,7 @@ export default function Card({ card, onDelete, onUpdate, nowPlayingId, onPlay, o
         </div>
       )}
 
-      <div style={{ position: 'relative', zIndex: 1 }}>
+      <div className="flex flex-col flex-1" style={{ position: 'relative', zIndex: 1 }}>
       {hasMedia && (
         <MediaEmbed
           card={card}
@@ -416,7 +426,7 @@ export default function Card({ card, onDelete, onUpdate, nowPlayingId, onPlay, o
         />
       )}
 
-      <div className="p-3">
+      <div className="p-3 flex flex-col flex-1">
         {/* Resolved from user_id at read time, so a rename updates every card at once */}
         {card.author && (
           <p className="text-xs mb-1" style={{ color: 'var(--s-text-3)', letterSpacing: '0.08em' }}>
@@ -441,13 +451,13 @@ export default function Card({ card, onDelete, onUpdate, nowPlayingId, onPlay, o
               style={{ color: 'var(--s-text-2)' }}
               onClick={() => setDescExpanded(v => !v)}
             >
-              {descExpanded ? card.description : card.description.slice(0, 80) + (card.description.length > 80 ? '…' : '')}
+              {descExpanded ? card.description : card.description.slice(0, 150) + (card.description.length > 150 ? '…' : '')}
             </p>
-            {card.description.length > 80 && (
+            {card.description.length > 150 && (
               <button
                 onClick={() => setDescExpanded(v => !v)}
                 className="text-xs mt-0.5"
-                style={{ color: 'var(--s-border)' }}
+                style={{ color: 'var(--s-text-3)' }}
               >
                 {descExpanded ? 'less' : 'more'}
               </button>
@@ -458,14 +468,14 @@ export default function Card({ card, onDelete, onUpdate, nowPlayingId, onPlay, o
           <a
             href={card.url} target="_blank" rel="noreferrer"
             className="text-xs mt-1 inline-flex items-center gap-1 hover:underline"
-            style={{ color: 'var(--s-border)' }}
+            style={{ color: 'var(--s-text-2)' }}
           >
             {(() => { try { return new URL(card.url).hostname.replace('www.', '') } catch { return card.url } })()}
             <span style={{ fontSize: 9 }}>↗</span>
           </a>
         )}
 
-        {canEdit && <NotesEditor card={card} onSave={handleSaveNotes} />}
+        {canEdit && <NotesEditor card={card} onSave={handleSaveNotes} editing={noteEditing} setEditing={setNoteEditing} />}
 
         {/* Live lookup status — the card stops looking static while ~40s of real
             page fetching happens, and says what is actually happening. */}
@@ -568,12 +578,12 @@ export default function Card({ card, onDelete, onUpdate, nowPlayingId, onPlay, o
 
         {/* Card footer actions. Scrape and plan improve a card for the whole shelf,
             so anyone on it may run them; delete stays with whoever posted it. */}
-        {(canEdit || canServerAI) && <div className="flex items-center justify-between mt-3 pt-2" style={{ borderTop: '1px solid var(--s-surface-2)' }}>
-          <div className="flex items-center gap-2">
+        {(canEdit || canServerAI) && <div className="flex items-center justify-between gap-2 mt-auto pt-2" style={{ borderTop: '1px solid var(--s-surface-2)' }}>
+          <div className="flex items-center gap-1 min-w-0">
             {canServerAI && <button
               onClick={handleScrape}
               disabled={scraping}
-              className="text-xs px-2 py-1 rounded"
+              className="text-xs px-2 py-1 rounded whitespace-nowrap"
               style={{ color: scraping ? 'var(--s-border)' : 'var(--s-text-3)', background: 'transparent' }}
             >
               {scraping ? 'scraping…' : 'scrape'}
@@ -581,22 +591,31 @@ export default function Card({ card, onDelete, onUpdate, nowPlayingId, onPlay, o
             {canServerAI && isProduct && <button
               onClick={handleFindDeals}
               disabled={dealsLoading}
-              className="text-xs px-2 py-1 rounded"
+              className="text-xs px-2 py-1 rounded whitespace-nowrap"
               style={{ color: dealsLoading ? 'var(--s-border)' : deals ? 'var(--s-text-3)' : 'var(--s-accent)', background: 'transparent' }}
             >
               {dealsLoading ? 'checking…' : deals ? 'recheck price' : 'find cheaper'}
             </button>}
-            {canServerAI && card.type === 'youtube' && (
+            {canServerAI && canPlan && (
               <button
                 onClick={handleGeneratePlan}
                 disabled={planGenerating}
-                className="text-xs px-2 py-1 rounded"
+                className="text-xs px-2 py-1 rounded whitespace-nowrap"
                 style={{
                   color: planGenerating ? 'var(--s-border)' : plan ? 'var(--s-text-3)' : 'var(--s-accent)',
                   background: 'transparent'
                 }}
               >
                 {planGenerating ? 'thinking…' : plan ? 'regen plan' : 'gen plan'}
+              </button>
+            )}
+            {canEdit && !card.notes && !noteEditing && (
+              <button
+                onClick={() => setNoteEditing(true)}
+                className="text-xs px-2 py-1 rounded whitespace-nowrap"
+                style={{ color: 'var(--s-text-3)', background: 'transparent' }}
+              >
+                note
               </button>
             )}
           </div>
