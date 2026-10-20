@@ -28,7 +28,7 @@ function StarIcon({ filled }) {
 
 function ChevronIcon({ open }) {
   return (
-    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+    <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor"
       strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"
       style={{ flexShrink: 0, transition: 'transform 0.18s', transform: open ? 'rotate(90deg)' : 'none' }}>
       <path d="M9 18l6-6-6-6" />
@@ -87,14 +87,26 @@ function ManageIcon() {
 /* Section labels share one style so the sidebar reads as a single scale, not five. */
 const sectionLabel = {
   fontSize: 10, letterSpacing: '0.16em', color: 'var(--s-text-3)',
-  padding: '0 12px', marginBottom: 6, display: 'block'
+  padding: '0 10px', marginBottom: 8, display: 'block'
 }
 
 const rowBase = {
   width: '100%', display: 'flex', alignItems: 'center', gap: 10,
-  padding: '7px 12px', borderRadius: 6, fontFamily: 'inherit',
+  padding: '8px 10px', minHeight: 34, borderRadius: 8, fontFamily: 'inherit',
   fontSize: 13, textAlign: 'left', cursor: 'pointer',
-  transition: 'background 0.12s, color 0.12s'
+  transition: 'background 0.12s var(--ease-out), color 0.12s var(--ease-out)'
+}
+
+// Every nav row leads with a 14px icon, so the "+" actions need one too —
+// as a bare glyph in a text span they sat half a pixel off the icon column
+// and read as stray links rather than buttons.
+function PlusIcon() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      strokeWidth="2" strokeLinecap="round" style={{ flexShrink: 0 }}>
+      <path d="M12 5v14M5 12h14" />
+    </svg>
+  )
 }
 
 function Row({ active, muted, children, ...rest }) {
@@ -117,8 +129,8 @@ function Row({ active, muted, children, ...rest }) {
         <motion.span
           layoutId="sidebar-active"
           style={{
-            position: 'absolute', left: 0, top: '50%', translateY: '-50%',
-            width: 2, height: 18, borderRadius: 2, background: 'var(--s-accent)'
+            position: 'absolute', left: -8, top: '50%', translateY: '-50%',
+            width: 3, height: 20, borderRadius: '0 3px 3px 0', background: 'var(--s-accent)'
           }}
         />
       )}
@@ -165,37 +177,34 @@ export default function Sidebar({
     >
       {isCrt && <WaveBackground />}
       <nav className="flex-1 overflow-y-auto py-4 px-2" style={{ position: 'relative', zIndex: 1 }}>
-        <div className="flex items-center justify-between" style={{ padding: '0 12px', marginBottom: 6 }}>
+        <div className="flex items-center justify-between" style={{ padding: '0 10px', marginBottom: 8 }}>
           <button
             onClick={() => setCollapsed(c => !c)}
             title={collapsed ? 'Show all shelves' : 'Collapse to favourites'}
             className="glow-focus"
             style={{
               display: 'flex', alignItems: 'center', gap: 6, padding: 0,
-              fontSize: 13, letterSpacing: '0.12em', fontFamily: 'inherit',
-              color: 'var(--s-text-0)', background: 'transparent'
+              fontSize: 10, letterSpacing: '0.16em', fontFamily: 'inherit',
+              color: 'var(--s-text-1)', background: 'transparent'
             }}
           >
             <ChevronIcon open={!collapsed} />
             <span>SHELVES</span>
           </button>
-          <div style={{ display: 'flex', gap: 2 }}>
+          <div style={{ display: 'flex', gap: 2, marginRight: -4 }}>
             <button
               onClick={() => setReordering(r => !r)}
               title={reordering ? 'Done reordering' : 'Reorder shelves'}
-              className="glow-focus"
-              style={{
-                display: 'flex', padding: 3, borderRadius: 4,
-                color: reordering ? 'var(--s-accent)' : 'var(--s-text-3)'
-              }}
+              className="glow-focus sidebar-tool"
+              style={{ color: reordering ? 'var(--s-accent)' : 'var(--s-text-2)' }}
             >
               <ReorderIcon />
             </button>
             <button
               onClick={onManage}
               title="Archive or delete shelves"
-              className="glow-focus"
-              style={{ display: 'flex', padding: 3, borderRadius: 4, color: 'var(--s-text-3)' }}
+              className="glow-focus sidebar-tool"
+              style={{ color: 'var(--s-text-2)' }}
             >
               <ManageIcon />
             </button>
@@ -339,8 +348,9 @@ export default function Sidebar({
                           ))}
                         </Reorder.Group>
 
-                        <Row muted onClick={onAddSub} style={{ fontSize: 12, padding: '5px 10px' }}>
-                          <span>+ tab</span>
+                        <Row muted onClick={onAddSub} style={{ fontSize: 12, padding: '6px 10px', minHeight: 30 }}>
+                          <PlusIcon />
+                          <span>tab</span>
                         </Row>
                       </div>
                     </motion.div>
@@ -352,12 +362,12 @@ export default function Sidebar({
         </Reorder.Group>
 
         <Row muted onClick={onAddCat} style={{ marginTop: 4 }}>
-          <span style={{ width: 14, textAlign: 'center', flexShrink: 0 }}>+</span>
+          <PlusIcon />
           <span>new shelf</span>
         </Row>
 
         <>
-          <div style={{ borderTop: '1px solid var(--s-border)', margin: '16px 8px 12px' }} />
+          <div style={{ borderTop: '1px solid var(--s-border)', margin: '16px 8px' }} />
           <span style={sectionLabel}>WORKSPACE</span>
           <Row active={activeView === 'notes'} onClick={() => onView('notes')}>
             <NotesIcon />
@@ -367,30 +377,40 @@ export default function Sidebar({
             <GuidesIcon />
             <span>Guides</span>
           </Row>
-          <Row muted onClick={onJoin}>
+          <Row muted onClick={onJoin} style={{ marginTop: 4 }}>
             <CollabIcon size={14} />
             <span>Link a shared shelf</span>
           </Row>
         </>
       </nav>
 
-      <div style={{ padding: '8px', borderTop: '1px solid var(--s-border)', display: 'flex', flexDirection: 'column-reverse' }}>
-        <MyAiPanel isAdmin={isAdmin} />
-        <Row active={activeView === 'hubs'} onClick={() => onView('hubs')}>
-          <HubsIcon />
-          <span className="flex-1">Shelf Hubs</span>
-          {hubHosting && <PulseDot color="#3fb37f" />}
-        </Row>
-      </div>
-
-      <div style={{ padding: '12px 16px', borderTop: '1px solid var(--s-border)' }}>
-        <div className="flex items-baseline justify-between" style={{ fontSize: 10, letterSpacing: '0.14em', color: 'var(--s-text-3)' }}>
-          <span>SHELVES</span>
-          <span style={{ fontVariantNumeric: 'tabular-nums', color: 'var(--s-text-2)' }}>{categories.length}</span>
+      <div style={{ borderTop: '1px solid var(--s-border)', position: 'relative', zIndex: 1 }}>
+        <div style={{ padding: 8, display: 'flex', flexDirection: 'column-reverse' }}>
+          <MyAiPanel isAdmin={isAdmin} />
+          <Row active={activeView === 'hubs'} onClick={() => onView('hubs')}>
+            <HubsIcon />
+            <span className="flex-1">Shelf Hubs</span>
+            {hubHosting && <PulseDot color="#3fb37f" />}
+          </Row>
         </div>
-        <div className="flex items-baseline justify-between" style={{ fontSize: 10, letterSpacing: '0.14em', color: 'var(--s-text-3)', marginTop: 4 }}>
-          <span>CARDS HERE</span>
-          <span style={{ fontVariantNumeric: 'tabular-nums', color: 'var(--s-text-2)' }}>{cardCount}</span>
+
+        {/* A status strip, not a second panel — one line, so it reads as the
+            edge of the sidebar rather than another section. */}
+        <div
+          className="flex items-center"
+          style={{
+            gap: 14, padding: '7px 14px', fontSize: 10, letterSpacing: '0.14em',
+            color: 'var(--s-text-3)', background: 'var(--s-bg)'
+          }}
+        >
+          <span className="flex items-baseline" style={{ gap: 5 }}>
+            <span style={{ fontVariantNumeric: 'tabular-nums', color: 'var(--s-text-2)' }}>{categories.length}</span>
+            <span>SHELVES</span>
+          </span>
+          <span className="flex items-baseline" style={{ gap: 5 }}>
+            <span style={{ fontVariantNumeric: 'tabular-nums', color: 'var(--s-text-2)' }}>{cardCount}</span>
+            <span>CARDS HERE</span>
+          </span>
         </div>
       </div>
     </aside>

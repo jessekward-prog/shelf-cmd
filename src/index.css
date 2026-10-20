@@ -25,6 +25,15 @@
   .poster { padding-bottom: var(--poster-true, 56.25%) !important; }
 }
 
+/* Sidebar header tools. 18px of icon is not a target; this keeps the icon the
+   size it is and grows the hit area around it. */
+.sidebar-tool {
+  display: flex; align-items: center; justify-content: center;
+  width: 26px; height: 26px; border-radius: 6px;
+  transition: background 0.12s var(--ease-out), color 0.12s var(--ease-out);
+}
+.sidebar-tool:hover { background: var(--s-surface-2); color: var(--s-text-0); }
+
 /* Counts and prices shouldn't jitter as their digits change. */
 .tabular { font-variant-numeric: tabular-nums; }
 
