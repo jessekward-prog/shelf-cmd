@@ -15,7 +15,7 @@
   transition: border-color 150ms var(--ease-out), background-color 150ms var(--ease-out);
 }
 .shelf-card:hover {
-  border-color: var(--s-text-3);
+  border-color: var(--card-accent, var(--s-text-3));
   background: var(--s-surface-2);
 }
 

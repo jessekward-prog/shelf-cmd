@@ -340,6 +340,7 @@ export default function Card({ card, onDelete, onUpdate, nowPlayingId, onPlay, o
   // Matches the server's planSource(): a transcript, or a caption long enough
   // to be the post's own write-up (CAPTION_MIN in server/index.js).
   const canPlan = card.type === 'youtube' || (card.description || '').trim().length >= 250
+  const accent = card.category ? (CATEGORY_COLOR[card.category] || CATEGORY_COLOR.reference) : null
 
   const handleSaveNotes = async (id, notes) => {
     const updated = await api.updateCard(id, { title: card.title, description: card.description, notes })
@@ -405,7 +406,13 @@ export default function Card({ card, onDelete, onUpdate, nowPlayingId, onPlay, o
       exit={{ opacity: 0, scale: 0.95 }}
       transition={{ type: 'spring', damping: 24, stiffness: 320 }}
       className="rounded-xl overflow-hidden relative group shelf-card h-full flex flex-col"
-      style={{ background: 'var(--s-surface)', border: '1px solid var(--s-border)' }}
+      style={{
+        background: 'var(--s-surface)',
+        // The classifier's own output, same colour as the legend above the grid.
+        // --card-accent lets the hover state raise it to full strength.
+        border: `1px solid ${accent ? accent + '55' : 'var(--s-border)'}`,
+        ...(accent && { '--card-accent': accent })
+      }}
     >
       {(scraping || planGenerating) && (
         <div style={{ position: 'absolute', inset: 0, zIndex: 0 }}>
