@@ -176,7 +176,10 @@ function MediaEmbed({ card, price, currency, playing, onPlay, onPop, isPopped })
     <div
       className="relative poster"
       onClick={isPopped ? undefined : onPlay}
-      style={{ position: 'relative', paddingBottom, '--poster-true': trueAspect, cursor: isPopped ? 'default' : 'pointer' }}
+      // overflow matters: the portrait backdrop below is blurred and scaled up,
+      // and a filter paints well outside its own box — unclipped it bled over
+      // the title underneath as a glow.
+      style={{ position: 'relative', paddingBottom, overflow: 'hidden', '--poster-true': trueAspect, cursor: isPopped ? 'default' : 'pointer' }}
     >
       {card.thumbnail_url ? (
         <>
