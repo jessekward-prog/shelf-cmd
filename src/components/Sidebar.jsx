@@ -86,15 +86,27 @@ function ManageIcon() {
 
 /* Section labels share one style so the sidebar reads as a single scale, not five. */
 const sectionLabel = {
-  fontSize: 10, letterSpacing: '0.16em', color: 'var(--s-text-3)',
-  padding: '0 10px', marginBottom: 8, display: 'block'
+  fontSize: 10, letterSpacing: '0.16em', color: 'var(--s-text-3)', flexShrink: 0
 }
 
 const rowBase = {
   width: '100%', display: 'flex', alignItems: 'center', gap: 10,
   padding: '8px 10px', minHeight: 34, borderRadius: 8, fontFamily: 'inherit',
   fontSize: 13, textAlign: 'left', cursor: 'pointer',
-  transition: 'background 0.12s var(--ease-out), color 0.12s var(--ease-out)'
+  transition: 'background 0.12s var(--ease-out), color 0.12s var(--ease-out), transform 0.1s var(--ease-out)'
+}
+
+// A section header: label, then a hairline running out to the panel edge. The
+// label alone left the headers floating in the list with nothing tying them to
+// the rows underneath.
+function SectionHeader({ children, trailing }) {
+  return (
+    <div className="flex items-center" style={{ gap: 8, padding: '0 10px', marginBottom: 8 }}>
+      {children}
+      <span style={{ flex: 1, height: 1, background: 'var(--s-border)' }} />
+      {trailing}
+    </div>
+  )
 }
 
 // Every nav row leads with a 14px icon, so the "+" actions need one too —
@@ -114,14 +126,16 @@ function Row({ active, muted, children, ...rest }) {
   return (
     <button
       {...rest}
-      className="glow-focus"
+      className="glow-focus sidebar-row"
+      data-active={active ? 'true' : undefined}
       onMouseEnter={() => setHover(true)}
       onMouseLeave={() => setHover(false)}
       style={{
         ...rowBase,
         position: 'relative',
         background: active ? 'var(--s-accent-faint)' : hover ? 'var(--s-surface-2)' : 'transparent',
-        color: active ? 'var(--s-accent)' : muted ? 'var(--s-text-3)' : hover ? 'var(--s-text-0)' : 'var(--s-text-2)',
+        color: active ? 'var(--s-accent)' : muted ? 'var(--s-text-2)' : hover ? 'var(--s-text-0)' : 'var(--s-text-1)',
+        fontWeight: active ? 500 : 400,
         ...rest.style
       }}
     >
@@ -176,8 +190,29 @@ export default function Sidebar({
       }}
     >
       {isCrt && <WaveBackground />}
-      <nav className="flex-1 overflow-y-auto py-4 px-2" style={{ position: 'relative', zIndex: 1 }}>
-        <div className="flex items-center justify-between" style={{ padding: '0 10px', marginBottom: 8 }}>
+      <nav className="flex-1 overflow-y-auto py-4 px-2 flex flex-col" style={{ position: 'relative', zIndex: 1 }}>
+        <SectionHeader
+          trailing={
+            <div style={{ display: 'flex', gap: 2, marginRight: -4 }}>
+              <button
+                onClick={() => setReordering(r => !r)}
+                title={reordering ? 'Done reordering' : 'Reorder shelves'}
+                className="glow-focus sidebar-tool"
+                style={{ color: reordering ? 'var(--s-accent)' : 'var(--s-text-2)' }}
+              >
+                <ReorderIcon />
+              </button>
+              <button
+                onClick={onManage}
+                title="Archive or delete shelves"
+                className="glow-focus sidebar-tool"
+                style={{ color: 'var(--s-text-2)' }}
+              >
+                <ManageIcon />
+              </button>
+            </div>
+          }
+        >
           <button
             onClick={() => setCollapsed(c => !c)}
             title={collapsed ? 'Show all shelves' : 'Collapse to favourites'}
@@ -191,25 +226,7 @@ export default function Sidebar({
             <ChevronIcon open={!collapsed} />
             <span>SHELVES</span>
           </button>
-          <div style={{ display: 'flex', gap: 2, marginRight: -4 }}>
-            <button
-              onClick={() => setReordering(r => !r)}
-              title={reordering ? 'Done reordering' : 'Reorder shelves'}
-              className="glow-focus sidebar-tool"
-              style={{ color: reordering ? 'var(--s-accent)' : 'var(--s-text-2)' }}
-            >
-              <ReorderIcon />
-            </button>
-            <button
-              onClick={onManage}
-              title="Archive or delete shelves"
-              className="glow-focus sidebar-tool"
-              style={{ color: 'var(--s-text-2)' }}
-            >
-              <ManageIcon />
-            </button>
-          </div>
-        </div>
+        </SectionHeader>
 
         <Reorder.Group
           as="div"
@@ -366,9 +383,8 @@ export default function Sidebar({
           <span>new shelf</span>
         </Row>
 
-        <>
-          <div style={{ borderTop: '1px solid var(--s-border)', margin: '16px 8px' }} />
-          <span style={sectionLabel}>WORKSPACE</span>
+        <div style={{ marginTop: 'auto', paddingTop: 24 }}>
+          <SectionHeader><span style={sectionLabel}>WORKSPACE</span></SectionHeader>
           <Row active={activeView === 'notes'} onClick={() => onView('notes')}>
             <NotesIcon />
             <span>Notes</span>
@@ -381,7 +397,7 @@ export default function Sidebar({
             <CollabIcon size={14} />
             <span>Link a shared shelf</span>
           </Row>
-        </>
+        </div>
       </nav>
 
       <div style={{ borderTop: '1px solid var(--s-border)', position: 'relative', zIndex: 1 }}>

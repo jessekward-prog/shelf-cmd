@@ -25,6 +25,27 @@
   .poster { padding-bottom: var(--poster-true, 56.25%) !important; }
 }
 
+/* Sidebar rows. The icon sits behind its label rather than matching it exactly,
+   which is what gives a row depth — it lifts on hover and goes full accent on
+   the active row. The ::before is a ghost of the active marker, so hovering
+   previews where selection would land; the real marker (framer's layoutId,
+   which slides between rows) owns it once selected. */
+.sidebar-row > svg { opacity: 0.5; transition: opacity 0.12s var(--ease-out); }
+.sidebar-row:hover > svg { opacity: 0.9; }
+.sidebar-row[data-active="true"] > svg { opacity: 1; }
+
+.sidebar-row::before {
+  content: '';
+  position: absolute; left: -8px; top: 50%; margin-top: -8px;
+  width: 3px; height: 16px; border-radius: 0 3px 3px 0;
+  background: var(--s-text-3); opacity: 0;
+  transition: opacity 0.12s var(--ease-out);
+}
+.sidebar-row:hover::before { opacity: 1; }
+.sidebar-row[data-active="true"]::before { opacity: 0; }
+
+.sidebar-row:active { transform: scale(0.985); }
+
 /* Sidebar header tools. 18px of icon is not a target; this keeps the icon the
    size it is and grows the hit area around it. */
 .sidebar-tool {
