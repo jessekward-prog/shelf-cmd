@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { THEMES, FONTS, applyTheme, applyIntensity, applyFont, applyOverlay, getSavedIntensity, getSavedFont, getSavedOverlay } from '../themes.js'
+import { THEMES, FONTS, applyTheme, applyIntensity, applyFont, applyOverlay, applyGlass, getSavedIntensity, getSavedFont, getSavedOverlay, getSavedGlass } from '../themes.js'
 import * as api from '../api.js'
 
 const CRT_THEMES   = THEMES.filter(t => t.group === 'crt')
@@ -11,6 +11,7 @@ export default function ThemePicker({ current, onChange, user, onRenamed, placem
   const [intensity, setIntensity] = useState(getSavedIntensity)
   const [currentFont, setCurrentFont] = useState(getSavedFont)
   const [overlay, setOverlay] = useState(getSavedOverlay)
+  const [glass, setGlass] = useState(getSavedGlass)
 
   const pick = (id) => {
     applyTheme(id)
@@ -33,6 +34,12 @@ export default function ThemePicker({ current, onChange, user, onRenamed, placem
     const v = Number(e.target.value)
     setOverlay(v)
     applyOverlay(v)
+  }
+
+  const handleGlass = (e) => {
+    const v = Number(e.target.value)
+    setGlass(v)
+    applyGlass(v)
   }
 
   const swatch = THEMES.find(t => t.id === current)?.swatch || '#e8840a'
@@ -116,6 +123,7 @@ export default function ThemePicker({ current, onChange, user, onRenamed, placem
               <div style={{ padding: '4px 8px 2px', display: 'flex', flexDirection: 'column', gap: 10 }}>
                 <Slider label="INTENSITY" value={intensity} min={10} max={100} accentColor={swatch} onChange={handleIntensity} />
                 <Slider label="OVERLAY"   value={overlay}   min={0}  max={100} accentColor={swatch} onChange={handleOverlay} />
+                <Slider label="GLASS"     value={glass}     min={0}  max={100} accentColor={swatch} onChange={handleGlass} />
               </div>
             </motion.div>
           </>

@@ -21,7 +21,7 @@ import JoinModal from './components/JoinModal.jsx'
 import ManageShelvesModal from './components/ManageShelvesModal.jsx'
 import ShelfChat from './components/ShelfChat.jsx'
 import * as api from './api.js'
-import { getSavedTheme, applyTheme, getSavedIntensity, applyIntensity } from './themes.js'
+import { getSavedTheme, applyTheme, getSavedIntensity, applyIntensity, getSavedGlass, applyGlass } from './themes.js'
 
 // Aesthetic [ Cards | Drive ] switch, shown for the active shelf in every tab.
 function ModeToggle({ mode, onMode }) {
@@ -143,6 +143,7 @@ export default function App({ me }) {
   useEffect(() => {
     applyTheme(theme)
     applyIntensity(getSavedIntensity(), theme)
+    applyGlass(getSavedGlass())
   }, [])
 
   const loadTopLevel = useCallback((selectId) => {
@@ -313,7 +314,7 @@ export default function App({ me }) {
   const pickTheme = (id) => { applyTheme(id); setTheme(id) }
 
   return (
-    <div className="min-h-full lg:flex" style={{ background: 'var(--s-bg)' }}>
+    <div className="min-h-full lg:flex glass-root" style={{ background: 'var(--s-bg)' }}>
       <Sidebar
         categories={visibleCategories}
         activeCatId={activeCatId}
@@ -606,7 +607,7 @@ export default function App({ me }) {
 
       {/* Bottom bar — mobile only; the sidebar and topbar carry these on desktop */}
       <div
-        className="lg:hidden fixed bottom-0 left-0 right-0 z-30"
+        className="lg:hidden fixed bottom-0 left-0 right-0 z-30 glass-bar"
         style={{ background: 'var(--s-bg)', borderTop: '1px solid var(--s-border)', paddingBottom: 'env(safe-area-inset-bottom)' }}
       >
         <div className="flex items-center justify-between px-6" style={{ height: '2.75rem' }}>

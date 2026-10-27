@@ -25,6 +25,7 @@ const THEME_KEY     = 'shelf-theme'
 const INTENSITY_KEY = 'shelf-intensity'
 const FONT_KEY      = 'shelf-font'
 const OVERLAY_KEY   = 'shelf-overlay'
+const GLASS_KEY     = 'shelf-glass'
 
 function hexToRgb(hex) {
   return {
@@ -68,6 +69,20 @@ export function getSavedOverlay() {
 export function applyOverlay(value) {
   document.documentElement.style.setProperty('--s-overlay', value / 100)
   try { localStorage.setItem(OVERLAY_KEY, String(value)) } catch {}
+}
+
+export function getSavedGlass() {
+  try { return parseInt(localStorage.getItem(GLASS_KEY) ?? '0') } catch { return 0 }
+}
+
+// Frosted glass over whatever theme is active. The CSS mixes from the theme's
+// own --s-surface, so this only sets how see-through and how blurred; 0 is off.
+export function applyGlass(value) {
+  const root = document.documentElement
+  root.classList.toggle('glass', value > 0)
+  root.style.setProperty('--s-glass-tint', `${100 - value * 0.55}%`)
+  root.style.setProperty('--s-glass-blur', `${value * 0.2}px`)
+  try { localStorage.setItem(GLASS_KEY, String(value)) } catch {}
 }
 
 export function applyIntensity(value, themeId) {

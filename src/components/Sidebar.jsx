@@ -181,7 +181,7 @@ export default function Sidebar({
 
   return (
     <aside
-      className="hidden lg:flex flex-col shrink-0"
+      className="hidden lg:flex flex-col shrink-0 glass-bar"
       style={{
         width: 240,
         background: 'var(--s-surface)',

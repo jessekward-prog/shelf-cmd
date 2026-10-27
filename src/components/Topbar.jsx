@@ -54,7 +54,7 @@ export default function Topbar({
 
   return (
     <header
-      className="hidden lg:flex items-center gap-4 shrink-0 sticky top-0 z-20"
+      className="hidden lg:flex items-center gap-4 shrink-0 sticky top-0 z-20 glass-bar"
       style={{
         height: 56, padding: '0 20px',
         background: 'var(--s-surface)',

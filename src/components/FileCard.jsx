@@ -38,7 +38,7 @@ export default function FileCard({ file, onDelete, onShare }) {
       initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, scale: 0.95 }}
       whileHover={{ scale: 1.03, zIndex: 5 }}
       transition={{ type: 'spring', damping: 24, stiffness: 320 }}
-      className="rounded-xl overflow-hidden relative"
+      className="rounded-xl overflow-hidden relative glass-panel"
       style={{ background: 'var(--s-surface)', border: '1px solid var(--s-border)' }}
     >
       {/* Thumbnail — opens the file in a new tab */}
