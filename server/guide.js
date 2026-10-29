@@ -48,8 +48,15 @@ async function lmComplete(messages, { maxTokens = 800, temperature = 0.4, timeou
   })
   if (!res.ok) throw new Error(`LM Studio ${res.status}`)
   const data = await res.json()
-  const msg = data.choices?.[0]?.message
-  return (msg?.content?.trim() || msg?.reasoning_content?.trim() || '')
+  const choice = data.choices?.[0]
+  // Content only, never reasoning_content — same line index.js and deals.js
+  // hold. Every budget in this module is already above the reasoning floor
+  // those two measured, so there is nothing for a fallback to rescue.
+  const content = (choice?.message?.content || '').trim()
+  if (!content && choice?.finish_reason === 'length') {
+    console.error(`guide: entire ${maxTokens}-token budget went to reasoning, no answer returned`)
+  }
+  return content
 }
 
 // Reasoning models leak a <think> scratchpad and template tokens — strip them.

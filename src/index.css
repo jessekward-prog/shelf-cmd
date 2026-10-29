@@ -79,6 +79,10 @@
   --s-text-1:       #c8a060;
   --s-text-2:       #b28700;
   --s-text-3:       #a17a00;
+  /* One red for things that went wrong, light enough to read as body text on
+     every theme's surface. Themes override the palette above and not this —
+     an error should look the same wherever it shows up. */
+  --s-danger:       #e07070;
 }
 
 /* ── Synthwave ──────────────────────────────────────────────────────────── */

@@ -333,6 +333,11 @@ export default function Card({ card, onDelete, onUpdate, nowPlayingId, onPlay, o
   const reduceMotion = useReducedMotion()
   const [sharing, setSharing] = useState(false)
   const [noteEditing, setNoteEditing] = useState(false)
+  // Scrape, deals and plan each take real time and can each fail for a reason
+  // the person can act on ("this video has no transcript"). Swallowing that
+  // into console.error left the spinner stopping and nothing else happening,
+  // which is indistinguishable from the button not working.
+  const [actionError, setActionError] = useState(null)
 
   const hasEmbed = !!card.metadata?.embed_url
   const hasMedia = hasEmbed || card.thumbnail_url
@@ -365,9 +370,12 @@ export default function Card({ card, onDelete, onUpdate, nowPlayingId, onPlay, o
   const handleScrape = useCallback(async (e) => {
     e.stopPropagation()
     setScraping(true)
+    setActionError(null)
     try {
       const updated = await api.scrapeCard(card.id)
       onUpdate(updated)
+    } catch (err) {
+      setActionError(err.message)
     } finally {
       setScraping(false)
     }
@@ -377,6 +385,7 @@ export default function Card({ card, onDelete, onUpdate, nowPlayingId, onPlay, o
     e.stopPropagation()
     setDealsLoading(true)
     setDealsStep(null)
+    setActionError(null)
 
     // Subscribe before starting the lookup, or the first phases are missed.
     const es = new EventSource(api.dealsStreamUrl(card.id))
@@ -391,7 +400,7 @@ export default function Card({ card, onDelete, onUpdate, nowPlayingId, onPlay, o
       onUpdate(updated)
       setDealsExpanded(true)
     } catch (err) {
-      console.error('find deals failed:', err.message)
+      setActionError(err.message)
     } finally {
       es.close()
       setDealsLoading(false)
@@ -402,12 +411,13 @@ export default function Card({ card, onDelete, onUpdate, nowPlayingId, onPlay, o
   const handleGeneratePlan = useCallback(async (e) => {
     e.stopPropagation()
     setPlanGenerating(true)
+    setActionError(null)
     try {
       const updated = await api.generatePlan(card.id)
       onUpdate(updated)
       setPlanExpanded(true)
     } catch (err) {
-      console.error('generate plan failed:', err.message)
+      setActionError(err.message)
     } finally {
       setPlanGenerating(false)
     }
@@ -567,6 +577,18 @@ export default function Card({ card, onDelete, onUpdate, nowPlayingId, onPlay, o
               </>
             )}
           </div>
+        )}
+
+        {/* Why the last action didn't do anything. Dismissed by tapping it, and
+            cleared automatically when a new action starts. */}
+        {actionError && (
+          <button
+            onClick={(e) => { e.stopPropagation(); setActionError(null) }}
+            className="mt-3 text-xs leading-relaxed text-left w-full"
+            style={{ color: 'var(--s-danger)' }}
+          >
+            {actionError}
+          </button>
         )}
 
         {/* Plan panel */}

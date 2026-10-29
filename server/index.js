@@ -9,7 +9,7 @@ import { dirname, join } from 'path'
 import { chromium } from 'playwright-extra'
 import StealthPlugin from 'puppeteer-extra-plugin-stealth'
 import { YoutubeTranscript } from 'youtube-transcript'
-import { randomBytes, createHash } from 'crypto'
+import { randomBytes, createHash, timingSafeEqual } from 'crypto'
 import { makeHub } from './hub.js'
 import { cacheThumb, THUMBS_DIR } from './thumbs.js'
 import { mountDrive } from './drive.js'
@@ -33,6 +33,10 @@ const GATEWAY_PORT = process.env.GATEWAY_PORT || 3017
 const publicRouter = express.Router()
 const TWITCH_PARENT = process.env.TWITCH_PARENT || 'shelf.cmdward.xyz'
 
+// Behind cloudflared and Coolify's proxy, so the socket address is always the
+// proxy's. Only the PIN limiter reads req.ip, and it has a global backstop that
+// a forged header cannot get past.
+app.set('trust proxy', true)
 app.use(cors())
 app.use(express.json())
 
@@ -228,6 +232,17 @@ function lmHeaders() {
 
 const LM_URL = () => process.env.LM_STUDIO_URL || 'http://localhost:1234'
 
+// Minimum token budget for any call to the model, measured against this
+// instance's own default (gemma-4-e2b) rather than guessed. It is a reasoning
+// model: it spends its budget thinking before it emits anything, and below the
+// floor it returns finish_reason "length" with an EMPTY content string, so
+// every caller silently takes its fallback path while looking like it worked.
+// Measured: a one-word answer burned 197 of 200, then 397 of 400, and only
+// finished at 600. The floor is set above that, because a budget that is too
+// large costs a little latency and one that is too small costs the whole
+// answer. server/deals.js made the same measurement independently.
+const LM_MIN_TOKENS = 700
+
 // Which model the server-side AI (descriptions, scrape, plans, guides, the
 // legend classifier) uses. Env sets the default; picking one in the UI stores it
 // and overrides, per instance — a collaborator running their own shelf shouldn't
@@ -276,25 +291,12 @@ function usableDescription(text) {
 }
 
 async function generateDescription(title, url) {
-  const lmUrl = process.env.LM_STUDIO_URL || 'http://localhost:1234'
-  const model = process.env.LM_STUDIO_MODEL || ''
   try {
-    const res = await fetch(`${lmUrl}/v1/chat/completions`, {
-      method: 'POST',
-      headers: lmHeaders(),
-      body: JSON.stringify({
-        model: model || undefined,
-        messages: [
-          { role: 'system', content: 'You write short, punchy card descriptions (1-2 sentences max). No fluff. Just what it is and why it\'s worth saving. Answer directly with the description and nothing else.' },
-          { role: 'user', content: `Write a card description for: "${title}"\nURL: ${url}` }
-        ],
-        max_tokens: 200,
-        temperature: 0.7
-      })
-    })
-    if (!res.ok) return null
-    const data = await res.json()
-    return usableDescription(data.choices?.[0]?.message?.content)
+    const text = await lmComplete([
+      { role: 'system', content: 'You write short, punchy card descriptions (1-2 sentences max). No fluff. Just what it is and why it\'s worth saving. Answer directly with the description and nothing else.' },
+      { role: 'user', content: `Write a card description for: "${title}"\nURL: ${url}` }
+    ], { maxTokens: LM_MIN_TOKENS, temperature: 0.7, timeout: 60000 })
+    return usableDescription(text)
   } catch {
     return null
   }
@@ -335,10 +337,17 @@ async function resolvePlatform(rawUrl) {
     const m = resolved.match(/tiktok\.com\/@[^/]+\/video\/(\d+)/)
     const id = m?.[1]
     const meta = await fetchOEmbed(`https://www.tiktok.com/oembed?url=${encodeURIComponent(resolved || url)}`)
+    // TikTok's oEmbed `title` is the post's whole caption, not a headline, so
+    // it needs the same split Instagram's og:title does or the card repeats
+    // itself exactly the same way.
+    const caption = meta.title || ''
     return {
       type: 'tiktok', media_id: id || null,
-      title: meta.title || '',
-      thumbnail_url: meta.thumbnail_url || null,
+      first_party_caption: true,
+      title: caption ? socialHeadline(caption) : '',
+      thumbnail_url: (await cacheThumb(meta.thumbnail_url)) || null,
+      og_description: caption || null,
+      author: meta.author_name || null,
       embed_url: id ? `https://www.tiktok.com/embed/v2/${id}` : null,
       aspect: '9:16'
     }
@@ -415,6 +424,7 @@ async function resolvePlatform(rawUrl) {
     const og = await fetchOpenGraph(url)
     return {
       type: 'instagram', media_id: code || null,
+      first_party_caption: true,
       title: og.title || '',
       thumbnail_url: (await cacheThumb(og.image)) || null,
       og_description: og.description || null,
@@ -427,9 +437,17 @@ async function resolvePlatform(rawUrl) {
   // Twitter / X
   if (/twitter\.com|x\.com/.test(url)) {
     const meta = await fetchOEmbed(`https://publish.twitter.com/oembed?url=${encodeURIComponent(url)}`)
+    // publish.twitter.com returns no description field; the tweet's own text is
+    // the <p> inside the blockquote it hands back as `html`.
+    const body = decodeHtmlEntities(
+      (meta.html || '').match(/<blockquote[^>]*>[\s\S]*?<p[^>]*>([\s\S]*?)<\/p>/)?.[1] || ''
+    ).replace(/<br\s*\/?>/gi, '\n').replace(/<[^>]+>/g, '').trim()
     return {
       type: 'twitter', media_id: url.match(/status\/(\d+)/)?.[1] || null,
-      title: meta.author_name ? `@${meta.author_name}` : '',
+      first_party_caption: true,
+      title: body ? socialHeadline(body) : (meta.author_name ? `@${meta.author_name}` : ''),
+      og_description: body || null,
+      author: meta.author_name || null,
       thumbnail_url: null, embed_url: null, aspect: null
     }
   }
@@ -440,7 +458,8 @@ async function resolvePlatform(rawUrl) {
     const meta = await fetchOEmbed(`https://www.pinterest.com/oembed.json?url=${encodeURIComponent(resolved || url)}`)
     return {
       type: 'pinterest', media_id: null,
-      title: meta.title || '', thumbnail_url: meta.thumbnail_url || null,
+      title: meta.title || '', thumbnail_url: (await cacheThumb(meta.thumbnail_url)) || null,
+      author: meta.author_name || null,
       embed_url: null, aspect: null
     }
   }
@@ -450,7 +469,8 @@ async function resolvePlatform(rawUrl) {
     const meta = await fetchOEmbed(`https://www.reddit.com/oembed?url=${encodeURIComponent(url)}`)
     return {
       type: 'reddit', media_id: null,
-      title: meta.title || '', thumbnail_url: meta.thumbnail_url || null,
+      title: meta.title || '', thumbnail_url: (await cacheThumb(meta.thumbnail_url)) || null,
+      author: meta.author_name || null,
       embed_url: null, aspect: null
     }
   }
@@ -460,7 +480,8 @@ async function resolvePlatform(rawUrl) {
     const meta = await fetchOEmbed(`https://www.snapchat.com/oembed?url=${encodeURIComponent(url)}`)
     return {
       type: 'snapchat', media_id: null,
-      title: meta.title || '', thumbnail_url: meta.thumbnail_url || null,
+      title: meta.title || '', thumbnail_url: (await cacheThumb(meta.thumbnail_url)) || null,
+      author: meta.author_name || null,
       embed_url: null, aspect: null
     }
   }
@@ -475,8 +496,11 @@ async function resolvePlatform(rawUrl) {
       : null
     return {
       type: 'facebook', media_id: null,
+      first_party_caption: true,
       title: cleanFacebookTitle(og.title),
       thumbnail_url: (await cacheThumb(og.image)) || null,
+      og_description: og.description || null,
+      author: og.author || null,
       embed_url: embedUrl,
       aspect: isReel ? '9:16' : isVideo ? '16:9' : null
     }
@@ -487,7 +511,9 @@ async function resolvePlatform(rawUrl) {
   return {
     type: 'link', media_id: null,
     title: og.title || '',
-    thumbnail_url: og.image || null,
+    // Cached like every other branch: a remote URL here means hotlinking a
+    // retailer's CDN and holding a link that can expire or start 403ing.
+    thumbnail_url: (await cacheThumb(og.image)) || null,
     og_description: og.description || null,
     price: og.price || null,
     currency: og.currency || null,
@@ -528,32 +554,19 @@ app.post('/api/extract-image', adminOnly, async (req, res) => {
     const ogDirect = ogImgs[0]?.[1] || ogImgs[0]?.[2]
     if (ogDirect) return res.json({ image_url: decodeHtmlEntities(ogDirect) })
 
-    // Ask Qwen to pick the best one from the candidate list
-    const lmUrl = process.env.LM_STUDIO_URL || 'http://localhost:1234'
-    const model = process.env.LM_STUDIO_MODEL || ''
+    // Ask the model to pick the best one from the candidate list
     const prompt = `Page URL: ${page_url || 'unknown'}\n\nImage URLs found on this page:\n${list.map((u, i) => `${i + 1}. ${u}`).join('\n')}\n\nWhich number is the main product/item photo? Reply with ONLY the number.`
 
-    const lmRes = await fetch(`${lmUrl}/v1/chat/completions`, {
-      method: 'POST',
-      headers: lmHeaders(),
-      body: JSON.stringify({
-        model: model || undefined,
-        messages: [
-          { role: 'system', content: 'You identify the main product image from a list of image URLs. Reply with only the number.' },
-          { role: 'user', content: prompt }
-        ],
-        max_tokens: 5,
-        temperature: 0
-      }),
-      signal: AbortSignal.timeout(10000)
-    })
-
-    if (lmRes.ok) {
-      const data = await lmRes.json()
-      const answer = data.choices?.[0]?.message?.content?.trim()
-      const idx = parseInt(answer) - 1
+    try {
+      const answer = await lmComplete([
+        { role: 'system', content: 'You identify the main product image from a list of image URLs. Reply with only the number.' },
+        { role: 'user', content: prompt }
+      ], { maxTokens: LM_MIN_TOKENS, temperature: 0, timeout: 60000 })
+      // The answer is one number, but a reasoning model restates the list on
+      // its way there, so read the last number rather than the first.
+      const idx = parseInt([...answer.matchAll(/\d+/g)].pop()?.[0]) - 1
       if (!isNaN(idx) && list[idx]) return res.json({ image_url: decodeHtmlEntities(list[idx]) })
-    }
+    } catch {}
 
     // Fallback: return the first candidate
     res.json({ image_url: decodeHtmlEntities(list[0]) })
@@ -575,9 +588,19 @@ async function adminUser() {
   return rows[0]
 }
 
+// Setting the PIN hands back the admin token, so this is the instance's front
+// door. It has to stay open with no credentials for a first run — a fresh
+// self-hosted copy has nobody to authenticate as yet — but ON CONFLICT DO
+// UPDATE meant it stayed open forever: one unauthenticated POST to an instance
+// that already had a PIN overwrote it and returned the admin token. First run
+// only now, and changing an existing PIN takes the token you already have.
 app.post('/api/pin/set', async (req, res) => {
   const { hash } = req.body
   if (!hash) return res.status(400).json({ error: 'missing hash' })
+  const { rows: existing } = await pool.query("SELECT 1 FROM settings WHERE key='pin_hash'")
+  if (existing.length && !req.user?.is_admin) {
+    return res.status(403).json({ error: 'a PIN is already set on this instance' })
+  }
   await pool.query(
     "INSERT INTO settings (key, value) VALUES ('pin_hash', $1) ON CONFLICT (key) DO UPDATE SET value=$1",
     [hash]
@@ -586,14 +609,72 @@ app.post('/api/pin/set', async (req, res) => {
   res.json({ ok: true, token: admin.token, username: admin.username })
 })
 
+// The PIN is four digits hashed client-side, so there are only 10,000 values to
+// try and a correct one returns the admin token. Unthrottled that is seconds of
+// work. Failures are counted per caller, but behind Cloudflare and Coolify
+// every request arrives from the same proxy address, so the per-caller key has
+// to come from a forwarding header — and a header the client can set is one it
+// can rotate. Hence the second, global counter: spoofing the header defeats the
+// first limit and not the second. At 20 global failures per 15 minutes, walking
+// the whole space takes over a hundred hours.
+//
+// A global lockout can in principle catch the real owner mid-attack. That is
+// the right trade: their existing token in localStorage keeps working, and only
+// a brand new session has to wait.
+const PIN_MAX_PER_CALLER = 5
+const PIN_MAX_GLOBAL = 20
+const PIN_WINDOW_MS = 15 * 60 * 1000
+const pinAttempts = new Map()
+
+// Prefer the header cloudflared sets and overwrites, which a client cannot
+// forge, and fall back to Express's own view for a copy running without it.
+function pinKey(req) {
+  return req.get('cf-connecting-ip') || req.ip || req.socket.remoteAddress || 'unknown'
+}
+
+function recentFailures(key) {
+  const now = Date.now()
+  const hits = (pinAttempts.get(key) || []).filter(t => now - t < PIN_WINDOW_MS)
+  if (hits.length) pinAttempts.set(key, hits); else pinAttempts.delete(key)
+  return hits
+}
+
+// Unbounded growth is how a per-caller map becomes the vulnerability, so sweep
+// expired entries instead of keeping one per address ever seen.
+setInterval(() => {
+  for (const key of [...pinAttempts.keys()]) recentFailures(key)
+}, PIN_WINDOW_MS).unref()
+
 app.post('/api/pin/verify', async (req, res) => {
+  const key = pinKey(req)
+  const mine = recentFailures(key)
+  const all = [...pinAttempts.values()].flat()
+  const blocked = mine.length >= PIN_MAX_PER_CALLER ? mine : all.length >= PIN_MAX_GLOBAL ? all : null
+  if (blocked) {
+    const oldest = Math.min(...blocked)
+    const retryAfter = Math.max(1, Math.ceil((PIN_WINDOW_MS - (Date.now() - oldest)) / 1000))
+    res.set('Retry-After', String(retryAfter))
+    return res.status(429).json({ error: 'too many attempts', retry_after: retryAfter })
+  }
+
   const { hash } = req.body
   const { rows } = await pool.query("SELECT value FROM settings WHERE key='pin_hash'")
-  if (!rows.length) return res.json({ ok: false })
-  if (rows[0].value !== hash) return res.json({ ok: false })
+  const ok = rows.length > 0 && hash != null && timingSafeEqualStr(rows[0].value, String(hash))
+  if (!ok) {
+    pinAttempts.set(key, [...mine, Date.now()])
+    return res.json({ ok: false })
+  }
+  pinAttempts.delete(key)
   const admin = await adminUser()
   res.json({ ok: true, token: admin.token, username: admin.username })
 })
+
+// Length is not a secret here (the hash format is fixed) but the comparison
+// still shouldn't leak how many leading characters were right.
+function timingSafeEqualStr(a, b) {
+  const ab = Buffer.from(String(a)), bb = Buffer.from(String(b))
+  return ab.length === bb.length && timingSafeEqual(ab, bb)
+}
 
 // ── Server-side AI model ─────────────────────────────────────────────────────
 
@@ -1045,19 +1126,37 @@ async function processCard(card) {
       metadata = { embed_url: platform.embed_url, aspect: platform.aspect }
       if (platform.price) metadata.price = platform.price
       if (platform.currency) metadata.currency = platform.currency
-      // Same rule the scrape path uses. An author only comes back when the
-      // title split matched, which is the one reliable signal that this text
-      // is the post's own caption rather than a page's boilerplate — so keep
-      // it however short, since a blurb in its place throws away the only
-      // thing on the card worth reading and is what plan generation reads.
-      // Fall back to the caption on the blurb path too, so an unreachable
-      // model leaves text behind rather than a blank card.
+      // Same rule the scrape path uses. A post's own caption is kept however
+      // short, since a blurb in its place throws away the only thing on the
+      // card worth reading and is what plan generation reads. Everywhere else
+      // the text is a page's own marketing, so it has to clear CAPTION_MIN to
+      // beat a blurb. Fall back to the caption on the blurb path too, so an
+      // unreachable model leaves text behind rather than a blank card.
       if (platform.author) metadata.source_author = platform.author
       const caption = platform.og_description || ''
+      const firstParty = platform.first_party_caption && caption
       if (!description && (title || caption)) {
-        description = (platform.author || caption.length >= CAPTION_MIN)
+        description = (firstParty || caption.length >= CAPTION_MIN)
           ? caption || null
           : (await generateDescription(title || caption, url)) || caption || null
+      }
+    }
+
+    // A site that blocks a plain fetch (most big retailers do) left a card with
+    // nothing on it at all and no sign that "scrape" would have read it fine.
+    // Fall back to the real browser once, here, rather than making that the
+    // user's job. Only for a link with nothing to show: a platform card that
+    // resolved is already as good as it gets, and the launch is not free.
+    if (type === 'link' && !title && !thumbnail_url) {
+      try {
+        const { html, finalUrl } = await renderPage(url)
+        const updates = await scrapeAndUpdate({ ...card, metadata }, html, finalUrl)
+        title = updates.title || title
+        thumbnail_url = updates.thumbnail_url || thumbnail_url
+        description = description || updates.description
+        metadata = { ...metadata, ...updates.metadata }
+      } catch (err) {
+        console.error('processCard browser fallback failed:', err.message)
       }
     }
   } catch (err) {
@@ -1486,32 +1585,20 @@ async function scrapeAndUpdate(card, html, finalUrl) {
   let { title, image, price, currency, ogDescription, author, isSocial, imgCandidates, identifiers } = extractFromHtml(html, finalUrl || card.url)
   if (/facebook\.com|fb\.watch/.test(card.url)) title = cleanFacebookTitle(title)
 
-  const lmUrl = process.env.LM_STUDIO_URL || 'http://localhost:1234'
   let finalImage = image
   let finalDescription = ogDescription
 
   // If no clear OG image, ask the model to pick from candidates
   if (!finalImage && imgCandidates.length > 0) {
     try {
-      const lmRes = await fetch(`${lmUrl}/v1/chat/completions`, {
-        method: 'POST',
-        headers: lmHeaders(),
-        body: JSON.stringify({
-          model: process.env.LM_STUDIO_MODEL || undefined,
-          messages: [
-            { role: 'system', content: 'You pick the main product image from a numbered list. Reply with only the number.' },
-            { role: 'user', content: `Product: ${title || card.url}\n\n${imgCandidates.map((u, i) => `${i + 1}. ${u}`).join('\n')}\n\nWhich is the main product photo?` }
-          ],
-          max_tokens: 5,
-          temperature: 0
-        }),
-        signal: AbortSignal.timeout(15000)
-      })
-      if (lmRes.ok) {
-        const data = await lmRes.json()
-        const idx = parseInt(data.choices?.[0]?.message?.content?.trim()) - 1
-        if (!isNaN(idx) && imgCandidates[idx]) finalImage = imgCandidates[idx]
-      }
+      const answer = await lmComplete([
+        { role: 'system', content: 'You pick the main product image from a numbered list. Reply with only the number.' },
+        { role: 'user', content: `Product: ${title || card.url}\n\n${imgCandidates.map((u, i) => `${i + 1}. ${u}`).join('\n')}\n\nWhich is the main product photo?` }
+      ], { maxTokens: LM_MIN_TOKENS, temperature: 0, timeout: 60000 })
+      // Read the last number, not the first: a reasoning model walks the list
+      // out loud before it commits to one.
+      const idx = parseInt([...answer.matchAll(/\d+/g)].pop()?.[0]) - 1
+      if (!isNaN(idx) && imgCandidates[idx]) finalImage = imgCandidates[idx]
     } catch {}
     if (!finalImage) finalImage = imgCandidates[0]
   }
@@ -1545,28 +1632,30 @@ async function scrapeAndUpdate(card, html, finalUrl) {
   }
 }
 
+// Render a page in a real headless Chromium — bypasses TLS fingerprinting and
+// runs the JS that builds prices and images. Costs a browser launch, so it is
+// what "scrape" does on demand rather than what every add does.
+async function renderPage(url) {
+  const browser = await chromium.launch({ headless: true })
+  try {
+    const page = await browser.newPage()
+    await page.setExtraHTTPHeaders({ 'Accept-Language': 'en-US,en;q=0.9' })
+    await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 20000 })
+    // Wait a beat for JS-rendered content (prices, images)
+    await page.waitForTimeout(2000)
+    return { html: await page.content(), finalUrl: page.url() || url }
+  } finally {
+    await browser.close()
+  }
+}
+
 app.post('/api/cards/:id/scrape', adminOnly, async (req, res) => {
   try {
     const card = await ownedCard(req, res, { enrich: true })
     if (!card) return
     if (!card.url) return res.status(400).json({ error: 'no url' })
 
-    // Use a real headless Chromium browser — bypasses TLS fingerprinting and JS rendering
-    let html = ''
-    let finalUrl = card.url
-    const browser = await chromium.launch({ headless: true })
-    try {
-      const page = await browser.newPage()
-      await page.setExtraHTTPHeaders({ 'Accept-Language': 'en-US,en;q=0.9' })
-      await page.goto(card.url, { waitUntil: 'domcontentloaded', timeout: 20000 })
-      // Wait a beat for JS-rendered content (prices, images)
-      await page.waitForTimeout(2000)
-      html = await page.content()
-      finalUrl = page.url() || card.url
-    } finally {
-      await browser.close()
-    }
-
+    const { html, finalUrl } = await renderPage(card.url)
     const updates = await scrapeAndUpdate(card, html, finalUrl)
     const { rows } = await pool.query(
       `UPDATE cards SET title=$1, thumbnail_url=$2, description=$3, metadata=$4 WHERE id=$5 RETURNING *`,
@@ -1629,12 +1718,14 @@ app.post('/api/cards/:id/deals', adminOnly, async (req, res) => {
 
 // ── Plan generation ──────────────────────────────────────────────────────────
 
-// strict: true never falls back to reasoning_content — for callers (like
-// MACHINE's ask endpoint) where leaking the model's scratchpad to the user
-// would be worse than an empty/short answer.
-async function lmComplete(messages, { maxTokens = 800, temperature = 0.4, timeout = 180000, strict = false } = {}) {
-  const lmUrl = process.env.LM_STUDIO_URL || 'http://localhost:1234'
-  const res = await fetch(`${lmUrl}/v1/chat/completions`, {
+// Reads `content` only, never `reasoning_content` — the model's scratchpad is
+// not an answer, and server/deals.js says the whole codebase holds this line.
+// It used to fall back to the scratchpad when content came back empty, which
+// quietly papered over every budget set below LM_MIN_TOKENS: classifyCard was
+// passing its one-word answer by regexing a category out of the model's
+// thinking. Budgets above the floor are the fix; the fallback was the bug.
+async function lmComplete(messages, { maxTokens = 800, temperature = 0.4, timeout = 180000 } = {}) {
+  const res = await fetch(`${LM_URL()}/v1/chat/completions`, {
     method: 'POST',
     headers: lmHeaders(),
     body: JSON.stringify({
@@ -1647,9 +1738,12 @@ async function lmComplete(messages, { maxTokens = 800, temperature = 0.4, timeou
   })
   if (!res.ok) throw new Error(`LM Studio ${res.status}`)
   const data = await res.json()
-  const msg = data.choices?.[0]?.message
-  if (strict) return (msg?.content || '').trim()
-  return (msg?.content?.trim() || msg?.reasoning_content?.trim() || '')
+  const choice = data.choices?.[0]
+  const content = (choice?.message?.content || '').trim()
+  if (!content && choice?.finish_reason === 'length') {
+    console.error(`lm: entire ${maxTokens}-token budget went to reasoning, no answer returned — raise it or load an instruct model`)
+  }
+  return content
 }
 
 // Sorts a card into the same five buckets guides use (see guide.js's
@@ -1667,7 +1761,7 @@ async function classifyCard({ title, description, type }) {
     'design = UI/CSS/visual/creative, tools = general dev libraries/frameworks/infra, ' +
     'reference = docs/curated lists/learning material.'
   try {
-    const raw = await lmComplete([{ role: 'user', content: user }], { maxTokens: 400, temperature: 0.3, timeout: 45000 })
+    const raw = await lmComplete([{ role: 'user', content: user }], { maxTokens: LM_MIN_TOKENS, temperature: 0.3, timeout: 60000 })
     const word = raw.trim().toLowerCase().match(/speed|thinking|design|tools|reference/)?.[0]
     return CATEGORIES.includes(word) ? word : 'reference'
   } catch {
@@ -1679,7 +1773,7 @@ async function extractTools(plan) {
   try {
     const text = await lmComplete([
       { role: 'user', content: `Read this plan and list only concrete software, libraries, CLIs, or apps someone would install or sign up for to follow it. Skip generic platforms or sites mentioned only as inspiration/reference (e.g. Pinterest, Instagram, Dribbble) unless the plan has the reader install something from them. Output one name per line, nothing else:\n\n${plan}` }
-    ], { maxTokens: 600, temperature: 0.3, timeout: 60000 })
+    ], { maxTokens: 900, temperature: 0.3, timeout: 60000 })
     return text
       .split('\n')
       .map(l => l.replace(/^[-*•\d.)\s]+/, '').trim())
@@ -1737,8 +1831,15 @@ function injectLinks(plan, resources) {
 // whole tutorial written out, which reads the same way to the model.
 async function planSource(card) {
   if (card.type === 'youtube' && card.youtube_id) {
-    const segments = await YoutubeTranscript.fetchTranscript(card.youtube_id)
-    return { kind: 'transcript', label: 'TRANSCRIPT', text: segments.map(s => s.text).join(' ').slice(0, 10000) }
+    try {
+      const segments = await YoutubeTranscript.fetchTranscript(card.youtube_id)
+      return { kind: 'transcript', label: 'TRANSCRIPT', text: segments.map(s => s.text).join(' ').slice(0, 10000) }
+    } catch (err) {
+      // Plenty of videos have captions turned off, and the library's own
+      // message is not something to put in front of a person. Fall through to
+      // whatever text the card does have rather than failing outright.
+      console.error('transcript unavailable:', card.youtube_id, err.message)
+    }
   }
   const caption = (card.description || '').trim()
   if (caption.length < PLAN_MIN) return null
@@ -1750,7 +1851,13 @@ app.post('/api/cards/:id/plan', adminOnly, async (req, res) => {
     const card = await ownedCard(req, res, { enrich: true })
     if (!card) return
     const source = await planSource(card)
-    if (!source) return res.status(400).json({ error: 'nothing to read: no transcript or caption on this card' })
+    if (!source) {
+      return res.status(400).json({
+        error: card.type === 'youtube'
+          ? 'this video has no transcript, and the card has no description to read instead'
+          : 'not enough text on this card to build a plan from'
+      })
+    }
 
     // Step 1 — generate plan from whatever the card gave us to read
     const rawPlan = await lmComplete([

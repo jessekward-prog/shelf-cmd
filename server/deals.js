@@ -163,7 +163,8 @@ async function search(query, sources, perSource, ctx = {}) {
 
 /* Budget note, measured not guessed: the default model here (gemma-4-e2b) is a
  * reasoning model, and it spends ~330 hidden tokens thinking before it emits a
- * 5-token answer. Below ~400 max_tokens it returns finish_reason "length" with
+ * 5-token answer. Below ~600 max_tokens (measured again 2026-10-29; the first
+ * estimate of ~400 was low) it returns finish_reason "length" with
  * an EMPTY content string — the whole budget went to reasoning_content — and
  * every caller silently takes its fallback path while looking like it worked.
  * So these budgets are deliberately far larger than the answers need. Cost is
@@ -205,7 +206,7 @@ export async function compressQuery(title) {
   const answer = await ask(
     'You turn a long product listing title into a short search query. Reply with ONLY the query: 3 to 6 words, the brand and the product type and its key size or model. No punctuation, no explanation.',
     `Listing title: "${title}"\n\nSearch query:`,
-    500
+    700
   )
   const cleaned = (answer || '').replace(/^["']|["']$/g, '').replace(/[\n\r]/g, ' ').trim()
   // Fall back to the first few words of the title rather than failing the whole
