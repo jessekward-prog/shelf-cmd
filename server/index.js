@@ -1657,10 +1657,20 @@ async function renderPage(url) {
   try {
     const page = await browser.newPage()
     await page.setExtraHTTPHeaders({ 'Accept-Language': 'en-US,en;q=0.9' })
-    await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 20000 })
+    try {
+      await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 })
+    } catch (err) {
+      // A heavy retailer page can miss domcontentloaded entirely while still
+      // having parsed its <head>, which is where every tag worth reading is.
+      // Throwing away a page that did load most of itself was how a slow site
+      // ended up as a blank card.
+      console.error('renderPage: navigation incomplete, reading what loaded —', err.message.split('\n')[0])
+    }
     // Wait a beat for JS-rendered content (prices, images)
     await page.waitForTimeout(2000)
-    return { html: await page.content(), finalUrl: page.url() || url }
+    const html = await page.content()
+    if (!/<meta|<title/i.test(html)) throw new Error(`nothing rendered for ${url}`)
+    return { html, finalUrl: page.url() || url }
   } finally {
     await browser.close()
   }
