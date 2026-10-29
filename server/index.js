@@ -140,10 +140,27 @@ function cleanSocialCaption(text) {
 // title repeating, word for word, the description printed right under it, and
 // clamped mid-sentence on a dangling quote. Split it back into the two things
 // it actually is.
-function splitSocialTitle(raw) {
+function splitSocialTitle(raw, url = '') {
   if (!raw) return null
   const m = raw.match(/^(.{1,80}?)\s+on\s+(?:Instagram|Facebook|Threads)\s*:\s*["\u201c]([\s\S]*?)["\u201d]?\s*$/)
-  return m ? { author: m[1].trim(), caption: m[2].trim() } : null
+  if (m) return { author: m[1].trim(), caption: m[2].trim() }
+  if (/facebook\.com|fb\.watch/.test(url)) return splitFacebookTitle(raw)
+  return null
+}
+
+// A personal profile gets the `<author> on Facebook: "…"` shape above, but a
+// Page gets `<caption> | <Page name>` instead — still the whole post in the
+// title, still with the author attached, just punctuated differently. The page
+// name is the last pipe segment and is short, so a caption containing its own
+// pipe keeps everything before the last one.
+function splitFacebookTitle(raw) {
+  const cleaned = cleanFacebookTitle(raw)
+  const cut = cleaned.lastIndexOf('|')
+  if (cut < 1) return null
+  const author = cleaned.slice(cut + 1).trim()
+  const caption = cleaned.slice(0, cut).trim()
+  if (!author || author.length > 50 || !caption) return null
+  return { author, caption }
 }
 
 // A caption's first real line is its headline; the rest is body the
@@ -189,7 +206,7 @@ async function fetchOpenGraph(url) {
     }
     let rawTitle = get('og:title') || get('twitter:title') || ''
     rawTitle = rawTitle.replace(/^.+\|\s*(How Things Work on Instagram|How Things Work on Facebook|Watch|Post):\s*/i, '')
-    const social = splitSocialTitle(rawTitle)
+    const social = splitSocialTitle(rawTitle, url)
     const title = social
       ? socialHeadline(social.caption)
       : (rawTitle.length > 120
@@ -1501,7 +1518,7 @@ function extractFromHtml(html, url = '') {
 
   // The same split the add path does. Without it, hitting "scrape" on a social
   // card writes the raw `<author> on Instagram: "…"` title straight back.
-  const social = splitSocialTitle(title)
+  const social = splitSocialTitle(title, url)
   let author = null
   if (social) {
     author = social.author
