@@ -478,7 +478,10 @@ export default function Card({ card, onDelete, onUpdate, nowPlayingId, onPlay, o
               style={{ color: 'var(--s-text-2)' }}
               onClick={() => setDescExpanded(v => !v)}
             >
-              {descExpanded ? descBody : descBody.slice(0, 150) + (descBody.length > 150 ? '…' : '')}
+              {/* Captions are full of emoji, and a blind 150-char cut lands
+                  inside a surrogate pair often enough to print a replacement
+                  character — drop a trailing lone high surrogate. */}
+              {descExpanded ? descBody : descBody.slice(0, 150).replace(/[\uD800-\uDBFF]$/, '') + (descBody.length > 150 ? '…' : '')}
             </p>
             {descBody.length > 150 && (
               <button
