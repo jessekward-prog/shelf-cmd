@@ -103,8 +103,22 @@ function decodeHtmlEntities(str) {
   return str
     .replace(/&amp;/g, '&').replace(/&quot;/g, '"').replace(/&#x27;/g, "'")
     .replace(/&#x2019;/g, '’').replace(/&#x201c;/g, '“').replace(/&#x201d;/g, '”')
-    .replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&#(\d+);/g, (_, n) => String.fromCharCode(n))
-    .replace(/&#x([0-9a-f]+);/gi, (_, h) => String.fromCharCode(parseInt(h, 16)))
+    .replace(/&lt;/g, '<').replace(/&gt;/g, '>')
+    .replace(/&#(\d+);/g, (m, n) => codePoint(n, 10, m))
+    .replace(/&#x([0-9a-f]+);/gi, (m, h) => codePoint(h, 16, m))
+}
+
+// Captions are mostly emoji, which are astral-plane code points, and
+// String.fromCharCode truncates those to 16 bits: &#128640; (\u{1F680}) came out
+// as an invisible private-use char and &#129327; (\u{1F92F}) as \u52DE.
+// fromCodePoint is the one that handles them, and it throws rather than
+// truncating on anything out of range, so leave such an entity as it was.
+function codePoint(digits, radix, original) {
+  try {
+    return String.fromCodePoint(parseInt(digits, radix))
+  } catch {
+    return original
+  }
 }
 
 // Instagram and Facebook wrap a post's caption in engagement stats, so the
