@@ -344,6 +344,18 @@ export default function Card({ card, onDelete, onUpdate, nowPlayingId, onPlay, o
   // in it to be worth reading (PLAN_MIN in server/index.js).
   const canPlan = card.type === 'youtube' || (card.description || '').trim().length >= 80
   const accent = card.category ? (CATEGORY_COLOR[card.category] || CATEGORY_COLOR.reference) : null
+  // A social post's first line became its title, so printing the caption whole
+  // repeats it directly underneath. Show only the part the title doesn't
+  // already say, and nothing at all when that leaves no sentence worth
+  // reading. The stored caption stays whole either way — it is what plan
+  // generation reads.
+  const descBody = (() => {
+    const d = (card.description || '').trim()
+    const t = (card.title || '').trim().replace(/\u2026$/, '')
+    if (t.length <= 8 || !d.startsWith(t)) return d
+    const rest = d.slice(t.length).replace(/^[\s\u2014\u2013\u2026:\-\u00b7.]+/, '')
+    return rest.length >= 40 ? rest : ''
+  })()
 
   const handleSaveNotes = async (id, notes) => {
     const updated = await api.updateCard(id, { title: card.title, description: card.description, notes })
@@ -459,16 +471,16 @@ export default function Card({ card, onDelete, onUpdate, nowPlayingId, onPlay, o
             <span className="line-clamp-2">{card.title}</span>
           </p>
         )}
-        {card.description && (
+        {descBody && (
           <div>
             <p
               className="text-xs leading-relaxed cursor-pointer"
               style={{ color: 'var(--s-text-2)' }}
               onClick={() => setDescExpanded(v => !v)}
             >
-              {descExpanded ? card.description : card.description.slice(0, 150) + (card.description.length > 150 ? '…' : '')}
+              {descExpanded ? descBody : descBody.slice(0, 150) + (descBody.length > 150 ? '…' : '')}
             </p>
-            {card.description.length > 150 && (
+            {descBody.length > 150 && (
               <button
                 onClick={() => setDescExpanded(v => !v)}
                 className="text-xs mt-0.5"
