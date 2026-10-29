@@ -117,6 +117,29 @@ function cleanSocialCaption(text) {
   return m ? m[1].trim() : text
 }
 
+// Instagram, Facebook and Threads put the whole post in og:title as
+// `<author> on Instagram: "<the entire caption>"`. Stored as-is that becomes a
+// title repeating, word for word, the description printed right under it, and
+// clamped mid-sentence on a dangling quote. Split it back into the two things
+// it actually is.
+function splitSocialTitle(raw) {
+  if (!raw) return null
+  const m = raw.match(/^(.{1,80}?)\s+on\s+(?:Instagram|Facebook|Threads)\s*:\s*["\u201c]([\s\S]*?)["\u201d]?\s*$/)
+  return m ? { author: m[1].trim(), caption: m[2].trim() } : null
+}
+
+// A caption's first real line is its headline; the rest is body the
+// description already carries. A line of nothing but hashtags isn't one.
+function socialHeadline(caption) {
+  const lines = (caption || '').split('\n').map(s => s.trim()).filter(Boolean)
+  const line = lines.find(l => /[\p{L}\p{N}]/u.test(l.replace(/#[^\s#]+/gu, ''))) || lines[0] || ''
+  const text = line.replace(/\s*#[^\s#]+/gu, '').trim() || line
+  if (text.length <= 100) return text
+  const cut = text.slice(0, 100)
+  const space = cut.lastIndexOf(' ')
+  return (space > 40 ? cut.slice(0, space) : cut).trim() + '\u2026'
+}
+
 const OG_USER_AGENTS = [
   'Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)',
   'facebookexternalhit/1.1 (+http://www.facebook.com/externalhit_uatext.php)',
@@ -148,11 +171,18 @@ async function fetchOpenGraph(url) {
     }
     let rawTitle = get('og:title') || get('twitter:title') || ''
     rawTitle = rawTitle.replace(/^.+\|\s*(How Things Work on Instagram|How Things Work on Facebook|Watch|Post):\s*/i, '')
-    const title = rawTitle.length > 120
-      ? (rawTitle.split(/[.!?\n]/)[0].slice(0, 120) || rawTitle.slice(0, 120))
-      : rawTitle
+    const social = splitSocialTitle(rawTitle)
+    const title = social
+      ? socialHeadline(social.caption)
+      : (rawTitle.length > 120
+          ? (rawTitle.split(/[.!?\n]/)[0].slice(0, 120) || rawTitle.slice(0, 120))
+          : rawTitle)
     const image = decodeHtmlEntities(get('og:image') || get('twitter:image') || '') || null
-    const description = cleanSocialCaption(get('og:description') || get('twitter:description')) || null
+    // A reel often ships no og:description at all while og:title carries the
+    // whole caption, so take whichever of the two actually has the post's text.
+    const ogDesc = cleanSocialCaption(get('og:description') || get('twitter:description')) || ''
+    const caption = social?.caption || ''
+    const description = (caption.length > ogDesc.length ? caption : ogDesc) || null
 
     // Price — look in product:price, schema.org JSON-LD, or common price meta tags
     let price = get('product:price:amount') || get('og:price:amount') || null
@@ -162,7 +192,7 @@ async function fetchOpenGraph(url) {
     }
     const currency = get('product:price:currency') || get('og:price:currency') || 'USD'
 
-    return { title, image, description, price, currency }
+    return { title, image, description, price, currency, author: social?.author || null }
   } catch (e) {
     return {}
   }
@@ -374,6 +404,7 @@ async function resolvePlatform(rawUrl) {
       title: og.title || '',
       thumbnail_url: (await cacheThumb(og.image)) || null,
       og_description: og.description || null,
+      author: og.author || null,
       embed_url: code ? `https://www.instagram.com/p/${code}/embed/` : null,
       aspect: isReel ? '9:16' : '1:1'
     }
@@ -1000,14 +1031,18 @@ async function processCard(card) {
       metadata = { embed_url: platform.embed_url, aspect: platform.aspect }
       if (platform.price) metadata.price = platform.price
       if (platform.currency) metadata.currency = platform.currency
-      // Same rule the scrape path uses: a long first-party caption is better
-      // copy than a generated blurb, and it's what plan generation reads. Fall
-      // back to the caption too, so an unreachable model leaves text behind
-      // rather than a blank card.
+      // Same rule the scrape path uses. An author only comes back when the
+      // title split matched, which is the one reliable signal that this text
+      // is the post's own caption rather than a page's boilerplate — so keep
+      // it however short, since a blurb in its place throws away the only
+      // thing on the card worth reading and is what plan generation reads.
+      // Fall back to the caption on the blurb path too, so an unreachable
+      // model leaves text behind rather than a blank card.
+      if (platform.author) metadata.source_author = platform.author
       const caption = platform.og_description || ''
       if (!description && (title || caption)) {
-        description = caption.length >= CAPTION_MIN
-          ? caption
+        description = (platform.author || caption.length >= CAPTION_MIN)
+          ? caption || null
           : (await generateDescription(title || caption, url)) || caption || null
       }
     }
@@ -1349,7 +1384,17 @@ function extractFromHtml(html, url = '') {
 
   let image = getMeta('og:image') || getMeta('twitter:image') || ''
   let price = null, currency = 'USD'
-  const ogDescription = cleanSocialCaption(decodeHtmlEntities(getMeta('og:description') || getMeta('twitter:description') || ''))
+  let ogDescription = cleanSocialCaption(decodeHtmlEntities(getMeta('og:description') || getMeta('twitter:description') || ''))
+
+  // The same split the add path does. Without it, hitting "scrape" on a social
+  // card writes the raw `<author> on Instagram: "…"` title straight back.
+  const social = splitSocialTitle(title)
+  let author = null
+  if (social) {
+    author = social.author
+    title = socialHeadline(social.caption)
+    if (social.caption.length > ogDescription.length) ogDescription = social.caption
+  }
 
   const ldBlocks = [...html.matchAll(/<script[^>]*type="application\/ld\+json"[^>]*>([\s\S]*?)<\/script>/gi)]
   for (const [, block] of ldBlocks) {
@@ -1398,6 +1443,7 @@ function extractFromHtml(html, url = '') {
     title,
     image: image ? decodeHtmlEntities(image) : null,
     price, currency, ogDescription,
+    author, isSocial: !!social,
     imgCandidates: imgCandidates.map(decodeHtmlEntities),
     identifiers: extractIdentifiers(html, url)
   }
@@ -1410,11 +1456,20 @@ function extractFromHtml(html, url = '') {
 // boilerplate and our own blurbs sit well under this.
 const CAPTION_MIN = 250
 
+// How much a card has to say before a plan is worth offering. Far lower than
+// CAPTION_MIN, which answers a different question (are these the post's own
+// words, or boilerplate to replace with a blurb). A plan needs no essay: the
+// generator searches GitHub and the web for every tool the post names, so a
+// two-line "here's the component I built" reel still yields a usable "install
+// this, here's the repo" plan — and that is most of what a reel's caption is.
+// Card.jsx gates the button on the same number.
+const PLAN_MIN = 80
+
 // `finalUrl` is the URL after redirects. It matters: a shortened share link
 // (amzn.asia/d/...) has no /dp/ segment to read an ASIN from and no country
 // TLD to read a currency from, but the page it lands on has both.
 async function scrapeAndUpdate(card, html, finalUrl) {
-  let { title, image, price, currency, ogDescription, imgCandidates, identifiers } = extractFromHtml(html, finalUrl || card.url)
+  let { title, image, price, currency, ogDescription, author, isSocial, imgCandidates, identifiers } = extractFromHtml(html, finalUrl || card.url)
   if (/facebook\.com|fb\.watch/.test(card.url)) title = cleanFacebookTitle(title)
 
   const lmUrl = process.env.LM_STUDIO_URL || 'http://localhost:1234'
@@ -1447,14 +1502,16 @@ async function scrapeAndUpdate(card, html, finalUrl) {
     if (!finalImage) finalImage = imgCandidates[0]
   }
 
-  // Always generate a punchy description with the model — except when the page
-  // already gave us a long first-party caption (Instagram/Facebook posts), which
-  // is better copy than a blurb and is what plan generation reads.
-  if (title && (ogDescription || '').length < CAPTION_MIN) {
+  // Always generate a punchy description with the model — except on a social
+  // post, where the caption is the author's own words however short, and on any
+  // page that already gave us a long first-party one. Both are better copy than
+  // a blurb and are what plan generation reads.
+  if (title && !isSocial && (ogDescription || '').length < CAPTION_MIN) {
     finalDescription = await generateDescription(title, card.url) || ogDescription
   }
 
   const metadata = { ...(card.metadata || {}) }
+  if (author) metadata.source_author = author
   // Currency is only trustworthy on a pass that actually read a price —
   // otherwise a failed price scrape overwrites a correct stored currency with
   // the 'USD' default.
@@ -1670,7 +1727,7 @@ async function planSource(card) {
     return { kind: 'transcript', label: 'TRANSCRIPT', text: segments.map(s => s.text).join(' ').slice(0, 10000) }
   }
   const caption = (card.description || '').trim()
-  if (caption.length < CAPTION_MIN) return null
+  if (caption.length < PLAN_MIN) return null
   return { kind: 'caption', label: 'POST', text: caption.slice(0, 10000) }
 }
 

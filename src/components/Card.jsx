@@ -340,9 +340,9 @@ export default function Card({ card, onDelete, onUpdate, nowPlayingId, onPlay, o
   const deals = card.metadata?.deals || null
   // Only offer a price lookup on cards that are actually a purchasable thing.
   const isProduct = !!(card.metadata?.price || card.metadata?.identifiers)
-  // Matches the server's planSource(): a transcript, or a caption long enough
-  // to be the post's own write-up (CAPTION_MIN in server/index.js).
-  const canPlan = card.type === 'youtube' || (card.description || '').trim().length >= 250
+  // Matches the server's planSource(): a transcript, or a caption with enough
+  // in it to be worth reading (PLAN_MIN in server/index.js).
+  const canPlan = card.type === 'youtube' || (card.description || '').trim().length >= 80
   const accent = card.category ? (CATEGORY_COLOR[card.category] || CATEGORY_COLOR.reference) : null
 
   const handleSaveNotes = async (id, notes) => {
@@ -438,9 +438,14 @@ export default function Card({ card, onDelete, onUpdate, nowPlayingId, onPlay, o
 
       <div className="p-3 flex flex-col flex-1">
         {/* Resolved from user_id at read time, so a rename updates every card at once */}
-        {card.author && (
+        {(card.author || card.metadata?.source_author) && (
           <p className="text-xs mb-1" style={{ color: 'var(--s-text-3)', letterSpacing: '0.08em' }}>
             {card.author}
+            {card.metadata?.source_author && (
+              <span style={{ opacity: 0.65 }}>
+                {card.author ? ' \u00b7 ' : ''}by {card.metadata.source_author}
+              </span>
+            )}
           </p>
         )}
         {card.title && (
