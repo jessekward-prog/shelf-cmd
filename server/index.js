@@ -1175,6 +1175,9 @@ async function processCard(card) {
       } catch (err) {
         console.error('processCard browser fallback failed:', err.message)
       }
+      // Blocked, slow, or simply bare: name the card after the URL rather than
+      // leaving the person a row with nothing on it.
+      if (!title) title = titleFromUrl(url)
     }
   } catch (err) {
     console.error('processCard error:', err.message)
@@ -1649,6 +1652,30 @@ async function scrapeAndUpdate(card, html, finalUrl) {
   }
 }
 
+const BLOCK_PAGE_TITLE = /captcha|are you a robot|just a moment|attention required|access denied|request blocked|403 forbidden|security check/i
+
+// Last resort for a page nothing could read: the URL the person pasted still
+// describes what they saved. A product slug reads as a title once the dashes
+// are gone, which beats a card with no title at all.
+function titleFromUrl(raw) {
+  try {
+    const { hostname, pathname } = new URL(raw)
+    const slug = pathname.split('/').filter(Boolean).pop() || ''
+    const words = decodeURIComponent(slug)
+      .replace(/\.(html?|php|aspx?)$/i, '')
+      .replace(/[-_+]+/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim()
+    // A bare id or a one-word slug says nothing the hostname doesn't.
+    if (words.length < 8 || !/[a-z]{3}/i.test(words) || /^\d+$/.test(words)) {
+      return hostname.replace(/^www\./, '')
+    }
+    return words.replace(/\b\w/g, c => c.toUpperCase()).slice(0, 100)
+  } catch {
+    return ''
+  }
+}
+
 // Render a page in a real headless Chromium — bypasses TLS fingerprinting and
 // runs the JS that builds prices and images. Costs a browser launch, so it is
 // what "scrape" does on demand rather than what every add does.
@@ -1670,6 +1697,12 @@ async function renderPage(url) {
     await page.waitForTimeout(2000)
     const html = await page.content()
     if (!/<meta|<title/i.test(html)) throw new Error(`nothing rendered for ${url}`)
+    // Some retailers answer a headless browser with a bot wall. Its title is
+    // the page's title, so taking it at face value puts "Captcha Challenge" on
+    // the card as if it were the product — worse than nothing, because it
+    // looks like real data. Treat being blocked as the failure it is.
+    const pageTitle = html.match(/<title[^>]*>([^<]*)<\/title>/i)?.[1] || ''
+    if (BLOCK_PAGE_TITLE.test(pageTitle)) throw new Error(`blocked by ${new URL(url).hostname}`)
     return { html, finalUrl: page.url() || url }
   } finally {
     await browser.close()
