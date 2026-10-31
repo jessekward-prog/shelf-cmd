@@ -15,7 +15,7 @@ import { Server } from 'socket.io'
 import { readFile } from 'fs/promises'
 import { fileURLToPath } from 'url'
 import { dirname, join } from 'path'
-import { randomBytes } from 'crypto'
+import { randomBytes, randomInt } from 'crypto'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const newToken = () => randomBytes(24).toString('hex')
@@ -71,8 +71,22 @@ export function mountHostedHub({ app, httpServer, mainPool }) {
     }
   }
 
-  // ── Rate limiting — identical to shelf-hub's own ──────────────────────────
+  // ── Rate limiting ─────────────────────────────────────────────────────────
+  // This hub runs inside shelf-cmd, so it sits behind cloudflared and Coolify's
+  // proxy, where every request arrives from the same address and the only thing
+  // identifying a caller is a forwarding header. X-Forwarded-For is set by the
+  // client, which makes it something an attacker rotates rather than something
+  // that limits them; CF-Connecting-IP is overwritten by cloudflared and cannot
+  // be forged (Cloudflare 403s a request that tries). Hence both a per-caller
+  // and a global counter: a rotated header defeats the first and not the
+  // second. Railway's proxy, where shelf-hub runs, overwrites X-Forwarded-For
+  // instead — this is the copy that needed the CF header, not that one.
   const hits = new Map()
+  function callerKey(req) {
+    return req.get('cf-connecting-ip') ||
+      req.headers['x-forwarded-for']?.split(',')[0]?.trim() ||
+      req.ip || 'unknown'
+  }
   function rateLimit(key, max, windowMs) {
     const now = Date.now()
     const rec = hits.get(key)
@@ -82,6 +96,12 @@ export function mountHostedHub({ app, httpServer, mainPool }) {
     }
     rec.n += 1
     return rec.n <= max
+  }
+  // Far above anything real use produces, and low enough that walking the
+  // 900,000 invite codes would take weeks rather than an afternoon.
+  const GLOBAL_JOIN_MAX = 30
+  function withinGlobal(bucket, max, windowMs) {
+    return rateLimit(`global:${bucket}`, max, windowMs)
   }
   setInterval(() => {
     const now = Date.now()
@@ -131,8 +151,9 @@ export function mountHostedHub({ app, httpServer, mainPool }) {
 
       let user = req.user
       if (!user) {
-        const ip = req.headers['x-forwarded-for']?.split(',')[0] || req.ip
-        if (!rateLimit(`newuser:${ip}`, 10, 3_600_000)) {
+        const ip = callerKey(req)
+        if (!rateLimit(`newuser:${ip}`, 10, 3_600_000) ||
+            !withinGlobal('newuser', 40, 3_600_000)) {
           return res.status(429).json({ error: 'too many new accounts from this address, try later' })
         }
         const username = req.body.username?.trim()
@@ -202,7 +223,11 @@ export function mountHostedHub({ app, httpServer, mainPool }) {
     if (existing[0]) return res.json({ code: existing[0].code })
 
     for (let i = 0; i < 20; i++) {
-      const code = String(Math.floor(100000 + Math.random() * 900000))
+      // Math.random is xorshift128+, so codes from one process are predictable
+      // from a few observed ones. A share code is a credential — it joins the
+      // bearer to someone's shelf — so it comes from the CSPRNG like the tokens
+      // right above it do.
+      const code = String(randomInt(100000, 1000000))
       const { rows } = await pool.query(
         `INSERT INTO invites (code, shelf_id, created_by, expires_at, max_redemptions)
          VALUES ($1,$2,$3, NOW() + ($4 || ' days')::interval, $5)
@@ -215,8 +240,9 @@ export function mountHostedHub({ app, httpServer, mainPool }) {
   })
 
   router.post('/join', async (req, res) => {
-    const ip = req.headers['x-forwarded-for']?.split(',')[0] || req.ip
-    if (!rateLimit(`join:${ip}`, 10, 60_000)) {
+    const ip = callerKey(req)
+    if (!rateLimit(`join:${ip}`, 10, 60_000) ||
+        !withinGlobal('join', GLOBAL_JOIN_MAX, 60_000)) {
       return res.status(429).json({ error: 'too many attempts, wait a minute' })
     }
 
