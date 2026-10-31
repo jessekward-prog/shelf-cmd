@@ -1261,6 +1261,15 @@ app.post('/api/cards', async (req, res) => {
 // push back to the hub is what keeps it — the next pull would otherwise
 // overwrite the improvement with the stale copy.
 async function ownedCard(req, res, { enrich = false } = {}) {
+  // This answers "which card may you touch", and every caller took for granted
+  // that something upstream had already answered "are you anyone at all". For
+  // scrape/plan/deals that was true — they mount adminOnly. For GET, PUT,
+  // DELETE and share it was not, so those four were reachable with no token:
+  // readable by anyone, and writable and deletable by anyone who guessed an id
+  // that existed. One person owns this instance (POST /api/cards says the same
+  // and checks the same thing), so the gate belongs here, where nothing can
+  // forget it again.
+  if (!req.user?.is_admin) { res.status(403).json({ error: 'admin only' }); return null }
   const { rows } = await pool.query(
     `SELECT c.*, CASE WHEN cat.is_collab THEN COALESCE(u.username, hu.username) END AS author
      FROM cards c
