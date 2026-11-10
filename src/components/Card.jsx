@@ -325,7 +325,6 @@ export default function Card({ card, onDelete, onUpdate, nowPlayingId, onPlay, o
   const [descExpanded, setDescExpanded] = useState(false)
   const [planGenerating, setPlanGenerating] = useState(false)
   const [planExpanded, setPlanExpanded] = useState(false)
-  const [watching, setWatching] = useState(false)
   const [watchExpanded, setWatchExpanded] = useState(false)
   const [dealsLoading, setDealsLoading] = useState(false)
   const [dealsExpanded, setDealsExpanded] = useState(false)
@@ -345,13 +344,14 @@ export default function Card({ card, onDelete, onUpdate, nowPlayingId, onPlay, o
   const hasMedia = hasEmbed || card.thumbnail_url
   const plan = card.metadata?.plan || null
   const watched = card.metadata?.watch || null
+  // Same list as VIDEO_TYPES in server/index.js: gen plan watches these.
   const isVideo = ['youtube', 'instagram', 'tiktok', 'facebook', 'vimeo', 'twitter', 'reddit'].includes(card.type)
   const deals = card.metadata?.deals || null
   // Only offer a price lookup on cards that are actually a purchasable thing.
   const isProduct = !!(card.metadata?.price || card.metadata?.identifiers)
   // Matches the server's planSource(): a transcript, or a caption with enough
   // in it to be worth reading (PLAN_MIN in server/index.js).
-  const canPlan = card.type === 'youtube' || !!watched?.transcript || (card.description || '').trim().length >= 80
+  const canPlan = isVideo || (card.description || '').trim().length >= 80
   const accent = card.category ? (CATEGORY_COLOR[card.category] || CATEGORY_COLOR.reference) : null
   // A social post's first line became its title, so printing the caption whole
   // repeats it directly underneath. Show only the part the title doesn't
@@ -412,21 +412,6 @@ export default function Card({ card, onDelete, onUpdate, nowPlayingId, onPlay, o
     }
   }, [card.id, onUpdate])
 
-  const handleWatch = useCallback(async (e) => {
-    e.stopPropagation()
-    setWatching(true)
-    setActionError(null)
-    try {
-      const updated = await api.watchCard(card.id)
-      onUpdate(updated)
-      setWatchExpanded(true)
-    } catch (err) {
-      setActionError(err.message)
-    } finally {
-      setWatching(false)
-    }
-  }, [card.id, onUpdate])
-
   const handleGeneratePlan = useCallback(async (e) => {
     e.stopPropagation()
     setPlanGenerating(true)
@@ -458,7 +443,7 @@ export default function Card({ card, onDelete, onUpdate, nowPlayingId, onPlay, o
         ...(accent && { '--card-accent': accent })
       }}
     >
-      {(scraping || planGenerating || watching) && (
+      {(scraping || planGenerating) && (
         <div style={{ position: 'absolute', inset: 0, zIndex: 0 }}>
           <RippleField color={card.category ? CATEGORY_COLOR[card.category] || CATEGORY_COLOR.reference : 'var(--s-accent)'} />
         </div>
@@ -638,8 +623,6 @@ export default function Card({ card, onDelete, onUpdate, nowPlayingId, onPlay, o
                       overflowY: 'auto'
                     }}
                   >
-                    {watched.summary && <div className="mb-2" style={{ color: 'var(--s-text-1)' }}>{watched.summary}</div>}
-                    <div style={{ color: 'var(--s-text-3)' }}>TRANSCRIPT</div>
                     {watched.transcript || '(no speech)'}
                   </div>
                 </motion.div>
@@ -705,14 +688,6 @@ export default function Card({ card, onDelete, onUpdate, nowPlayingId, onPlay, o
             >
               {dealsLoading ? 'checking…' : deals ? 'recheck price' : 'find cheaper'}
             </button>}
-            {canServerAI && isVideo && <button
-              onClick={handleWatch}
-              disabled={watching}
-              className="text-xs px-2 py-1 rounded whitespace-nowrap"
-              style={{ color: watching ? 'var(--s-border)' : watched ? 'var(--s-text-3)' : 'var(--s-accent)', background: 'transparent' }}
-            >
-              {watching ? 'watching…' : watched ? 'rewatch' : 'watch'}
-            </button>}
             {canServerAI && canPlan && (
               <button
                 onClick={handleGeneratePlan}
@@ -723,7 +698,7 @@ export default function Card({ card, onDelete, onUpdate, nowPlayingId, onPlay, o
                   background: 'transparent'
                 }}
               >
-                {planGenerating ? 'thinking…' : plan ? 'regen plan' : 'gen plan'}
+                {planGenerating ? (isVideo ? 'watching…' : 'thinking…') : plan ? 'regen plan' : 'gen plan'}
               </button>
             )}
             {canEdit && !card.notes && !noteEditing && (

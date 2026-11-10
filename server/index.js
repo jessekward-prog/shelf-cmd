@@ -1898,80 +1898,12 @@ function injectLinks(plan, resources) {
   return out
 }
 
-// What a plan gets built from. A YouTube video has a transcript; a social post
-// doesn't, but the caption on the "comment X for the links" reels is usually the
-// whole tutorial written out, which reads the same way to the model.
-async function planSource(card) {
-  const watched = card.metadata?.watch
-  if (watched?.transcript) {
-    return { kind: 'transcript', label: 'TRANSCRIPT', text: `${watched.transcript.slice(0, 9000)}\n\nWHAT THE VIDEO SHOWS:\n${watched.summary || ''}` }
-  }
-  if (card.type === 'youtube' && card.youtube_id) {
-    try {
-      const segments = await YoutubeTranscript.fetchTranscript(card.youtube_id)
-      return { kind: 'transcript', label: 'TRANSCRIPT', text: segments.map(s => s.text).join(' ').slice(0, 10000) }
-    } catch (err) {
-      // Plenty of videos have captions turned off, and the library's own
-      // message is not something to put in front of a person. Fall through to
-      // whatever text the card does have rather than failing outright.
-      console.error('transcript unavailable:', card.youtube_id, err.message)
-    }
-  }
-  const caption = (card.description || '').trim()
-  if (caption.length < PLAN_MIN) return null
-  return { kind: 'caption', label: 'POST', text: caption.slice(0, 10000) }
-}
+// Cards that may carry a video worth watching. Card.jsx keeps the same list.
+const VIDEO_TYPES = new Set(['youtube', 'instagram', 'tiktok', 'facebook', 'vimeo', 'twitter', 'reddit'])
 
-app.post('/api/cards/:id/plan', adminOnly, async (req, res) => {
-  try {
-    const card = await ownedCard(req, res, { enrich: true })
-    if (!card) return
-    const source = await planSource(card)
-    if (!source) {
-      return res.status(400).json({
-        error: card.type === 'youtube'
-          ? 'this video has no transcript, and the card has no description to read instead'
-          : 'not enough text on this card to build a plan from'
-      })
-    }
-
-    // Step 1 — generate plan from whatever the card gave us to read
-    const rawPlan = await lmComplete([
-      {
-        role: 'system',
-        content: `You are a technical assistant. You read ${source.kind === 'transcript' ? 'tutorial transcripts' : 'tutorial posts'} and produce clean, actionable step-by-step plans. Output numbered markdown steps only — no preamble, no intro sentence, no sign-off.`
-      },
-      {
-        role: 'user',
-        content: `Tutorial: "${card.title || card.url}"\n\n${source.label}:\n${source.text}\n\n---\nRead this carefully. Flag any steps that seem outdated, ambiguous, or potentially wrong — note corrections inline with [NOTE: ...]. Then output a numbered action plan someone (or an AI coding assistant like Claude Code) could follow right now to replicate this tutorial.`
-      }
-    ], { maxTokens: 1200, temperature: 0.4, timeout: 180000 })
-
-    // Step 2 — extract tool names that need links
-    const tools = await extractTools(rawPlan)
-    console.log('plan tools identified:', tools)
-
-    // Steps 3 & 4 — search GitHub + DDG for each tool, inject links on first mention
-    const plan = await applyPlanLinks(rawPlan, tools)
-
-    const metadata = { ...(card.metadata || {}), plan }
-    const { rows } = await pool.query(
-      'UPDATE cards SET metadata=$1 WHERE id=$2 RETURNING *',
-      [JSON.stringify(metadata), card.id]
-    )
-    if (card.hub_card_id) await hub.updateCard(card, { metadata }).catch(() => {})
-    logActivity(pool, hub, card.category_id, 'plan_regenerated', `generated a tutorial plan for: ${card.title || card.url}`).catch(() => {})
-    res.json(rows[0])
-  } catch (err) {
-    console.error('plan error:', err.message)
-    res.status(500).json({ error: err.message })
-  }
-})
-
-// ── Watch ────────────────────────────────────────────────────────────────────
 // "Watching" a video: watch.py downloads it, transcribes the audio with Whisper
-// and grabs evenly spaced frames; the LM then reads the transcript alongside
-// the frames for anything shown but not said (repo names, URLs, commands).
+// and grabs evenly spaced frames, which go to the plan model alongside the
+// transcript for anything shown but not said (repo names, URLs, commands).
 async function watchVideo(url) {
   const dir = await mkdtemp(join(tmpdir(), 'watch-'))
   try {
@@ -1988,40 +1920,89 @@ async function watchVideo(url) {
   }
 }
 
-async function summariseVideo(title, transcript, frames) {
-  const said = `Video: "${title}"\n\nTRANSCRIPT:\n${transcript.slice(0, 9000) || '(no speech)'}\n\n---\n`
-  const withFrames = said + `The images are frames from the video in order. In 2-3 sentences, say what this video is about and what it tells the viewer. Then a line "ON SCREEN:" listing anything shown that the transcript doesn't say — repo or tool names, URLs, commands, code, prices. Write "ON SCREEN: nothing extra" if there is none. No preamble.`
-  try {
-    return await lmComplete([{ role: 'user', content: [
-      { type: 'text', text: withFrames },
-      ...frames.map(b => ({ type: 'image_url', image_url: { url: `data:image/jpeg;base64,${b}` } }))
-    ] }], { maxTokens: 1200, temperature: 0.3, timeout: 240000 })
-  } catch (err) {
-    // A text-only model rejects image parts (a 4xx); the transcript alone still says most of it.
-    if (!/LM Studio 4\d\d/.test(err.message)) throw err
-    console.error('watch: frames rejected, summarising transcript only:', err.message)
-    return lmComplete([{ role: 'user', content: said + 'In 2-3 sentences, say what this video is about and what it tells the viewer. No preamble.' }],
-      { maxTokens: 1200, temperature: 0.3, timeout: 180000 })
+// What a plan gets built from. YouTube's own captions are free, so they come
+// first; any other video (or a YouTube one without captions) gets watched. A
+// post with no video falls back to its caption — on the "comment X for the
+// links" reels that is often the whole tutorial written out.
+async function planSource(card) {
+  const caption = (card.description || '').trim()
+  if (card.type === 'youtube' && card.youtube_id) {
+    try {
+      const segments = await YoutubeTranscript.fetchTranscript(card.youtube_id)
+      return { kind: 'transcript', label: 'TRANSCRIPT', text: segments.map(s => s.text).join(' ').slice(0, 10000) }
+    } catch (err) {
+      // Plenty of videos have captions turned off; watch it instead.
+      console.error('transcript unavailable:', card.youtube_id, err.message)
+    }
   }
+  if (VIDEO_TYPES.has(card.type) && card.url) {
+    try {
+      const video = await watchVideo(card.url)
+      if (video.transcript || video.frames.length) {
+        const post = caption.length >= PLAN_MIN ? `\n\nPOST CAPTION:\n${caption.slice(0, 3000)}` : ''
+        return { kind: 'transcript', label: 'TRANSCRIPT', text: (video.transcript || '(no speech)').slice(0, 9000) + post, frames: video.frames, transcript: video.transcript }
+      }
+    } catch (err) {
+      console.error('watch failed, falling back to caption:', card.url, err.message)
+    }
+  }
+  if (caption.length < PLAN_MIN) return null
+  return { kind: 'caption', label: 'POST', text: caption.slice(0, 10000) }
 }
 
-app.post('/api/cards/:id/watch', adminOnly, async (req, res) => {
+app.post('/api/cards/:id/plan', adminOnly, async (req, res) => {
   try {
     const card = await ownedCard(req, res, { enrich: true })
     if (!card) return
-    if (!card.url) return res.status(400).json({ error: 'this card has no link to watch' })
-    const video = await watchVideo(card.url)
-    if (!video.transcript && !video.frames.length) return res.status(400).json({ error: 'nothing to read in this video' })
-    const summary = await summariseVideo(card.title || card.url, video.transcript, video.frames).catch(err => {
-      console.error('watch summary error:', err.message)
-      return ''
-    })
-    const metadata = { ...(card.metadata || {}), watch: { transcript: video.transcript, summary, watched_at: new Date().toISOString() } }
-    const { rows } = await pool.query('UPDATE cards SET metadata=$1 WHERE id=$2 RETURNING *', [JSON.stringify(metadata), card.id])
+    const source = await planSource(card)
+    if (!source) {
+      return res.status(400).json({
+        error: VIDEO_TYPES.has(card.type)
+          ? "couldn't get this video, and the card has no description to read instead"
+          : 'not enough text on this card to build a plan from'
+      })
+    }
+
+    // Step 1 — generate plan from whatever the card gave us to read
+    const system = {
+      role: 'system',
+      content: `You are a technical assistant. You read ${source.kind === 'transcript' ? 'tutorial transcripts' : 'tutorial posts'} and produce clean, actionable step-by-step plans. Output numbered markdown steps only — no preamble, no intro sentence, no sign-off.`
+    }
+    const ask = `Tutorial: "${card.title || card.url}"\n\n${source.label}:\n${source.text}\n\n---\nRead this carefully. Flag any steps that seem outdated, ambiguous, or potentially wrong — note corrections inline with [NOTE: ...]. Then output a numbered action plan someone (or an AI coding assistant like Claude Code) could follow right now to replicate this tutorial.`
+    const opts = { maxTokens: 1200, temperature: 0.4, timeout: 180000 }
+    let rawPlan
+    if (source.frames?.length) {
+      try {
+        rawPlan = await lmComplete([system, { role: 'user', content: [
+          { type: 'text', text: ask + '\n\nThe images are frames from the video, in order. Use them for anything shown but not said — repo or tool names, URLs, commands, code.' },
+          ...source.frames.map(b => ({ type: 'image_url', image_url: { url: `data:image/jpeg;base64,${b}` } }))
+        ] }], opts)
+      } catch (err) {
+        // A text-only model rejects image parts (a 4xx); the transcript alone still says most of it.
+        if (!/LM Studio 4\d\d/.test(err.message)) throw err
+        console.error('plan: frames rejected, using transcript only:', err.message)
+      }
+    }
+    rawPlan ??= await lmComplete([system, { role: 'user', content: ask }], opts)
+
+    // Step 2 — extract tool names that need links
+    const tools = await extractTools(rawPlan)
+    console.log('plan tools identified:', tools)
+
+    // Steps 3 & 4 — search GitHub + DDG for each tool, inject links on first mention
+    const plan = await applyPlanLinks(rawPlan, tools)
+
+    const metadata = { ...(card.metadata || {}), plan }
+    if (source.frames) metadata.watch = { transcript: source.transcript, watched_at: new Date().toISOString() }
+    const { rows } = await pool.query(
+      'UPDATE cards SET metadata=$1 WHERE id=$2 RETURNING *',
+      [JSON.stringify(metadata), card.id]
+    )
     if (card.hub_card_id) await hub.updateCard(card, { metadata }).catch(() => {})
+    logActivity(pool, hub, card.category_id, 'plan_regenerated', `generated a tutorial plan for: ${card.title || card.url}`).catch(() => {})
     res.json(rows[0])
   } catch (err) {
-    console.error('watch error:', err.message)
+    console.error('plan error:', err.message)
     res.status(500).json({ error: err.message })
   }
 })

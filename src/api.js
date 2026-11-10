@@ -44,7 +44,6 @@ export const scrapeCard = (id) => req('POST', `/cards/${id}/scrape`, {})
 export const findDeals = (id) => req('POST', `/cards/${id}/deals`, {})
 export const dealsStreamUrl = (id) => `${base}/cards/${id}/deals/stream?t=${tok()}`
 export const generatePlan = (id) => req('POST', `/cards/${id}/plan`, {})
-export const watchCard = (id) => req('POST', `/cards/${id}/watch`, {})
 export const backfillCardCategories = () => req('POST', '/cards/backfill-categories', {})
 export const shareCard = (id) => req('POST', `/cards/${id}/share`, {})
 export const cardShareUrl = (token) => `${location.origin}/s/c/${token}`
