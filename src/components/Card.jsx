@@ -688,7 +688,7 @@ export default function Card({ card, onDelete, onUpdate, nowPlayingId, onPlay, o
         {/* Card footer actions. Scrape and plan improve a card for the whole shelf,
             so anyone on it may run them; delete stays with whoever posted it. */}
         {(canEdit || canServerAI) && <div className="flex items-center justify-between gap-2 mt-auto pt-2" style={{ borderTop: '1px solid var(--s-surface-2)' }}>
-          <div className="flex items-center gap-1 min-w-0">
+          <div className="flex flex-wrap items-center gap-1 min-w-0">
             {canServerAI && <button
               onClick={handleScrape}
               disabled={scraping}
@@ -737,7 +737,7 @@ export default function Card({ card, onDelete, onUpdate, nowPlayingId, onPlay, o
             )}
           </div>
 
-          <div className="flex items-center gap-1">
+          <div className="flex items-center gap-1 shrink-0">
             {canEdit && <AnimatePresence mode="wait">
               {!confirmDelete ? (
                 <motion.button
