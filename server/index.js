@@ -3,7 +3,10 @@ import express from 'express'
 import cors from 'cors'
 import pg from 'pg'
 import { createServer } from 'http'
-import { readFile, writeFile, mkdir } from 'fs/promises'
+import { readFile, writeFile, mkdir, mkdtemp, rm } from 'fs/promises'
+import { execFile } from 'child_process'
+import { promisify } from 'util'
+import { tmpdir } from 'os'
 import { fileURLToPath } from 'url'
 import { dirname, join } from 'path'
 import { chromium } from 'playwright-extra'
@@ -435,9 +438,9 @@ async function resolvePlatform(rawUrl) {
 
   // Instagram — OG tags for title/thumbnail, official /embed/ path for player
   if (/instagram\.com/.test(url)) {
-    const m = url.match(/instagram\.com\/(?:p|reel|tv)\/([A-Za-z0-9_-]+)/)
+    const m = url.match(/instagram\.com\/(?:p|reels?|tv)\/([A-Za-z0-9_-]+)/)
     const code = m?.[1]
-    const isReel = url.includes('/reel/')
+    const isReel = /\/reels?\//.test(url)
     const og = await fetchOpenGraph(url)
     return {
       type: 'instagram', media_id: code || null,
@@ -1899,6 +1902,10 @@ function injectLinks(plan, resources) {
 // doesn't, but the caption on the "comment X for the links" reels is usually the
 // whole tutorial written out, which reads the same way to the model.
 async function planSource(card) {
+  const watched = card.metadata?.watch
+  if (watched?.transcript) {
+    return { kind: 'transcript', label: 'TRANSCRIPT', text: `${watched.transcript.slice(0, 9000)}\n\nWHAT THE VIDEO SHOWS:\n${watched.summary || ''}` }
+  }
   if (card.type === 'youtube' && card.youtube_id) {
     try {
       const segments = await YoutubeTranscript.fetchTranscript(card.youtube_id)
@@ -1957,6 +1964,64 @@ app.post('/api/cards/:id/plan', adminOnly, async (req, res) => {
     res.json(rows[0])
   } catch (err) {
     console.error('plan error:', err.message)
+    res.status(500).json({ error: err.message })
+  }
+})
+
+// ── Watch ────────────────────────────────────────────────────────────────────
+// "Watching" a video: watch.py downloads it, transcribes the audio with Whisper
+// and grabs evenly spaced frames; the LM then reads the transcript alongside
+// the frames for anything shown but not said (repo names, URLs, commands).
+async function watchVideo(url) {
+  const dir = await mkdtemp(join(tmpdir(), 'watch-'))
+  try {
+    const { stdout } = await promisify(execFile)('python3', ['-I', join(__dirname, 'watch.py'), url, dir], { timeout: 10 * 60000, maxBuffer: 1 << 24 })
+    const out = JSON.parse(stdout)
+    out.frames = await Promise.all(out.frames.map(f => readFile(f, 'base64')))
+    return out
+  } catch (err) {
+    // yt-dlp's errors arrive as "ERROR: [Instagram] abc123: There is no video in this post".
+    const msg = (err.stderr || err.message || '').trim().split('\n').pop()
+    throw new Error(msg.replace(/^.*?ERROR:\s*(\[[^\]]+\]\s*[^:]+:\s*)?/, '') || 'could not download this video')
+  } finally {
+    rm(dir, { recursive: true, force: true }).catch(() => {})
+  }
+}
+
+async function summariseVideo(title, transcript, frames) {
+  const said = `Video: "${title}"\n\nTRANSCRIPT:\n${transcript.slice(0, 9000) || '(no speech)'}\n\n---\n`
+  const withFrames = said + `The images are frames from the video in order. In 2-3 sentences, say what this video is about and what it tells the viewer. Then a line "ON SCREEN:" listing anything shown that the transcript doesn't say — repo or tool names, URLs, commands, code, prices. Write "ON SCREEN: nothing extra" if there is none. No preamble.`
+  try {
+    return await lmComplete([{ role: 'user', content: [
+      { type: 'text', text: withFrames },
+      ...frames.map(b => ({ type: 'image_url', image_url: { url: `data:image/jpeg;base64,${b}` } }))
+    ] }], { maxTokens: 1200, temperature: 0.3, timeout: 240000 })
+  } catch (err) {
+    // A text-only model rejects image parts (a 4xx); the transcript alone still says most of it.
+    if (!/LM Studio 4\d\d/.test(err.message)) throw err
+    console.error('watch: frames rejected, summarising transcript only:', err.message)
+    return lmComplete([{ role: 'user', content: said + 'In 2-3 sentences, say what this video is about and what it tells the viewer. No preamble.' }],
+      { maxTokens: 1200, temperature: 0.3, timeout: 180000 })
+  }
+}
+
+app.post('/api/cards/:id/watch', adminOnly, async (req, res) => {
+  try {
+    const card = await ownedCard(req, res, { enrich: true })
+    if (!card) return
+    if (!card.url) return res.status(400).json({ error: 'this card has no link to watch' })
+    const video = await watchVideo(card.url)
+    if (!video.transcript && !video.frames.length) return res.status(400).json({ error: 'nothing to read in this video' })
+    const summary = await summariseVideo(card.title || card.url, video.transcript, video.frames).catch(err => {
+      console.error('watch summary error:', err.message)
+      return ''
+    })
+    const metadata = { ...(card.metadata || {}), watch: { transcript: video.transcript, summary, watched_at: new Date().toISOString() } }
+    const { rows } = await pool.query('UPDATE cards SET metadata=$1 WHERE id=$2 RETURNING *', [JSON.stringify(metadata), card.id])
+    if (card.hub_card_id) await hub.updateCard(card, { metadata }).catch(() => {})
+    res.json(rows[0])
+  } catch (err) {
+    console.error('watch error:', err.message)
     res.status(500).json({ error: err.message })
   }
 })
