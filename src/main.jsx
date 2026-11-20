@@ -4,6 +4,9 @@ import App from './App.jsx'
 import PinGate from './components/PinGate.jsx'
 import { BigPictureProvider } from './bigpicture/BigPicture.jsx'
 import './index.css'
+import { startAutoUpdate } from './autoUpdate.js'
+
+startAutoUpdate()
 
 ReactDOM.createRoot(document.getElementById('root')).render(
   <React.StrictMode>

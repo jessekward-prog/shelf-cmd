@@ -1,5 +1,6 @@
-// Bump this whenever the caching rules change — activate() purges everything else.
-const CACHE = 'shelf-v2'
+// Stamped with the build id at build time (buildStamp.js), so every deploy is a new worker
+// and activate() purges the previous deploy's cache.
+const CACHE = 'shelf-v3-__BUILD_ID__'
 
 self.addEventListener('install', e => {
   // Don't precache index.html: it's fetched network-first below, and a precached
