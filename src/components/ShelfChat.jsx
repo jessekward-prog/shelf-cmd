@@ -131,7 +131,7 @@ const AMBER_BORDER = 'rgba(232,132,10,0.55)'
 const RAIL_BOTTOM = 'calc(3.5rem + env(safe-area-inset-bottom) + 20px)'
 // Rail and panel share one height so the panel fills the rail exactly,
 // rather than the rail poking out past the panel's top and bottom.
-const PANEL_HEIGHT = 'min(850px, 85vh)'
+const PANEL_HEIGHT = 'min(850px, calc(85vh / var(--bpz, 1)))'
 const RAIL_HEIGHT = PANEL_HEIGHT
 // The notch's one fixed spot — same whether the panel's open or closed.
 const NOTCH_BOTTOM = `calc(${RAIL_BOTTOM} - 8px)`
@@ -146,6 +146,12 @@ const NOTCH_OVERLAP = 20
 // shelf's CARDS/DRIVE/GUIDES tabs — only a shelf switch remounts it.
 export default function ShelfChat({ categoryId, isLinked }) {
   const [open, setOpen] = useState(false)
+  useEffect(() => {
+    if (!open) return
+    const h = (e) => { if (e.key === 'Escape' && !e.defaultPrevented) setOpen(false) }
+    document.addEventListener('keydown', h)
+    return () => document.removeEventListener('keydown', h)
+  }, [open])
   const [tab, setTab] = useState('man')
   const [messages, setMessages] = useState([])
   const [activity, setActivity] = useState([])
@@ -334,9 +340,10 @@ export default function ShelfChat({ categoryId, isLinked }) {
             exit={{ opacity: 0, x: 60 }}
             transition={{ type: 'spring', damping: 26, stiffness: 340 }}
             className="fixed z-40"
+            data-tv-modal
             style={{
               right: 0, bottom: `calc(${RAIL_BOTTOM} + 10px)`, height: PANEL_HEIGHT,
-              width: 'min(340px, calc(100vw - 20px))'
+              width: 'min(340px, calc(100vw / var(--bpz, 1) - 20px))'
             }}
           >
             <div className="flex flex-col overflow-hidden h-full" style={{

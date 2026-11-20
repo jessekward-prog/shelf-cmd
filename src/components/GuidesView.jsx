@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import * as api from '../api.js'
 import ShareModal from './ShareModal.jsx'
+import { useBigPicture, tvTile } from '../bigpicture/BigPicture.jsx'
 
 function host(u) { try { return new URL(u).hostname.replace(/^www\./, '') } catch { return u || '' } }
 
@@ -32,6 +33,7 @@ export function Legend() {
 }
 
 export default function GuidesView({ onGenerate, refreshKey, categoryId }) {
+  const bp = useBigPicture()
   const [guides, setGuides] = useState(null) // null = loading
   const [busyId, setBusyId] = useState(null)
   const [savedId, setSavedId] = useState(null)
@@ -141,6 +143,19 @@ export default function GuidesView({ onGenerate, refreshKey, categoryId }) {
               return (
                 <motion.div
                   key={g.id}
+                  {...tvTile(bp, {
+                    title: g.title,
+                    onActivate: () => openGuide(g.id),
+                    actions: () => [
+                      { label: 'Open', onSelect: () => openGuide(g.id) },
+                      { label: 'Download', onSelect: () => { location.href = api.guideDownloadUrl(g.id) } },
+                      categoryId && { label: savedId === g.id ? 'Saved to this shelf' : 'Save to this shelf', onSelect: () => saveGuide(g.id) },
+                      { label: 'Share', onSelect: () => setSharingGuide(g) },
+                      { label: 'Delete', danger: true, onSelect: () => bp.openActions(`Delete "${g.title}"?`, [
+                        { label: 'Delete', danger: true, onSelect: () => removeGuide(g.id) },
+                      ]) },
+                    ],
+                  })}
                   initial={{ opacity: 0, y: -8 }}
                   animate={{ opacity: 1, y: 0 }}
                   exit={{ opacity: 0, scale: 0.97 }}
@@ -169,7 +184,7 @@ export default function GuidesView({ onGenerate, refreshKey, categoryId }) {
                       {g.source ? host(g.source) : ''} · {g.chapters} ch
                       {g.mode && g.mode !== 'man' ? ` · ${g.mode}` : ''} · {new Date(g.created_at).toLocaleDateString()}
                     </div>
-                    <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                    <div className="bp-hide" style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
                       <button style={btn} disabled={busyId === g.id} onClick={() => openGuide(g.id)}
                         onMouseEnter={e => e.currentTarget.style.borderColor = 'var(--s-accent)'}
                         onMouseLeave={e => e.currentTarget.style.borderColor = 'var(--s-border)'}>

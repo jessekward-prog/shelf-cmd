@@ -60,6 +60,9 @@
 
 /* ── Shelf design tokens (phosphor default) ─────────────────────────────── */
 :root {
+  /* Big Picture Mode's focus ring, options sheet and hint bar follow the theme */
+  --tv-accent: var(--s-accent); --tv-bg: var(--s-bg); --tv-surface: var(--s-surface);
+  --tv-text: var(--s-text-0); --tv-muted: var(--s-text-3); --tv-border: var(--s-border);
   --s-font:    'JetBrains Mono', 'Fira Mono', monospace;
   /* The browser defaults are too slack to read as deliberate. */
   --ease-out:    cubic-bezier(0.23, 1, 0.32, 1);
@@ -385,7 +388,7 @@ html.glass .glass-bar::before {
 
 html, body, #root {
   height: 100%;
-  height: 100dvh;
+  height: calc(100dvh / var(--bpz, 1));
   margin: 0;
   padding: 0;
 }

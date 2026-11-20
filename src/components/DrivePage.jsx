@@ -140,13 +140,13 @@ export default function DrivePage({ categoryId, subcategoryId, joined }) {
       onDragLeave={(e) => { if (e.currentTarget === e.target) setDragging(false) }}
       onDrop={onDrop}
       className="px-4 pb-24 lg:px-8 lg:pb-10 relative"
-      style={{ minHeight: '50vh' }}
+      style={{ minHeight: 'calc(50vh / var(--bpz, 1))' }}
     >
       {/* Drop / upload bar — files or a whole folder. Not on a joined shelf:
           those files live on the owner's machine and are read-only here. */}
       {!joined && <div
         onClick={() => inputRef.current?.click()}
-        className="w-full rounded-xl mb-4 flex flex-col items-center justify-center gap-1 transition-colors cursor-pointer"
+        className="bp-hide w-full rounded-xl mb-4 flex flex-col items-center justify-center gap-1 transition-colors cursor-pointer"
         style={{
           padding: '1.5rem',
           border: `1.5px dashed ${dragging ? 'var(--s-accent)' : 'var(--s-border)'}`,

@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import * as api from '../api.js'
+import { useBigPicture, tvTile } from '../bigpicture/BigPicture.jsx'
 
 function fmtBytes(b) {
   if (!b) return '0 B'
@@ -31,9 +32,28 @@ export default function FileCard({ file, onDelete, onShare }) {
   const thumbUrl = () => file.thumb_url ? api.proxiedUrl(file.thumb_url) : api.fileThumbUrl(file.id)
   const [confirm, setConfirm] = useState(false)
   const pending = file.status === 'pending'
+  const bp = useBigPicture()
+  const name = file.name.split('/').pop()
+  const open = () => {
+    if (pending) return
+    if (bp.enabled && file.kind === 'video') bp.openPlayer({ title: name, src: rawUrl(false), kind: 'video' })
+    else window.open(rawUrl(false), '_blank', 'noopener')
+  }
 
   return (
     <motion.div
+      {...tvTile(bp, {
+        title: name,
+        onActivate: open,
+        actions: pending ? undefined : () => [
+          { label: 'Open', onSelect: open },
+          { label: 'Download', onSelect: () => { location.href = rawUrl(true) } },
+          !file.remote && { label: 'Share / QR code', onSelect: () => onShare(file) },
+          !file.remote && { label: 'Delete', danger: true, onSelect: () => bp.openActions(`Delete "${name}"?`, [
+            { label: 'Delete', danger: true, onSelect: () => onDelete(file.id) },
+          ]) },
+        ],
+      })}
       layout
       initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, scale: 0.95 }}
       whileHover={{ scale: 1.03, zIndex: 5 }}
@@ -91,7 +111,7 @@ export default function FileCard({ file, onDelete, onShare }) {
           <p className="text-xs mt-1" style={{ color: PS_GREEN }}>updated {timeAgo(file.created_at)}</p>
         )}
 
-        <div className="flex items-center justify-between mt-3 pt-2" style={{ borderTop: '1px solid var(--s-surface-2)' }}>
+        <div className="bp-hide flex items-center justify-between mt-3 pt-2" style={{ borderTop: '1px solid var(--s-surface-2)' }}>
           <div className="flex items-center gap-3">
             <a href={pending ? undefined : rawUrl(true)}
               className="text-xs" style={{ color: pending ? 'var(--s-border)' : 'var(--s-text-3)' }}>

@@ -21,6 +21,7 @@ import JoinModal from './components/JoinModal.jsx'
 import ManageShelvesModal from './components/ManageShelvesModal.jsx'
 import ShelfChat from './components/ShelfChat.jsx'
 import * as api from './api.js'
+import { useTvHandlers } from './bigpicture/BigPicture.jsx'
 import { getSavedTheme, applyTheme, getSavedIntensity, applyIntensity, getSavedGlass, applyGlass } from './themes.js'
 
 // Aesthetic [ Cards | Drive ] switch, shown for the active shelf in every tab.
@@ -308,6 +309,16 @@ export default function App({ me }) {
     exit: (dir) => ({ x: dir > 0 ? -40 : 40, opacity: 0 })
   }
 
+  // Big Picture's Back, outside any dialog: Drive or Guides goes back to the shelf's cards,
+  // a tab back to "all", and from there focus returns to the sidebar.
+  useTvHandlers({
+    onBack: ({ layer }) => {
+      if (layer) return false
+      if (activeView === 'bookmarks' && shelfMode !== 'cards') { setShelfMode('cards'); return true }
+      return false
+    },
+  })
+
   const activeCat = categories.find(c => c.id === activeCatId)
   const activeSub = subcategories.find(s => s.id === activeSubcatId)
   const visibleCategories = categories.filter(c => !c.archived)
@@ -361,7 +372,7 @@ export default function App({ me }) {
         </div>
 
         {/* Centered column on mobile, full bleed beside the sidebar on desktop */}
-        <div className="max-w-2xl mx-auto pb-16 lg:max-w-none lg:mx-0 lg:pb-10 lg:w-full">
+        <div data-tv-zone="main" className="max-w-2xl mx-auto pb-16 lg:max-w-none lg:mx-0 lg:pb-10 lg:w-full">
 
           <div style={{ display: activeView === 'bookmarks' ? 'block' : 'none' }}>
               <div className="lg:hidden">
@@ -450,7 +461,7 @@ export default function App({ me }) {
                     onClick={recolorCards}
                     disabled={recoloring}
                     title="Classify any card missing a category, and pull in anything new"
-                    className="glow-focus"
+                    className="glow-focus bp-hide"
                     style={{
                       display: 'flex', padding: 4, borderRadius: 6, marginBottom: 14,
                       color: 'var(--s-text-3)', opacity: recoloring ? 0.5 : 1
@@ -469,7 +480,7 @@ export default function App({ me }) {
                 </div>
               )}
 
-              <div className="relative" style={{ minHeight: '60vh' }}>
+              <div className="relative" style={{ minHeight: 'calc(60vh / var(--bpz, 1))' }}>
                 <AnimatePresence mode="wait" custom={direction}>
                   {activeCatId && shelfMode === 'drive' ? (
                     <motion.div key={'drive-' + activeCatId}
@@ -581,7 +592,7 @@ export default function App({ me }) {
               left: '50%',
               transform: 'translateX(-50%)',
               bottom: 'var(--s-dock)',
-              maxWidth: 'calc(100vw - 2rem)',
+              maxWidth: 'calc(100vw / var(--bpz, 1) - 2rem)',
               background: 'var(--s-surface)',
               border: '1px solid var(--s-border)',
               boxShadow: '0 4px 16px rgba(0,0,0,0.4)'

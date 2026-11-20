@@ -94,6 +94,22 @@ poster's own browser runs the AI on the poster's own account.
 
 To keep an instance fully private with no sharing at all, set `HUB_SYNC=off`.
 
+## On a TV: Big Picture Mode
+
+Tap the coloured dot → **Big Picture Mode**. It's the same desktop UI, sized for
+across the room and driven by a TV remote or a game controller:
+
+- The arrows move between whole cards, not every little button on them. **OK** plays
+  a video full screen (or opens the link); **hold OK** for everything else on that
+  card: pop out, read the plan or transcript, gen plan, share, delete.
+- **Back** closes whatever is open, then returns you to the sidebar. Leaving the grid
+  and coming back lands on the card you left.
+- Controllers work too: A select, B back, X options, Y search, bumpers page.
+
+It's saved per device, so your phone doesn't follow the TV into it. TV browsers
+switch it on by themselves, and `http://your-shelf/?bigpicture=1` forces it on for
+a bookmark (`=0` turns it off).
+
 ## Optional settings
 
 Copy `.env.example` to `.env`, uncomment what you want, and run

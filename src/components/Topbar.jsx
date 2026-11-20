@@ -54,6 +54,7 @@ export default function Topbar({
 
   return (
     <header
+      data-tv-zone="top"
       className="hidden lg:flex items-center gap-4 shrink-0 sticky top-0 z-20 glass-bar"
       style={{
         height: 56, padding: '0 20px',
@@ -79,6 +80,7 @@ export default function Topbar({
         <SearchIcon active={!!search} />
         <input
           ref={ref}
+          data-tv-search
           type="text"
           value={search}
           onChange={(e) => onSearch(e.target.value)}
@@ -118,7 +120,7 @@ export default function Topbar({
           <button
             onClick={install}
             title="Install as an app — a real icon instead of a browser tab"
-            className="glow-focus"
+            className="glow-focus bp-hide"
             style={{
               padding: '6px 12px', borderRadius: 8, fontSize: 12.5, fontFamily: 'inherit',
               border: '1px solid var(--s-border)', color: 'var(--s-text-2)', background: 'transparent'

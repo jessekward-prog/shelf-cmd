@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import * as api from '../api.js'
+import { useBigPicture, tvTile } from '../bigpicture/BigPicture.jsx'
 
 function fmtBytes(b) {
   if (!b) return '0 B'
@@ -24,9 +25,22 @@ const PS_GREEN = '#1FAA8C'
 
 export default function FolderCard({ folder, onOpen, onDelete, onShare }) {
   const [confirm, setConfirm] = useState(false)
+  const bp = useBigPicture()
 
   return (
     <motion.div
+      {...tvTile(bp, {
+        title: folder.name,
+        onActivate: () => onOpen(folder.prefix),
+        actions: () => [
+          { label: 'Open', onSelect: () => onOpen(folder.prefix) },
+          { label: 'Download as zip', onSelect: () => { location.href = api.folderZipUrl(folder.categoryId, folder.prefix) } },
+          { label: 'Share / QR code', onSelect: () => onShare(folder) },
+          { label: `Delete ${folder.count} file${folder.count === 1 ? '' : 's'}`, danger: true, onSelect: () => bp.openActions(`Delete "${folder.name}"?`, [
+            { label: 'Delete', danger: true, onSelect: () => onDelete(folder) },
+          ]) },
+        ],
+      })}
       layout
       initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, scale: 0.95 }}
       whileHover={{ scale: 1.03, zIndex: 5 }}
@@ -68,7 +82,7 @@ export default function FolderCard({ folder, onOpen, onDelete, onShare }) {
           )}
         </p>
 
-        <div className="flex items-center justify-between mt-3 pt-2" style={{ borderTop: '1px solid var(--s-surface-2)' }}>
+        <div className="bp-hide flex items-center justify-between mt-3 pt-2" style={{ borderTop: '1px solid var(--s-surface-2)' }}>
           <div className="flex items-center gap-3">
             <a href={api.folderZipUrl(folder.categoryId, folder.prefix)}
               className="text-xs" style={{ color: 'var(--s-text-3)' }}>

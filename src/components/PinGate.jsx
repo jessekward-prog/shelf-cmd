@@ -164,7 +164,7 @@ export default function PinGate({ children }) {
   if (me) return children(me)
 
   if (!mode) return (
-    <div style={{ minHeight: '100dvh', background: 'var(--s-bg)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+    <div style={{ minHeight: 'calc(100dvh / var(--bpz, 1))', background: 'var(--s-bg)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
       {error
         ? <span style={{ color: '#c0392b', fontSize: 12, letterSpacing: '0.1em', textAlign: 'center', padding: 24 }}>{error}</span>
         : <span style={{ color: 'var(--s-border)', fontSize: 13, letterSpacing: '0.2em' }}>...</span>
@@ -179,7 +179,7 @@ export default function PinGate({ children }) {
 
   return (
     <div style={{
-      minHeight: '100dvh',
+      minHeight: 'calc(100dvh / var(--bpz, 1))',
       background: 'var(--s-bg)',
       display: 'flex', flexDirection: 'column',
       alignItems: 'center', justifyContent: 'center',

@@ -1,7 +1,8 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { THEMES, FONTS, applyTheme, applyIntensity, applyFont, applyOverlay, applyGlass, getSavedIntensity, getSavedFont, getSavedOverlay, getSavedGlass } from '../themes.js'
 import * as api from '../api.js'
+import { BigPictureSettings } from '../bigpicture/BigPicture.jsx'
 
 const CRT_THEMES   = THEMES.filter(t => t.group === 'crt')
 const CLEAN_THEMES = THEMES.filter(t => t.group === 'clean')
@@ -42,6 +43,13 @@ export default function ThemePicker({ current, onChange, user, onRenamed, placem
     applyGlass(v)
   }
 
+  useEffect(() => {
+    if (!open) return
+    const h = (e) => { if (e.key === 'Escape') setOpen(false) }
+    document.addEventListener('keydown', h)
+    return () => document.removeEventListener('keydown', h)
+  }, [open])
+
   const swatch = THEMES.find(t => t.id === current)?.swatch || '#e8840a'
 
   return (
@@ -49,6 +57,7 @@ export default function ThemePicker({ current, onChange, user, onRenamed, placem
       <button
         onClick={() => setOpen(v => !v)}
         title="theme"
+        aria-label="Settings"
         style={{
           width: 20, height: 20, borderRadius: '50%',
           background: swatch,
@@ -64,6 +73,7 @@ export default function ThemePicker({ current, onChange, user, onRenamed, placem
           <>
             <div style={{ position: 'fixed', inset: 0, zIndex: 49 }} onClick={() => setOpen(false)} />
             <motion.div
+              data-tv-modal
               initial={{ opacity: 0, y: placement === 'down' ? -6 : 6, scale: 0.95 }}
               animate={{ opacity: 1, y: 0, scale: 1 }}
               exit={{ opacity: 0, y: placement === 'down' ? -4 : 4, scale: 0.95 }}
@@ -75,11 +85,15 @@ export default function ThemePicker({ current, onChange, user, onRenamed, placem
                 border: '1px solid var(--s-border)',
                 borderRadius: 10, padding: '10px 12px',
                 display: 'flex', flexDirection: 'column', gap: 4,
-                minWidth: 214, maxHeight: '70vh', overflowY: 'auto'
+                minWidth: 214, maxHeight: 'calc(70vh / var(--bpz, 1))', overflowY: 'auto'
               }}
             >
               {/* Who you are, and whose AI account pays for your collab posts */}
               <Identity user={user} onRenamed={onRenamed} />
+
+              <div style={{ borderTop: '1px solid var(--s-surface-2)', margin: '6px 0 2px' }} />
+              <span style={{ fontSize: 10, color: 'var(--s-text-3)', letterSpacing: '0.12em', padding: '2px 8px 0' }}>TV</span>
+              <BigPictureSettings compact />
 
               <div style={{ borderTop: '1px solid var(--s-surface-2)', margin: '6px 0 2px' }} />
 

@@ -4,6 +4,7 @@ import * as api from '../api.js'
 import { CATEGORY_COLOR } from './GuidesView.jsx'
 import ShareModal from './ShareModal.jsx'
 import RippleField from './RippleField.jsx'
+import { useBigPicture, tvTile } from '../bigpicture/BigPicture.jsx'
 
 const PLATFORM_LABELS = {
   youtube: 'YouTube', tiktok: 'TikTok', vimeo: 'Vimeo',
@@ -334,6 +335,7 @@ export default function Card({ card, onDelete, onUpdate, nowPlayingId, onPlay, o
   const reduceMotion = useReducedMotion()
   const [sharing, setSharing] = useState(false)
   const [noteEditing, setNoteEditing] = useState(false)
+  const bp = useBigPicture()
   // Scrape, deals and plan each take real time and can each fail for a reason
   // the person can act on ("this video has no transcript"). Swallowing that
   // into console.error left the spinner stopping and nothing else happening,
@@ -427,8 +429,43 @@ export default function Card({ card, onDelete, onUpdate, nowPlayingId, onPlay, o
     }
   }, [card.id, onUpdate])
 
+  // Big Picture: the whole card is one remote stop. OK plays it full screen (or opens the
+  // link); everything the footer and the expanders do moves to the options sheet.
+  const noEvent = { stopPropagation() {} }
+  const title = card.title || card.url || 'card'
+  const openLink = () => card.url && window.open(card.url, '_blank', 'noopener')
+  const playFull = () => bp.openPlayer({ title, src: card.metadata.embed_url, kind: 'iframe' })
+  const primary = hasEmbed ? playFull : card.url ? openLink : () => bp.openReader(title, card.description || card.notes || '')
+  const tile = tvTile(bp, {
+    title,
+    onActivate: primary,
+    actions: () => [
+      hasEmbed && !isPopped && { label: 'Play full screen', onSelect: playFull },
+      hasEmbed && !isPopped && card.metadata?.aspect !== 'audio' && { label: 'Play in the card', onSelect: () => onPlay(card) },
+      hasEmbed && onPop && !isPopped && { label: 'Pop out', hint: 'keeps playing while you browse', onSelect: () => onPop(card) },
+      card.url && { label: hasEmbed ? 'Open the original' : 'Open link', onSelect: openLink },
+      descBody.length > 150 && { label: 'Read description', onSelect: () => bp.openReader(title, card.description) },
+      plan && { label: 'Read tutorial plan', onSelect: () => bp.openReader(`${title}: plan`, plan) },
+      watched && { label: 'What it says', onSelect: () => bp.openReader(`${title}: transcript`, watched.transcript || '(no speech)') },
+      card.notes && { label: 'Read note', onSelect: () => bp.openReader(`${title}: note`, card.notes) },
+      canServerAI && canPlan && { label: plan ? 'Regenerate plan' : 'Generate plan', disabled: planGenerating, onSelect: () => handleGeneratePlan(noEvent) },
+      canServerAI && isProduct && { label: deals ? 'Recheck price' : 'Find cheaper', disabled: dealsLoading, onSelect: () => handleFindDeals(noEvent) },
+      canServerAI && { label: 'Scrape again', hint: 'refresh title, image, description', disabled: scraping, onSelect: () => handleScrape(noEvent) },
+      // The TV's own text-entry dialog, since the card's inline editor buttons aren't stops.
+      canEdit && { label: card.notes ? 'Edit note' : 'Add note', onSelect: () => {
+        const next = window.prompt('Note', card.notes || '')
+        if (next != null && next !== (card.notes || '')) handleSaveNotes(card.id, next)
+      } },
+      { label: 'Share', onSelect: () => setSharing(true) },
+      canEdit && { label: 'Delete', danger: true, onSelect: () => bp.openActions(`Delete "${title}"?`, [
+        { label: 'Delete', danger: true, onSelect: () => onDelete(card.id) },
+      ]) },
+    ],
+  })
+
   return (
     <motion.div
+      {...tile}
       layout
       initial={{ opacity: 0, y: 16 }}
       animate={{ opacity: 1, y: 0 }}
@@ -670,7 +707,7 @@ export default function Card({ card, onDelete, onUpdate, nowPlayingId, onPlay, o
 
         {/* Card footer actions. Scrape and plan improve a card for the whole shelf,
             so anyone on it may run them; delete stays with whoever posted it. */}
-        {(canEdit || canServerAI) && <div className="flex items-center justify-between gap-2 mt-auto pt-2" style={{ borderTop: '1px solid var(--s-surface-2)' }}>
+        {(canEdit || canServerAI) && <div className="bp-hide flex items-center justify-between gap-2 mt-auto pt-2" style={{ borderTop: '1px solid var(--s-surface-2)' }}>
           <div className="flex flex-wrap items-center gap-1 min-w-0">
             {canServerAI && <button
               onClick={handleScrape}

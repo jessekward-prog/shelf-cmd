@@ -25,6 +25,7 @@ export default function InviteModal({ shelfId, shelfName, onClose, onShared }) {
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
       className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-4"
+      data-tv-modal="backdrop"
       style={{ background: 'rgba(0,0,0,0.7)' }}
       onClick={(e) => e.target === e.currentTarget && onClose()}
     >

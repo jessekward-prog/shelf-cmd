@@ -64,6 +64,7 @@ export default function ManageShelvesModal({ categories, onClose, onReorder, onR
     <motion.div
       initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
       className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-4"
+      data-tv-modal="backdrop"
       style={{ background: 'rgba(0,0,0,0.7)' }}
       onClick={(e) => e.target === e.currentTarget && onClose()}
     >
@@ -71,7 +72,7 @@ export default function ManageShelvesModal({ categories, onClose, onReorder, onR
         initial={{ y: 40, opacity: 0 }} animate={{ y: 0, opacity: 1 }} exit={{ y: 40, opacity: 0 }}
         transition={{ type: 'spring', damping: 22, stiffness: 300 }}
         className="w-full max-w-md rounded-xl p-5"
-        style={{ background: 'var(--s-surface)', border: '1px solid var(--s-border)', maxHeight: '85vh', display: 'flex', flexDirection: 'column' }}
+        style={{ background: 'var(--s-surface)', border: '1px solid var(--s-border)', maxHeight: 'calc(85vh / var(--bpz, 1))', display: 'flex', flexDirection: 'column' }}
       >
         <p className="text-sm font-medium mb-1" style={{ color: 'var(--s-accent)' }}>manage shelves</p>
         <p className="text-xs mb-4" style={{ color: 'var(--s-text-3)', lineHeight: 1.5 }}>

@@ -50,7 +50,7 @@ export default function MiniPlayer({ card, onClose }) {
           pointerEvents: 'auto',
           right: 16,
           bottom: 'var(--s-dock, 16px)',
-          maxWidth: 'calc(100vw - 2rem)',
+          maxWidth: 'calc(100vw / var(--bpz, 1) - 2rem)',
           background: 'var(--s-surface)',
           border: '1px solid var(--s-accent)',
           boxShadow: '0 0 24px var(--s-accent-glow), 0 0 85px 30px rgba(0,0,0,0.82), 0 12px 32px rgba(0,0,0,0.5)'

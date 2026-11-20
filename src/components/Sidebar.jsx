@@ -5,6 +5,7 @@ import ShelfIcon from './ShelfIcons.jsx'
 import MyAiPanel from './MyAiPanel.jsx'
 import WaveBackground from './WaveBackground.jsx'
 import { THEMES } from '../themes.js'
+import { useBigPicture } from '../bigpicture/BigPicture.jsx'
 
 // Same pulse used for "generating a guide" (GuideModal.jsx) — reused here so
 // a live hub reads as "something's actively running", not just "on".
@@ -173,6 +174,7 @@ export default function Sidebar({
   const [hoverCat, setHoverCat] = useState(null)
 
   const inShelves = activeView === 'bookmarks'
+  const bp = useBigPicture()
 
   // Favourites sit at the top and survive collapsing; everything else hides.
   const favCats = categories.filter(c => favorites.includes(c.id))
@@ -181,12 +183,13 @@ export default function Sidebar({
 
   return (
     <aside
+      data-tv-zone="nav"
       className="hidden lg:flex flex-col shrink-0 glass-bar"
       style={{
         width: 240,
         background: 'var(--s-surface)',
         borderRight: '1px solid var(--s-border)',
-        height: '100dvh', position: 'sticky', top: 0, overflow: 'hidden'
+        height: 'calc(100dvh / var(--bpz, 1))', position: 'sticky', top: 0, overflow: 'hidden'
       }}
     >
       {isCrt && <WaveBackground />}
@@ -197,7 +200,7 @@ export default function Sidebar({
               <button
                 onClick={() => setReordering(r => !r)}
                 title={reordering ? 'Done reordering' : 'Reorder shelves'}
-                className="glow-focus sidebar-tool"
+                className="glow-focus sidebar-tool bp-hide"
                 style={{ color: reordering ? 'var(--s-accent)' : 'var(--s-text-2)' }}
               >
                 <ReorderIcon />
@@ -258,6 +261,17 @@ export default function Sidebar({
                     active={active}
                     onClick={() => { if (!reordering) { onView('bookmarks'); onSelectCat(cat.id) } }}
                     title={cat.name}
+                    {...(bp.enabled && {
+                      'data-tv-menu': '',
+                      onContextMenu: (e) => {
+                        e.preventDefault()
+                        bp.openActions(cat.name, [
+                          { label: 'Open', onSelect: () => { onView('bookmarks'); onSelectCat(cat.id) } },
+                          { label: isFav ? 'Remove from favourites' : 'Add to favourites', onSelect: () => toggleFav(cat.id) },
+                          { label: 'Share this shelf', hint: 'get a code', onSelect: () => onShareCat(cat.id) },
+                        ])
+                      },
+                    })}
                     style={{ paddingRight: hoverCat === cat.id ? 52 : (isFav ? 26 : undefined) }}
                   >
                     <ShelfIcon name={cat.icon} />
