@@ -2045,6 +2045,20 @@ app.use(publicRouter)
 // HTML where it expected JSON and fails with a parse error instead of a 404.
 app.use('/api', (req, res) => res.status(404).json({ error: 'no such endpoint' }))
 
+// Vouches for the Android APK. Only the instance the APK opens may: this image
+// runs on other people's domains too.
+app.get('/.well-known/assetlinks.json', (req, res, next) => {
+  if (req.hostname !== 'shelf.cmdward.xyz') return next()
+  res.json([{
+    relation: ['delegate_permission/common.handle_all_urls'],
+    target: {
+      namespace: 'android_app',
+      package_name: 'xyz.cmdward.shelf',
+      sha256_cert_fingerprints: ['D2:31:6B:D2:65:93:53:DD:E0:A8:0D:A7:92:20:CF:1B:A3:61:73:14:CD:38:4B:E3:8C:89:03:04:BB:93:2B:0C']
+    }
+  }])
+})
+
 app.use(express.static(join(__dirname, '../dist')))
 app.get('*', (req, res) => res.sendFile(join(__dirname, '../dist/index.html')))
 

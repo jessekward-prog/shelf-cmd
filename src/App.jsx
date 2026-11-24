@@ -22,6 +22,7 @@ import ManageShelvesModal from './components/ManageShelvesModal.jsx'
 import ShelfChat from './components/ShelfChat.jsx'
 import * as api from './api.js'
 import { useTvHandlers } from './bigpicture/BigPicture.jsx'
+import { launchIntent } from './launch.js'
 import { getSavedTheme, applyTheme, getSavedIntensity, applyIntensity, getSavedGlass, applyGlass } from './themes.js'
 
 // Aesthetic [ Cards | Drive ] switch, shown for the active shelf in every tab.
@@ -57,6 +58,8 @@ function ModeToggle({ mode, onMode }) {
 }
 
 export default function App({ me }) {
+  const [launch] = useState(() => launchIntent(window.location.search))
+  const launchMode = useRef(launch.mode)
   const [user, setUser] = useState(me)
   const [theme, setTheme] = useState(getSavedTheme)
   const [categories, setCategories] = useState([])
@@ -65,7 +68,8 @@ export default function App({ me }) {
   const [activeSubcatId, setActiveSubcatId] = useState(null)
   const [cards, setCards] = useState([])
   const [search, setSearch] = useState('')
-  const [showAddCard, setShowAddCard] = useState(false)
+  const [showAddCard, setShowAddCard] = useState(!!launch.add)
+  const [addUrl, setAddUrl] = useState(launch.url || '')
   const [showAddCat, setShowAddCat] = useState(false)
   const [inviteFor, setInviteFor] = useState(null)
   const [showJoin, setShowJoin] = useState(false)
@@ -78,7 +82,7 @@ export default function App({ me }) {
     setFavorites(f => f.includes(id) ? f.filter(x => x !== id) : [...f, id])
   const [membersKey, setMembersKey] = useState(0)
   const [direction, setDirection] = useState(1)
-  const [activeView, setActiveView] = useState('bookmarks')
+  const [activeView, setActiveView] = useState(launch.view || 'bookmarks')
   const [showGuide, setShowGuide] = useState(false)
   const [guideModalCatId, setGuideModalCatId] = useState(null)
   const [guidesKey, setGuidesKey] = useState(0)
@@ -151,11 +155,16 @@ export default function App({ me }) {
     return api.getCategories().then((cats) => {
       setCategories(cats)
       if (selectId && cats.some(c => c.id === selectId)) setActiveCatId(selectId)
-      else if (cats.length) setActiveCatId(prev => prev ?? cats[0].id)
+      else if (cats.length) setActiveCatId(prev => prev ?? (cats.find(c => !c.archived) ?? cats[0]).id)
     })
   }, [])
 
   useEffect(() => { loadTopLevel() }, [loadTopLevel])
+
+  // Consumed above; a reload must not open the modal again.
+  useEffect(() => {
+    if (Object.keys(launch).length) window.history.replaceState(null, '', window.location.pathname)
+  }, [])
 
   useEffect(() => { api.getHubConfig().then(c => setHubHosting(!!c.hostedHubEnabled)).catch(() => {}) }, [])
 
@@ -163,9 +172,12 @@ export default function App({ me }) {
     if (!activeCatId) return
     setActiveSubcatId(null)
     setSearch('')
-    setShelfMode('cards')
+    setShelfMode(launchMode.current || 'cards')
+    launchMode.current = null
     const catId = activeCatId
-    api.getSubcategories(catId).then(setSubcategories).catch(() => setSubcategories([]))
+    api.getSubcategories(catId)
+      .then(subs => { if (activeCatRef.current === catId) setSubcategories(subs) })
+      .catch(() => setSubcategories([]))
     loadCards(catId, null)
     // Fire-and-forget: pull anything missed since the last background poll.
     // Local data is already showing, so this just patches it in once it
@@ -531,7 +543,7 @@ export default function App({ me }) {
 
           {activeView === 'notes' && (
             <div className="lg:max-w-3xl lg:px-8 lg:pt-7">
-              <NotesTab />
+              <NotesTab initialContent={launch.note} />
             </div>
           )}
 
@@ -646,9 +658,12 @@ export default function App({ me }) {
         {showAddCard && (
           <AddCardModal
             categoryId={activeCatId}
+            categories={launch.add ? visibleCategories : null}
+            onSelectCategory={(id) => { setSubcategories([]); selectCategory(id) }}
+            initialUrl={addUrl}
             subcategories={subcategories}
             onAdd={handleAddCard}
-            onClose={() => setShowAddCard(false)}
+            onClose={() => { setShowAddCard(false); setAddUrl('') }}
           />
         )}
         {showAddCat && (

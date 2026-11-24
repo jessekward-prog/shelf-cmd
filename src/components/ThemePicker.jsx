@@ -3,6 +3,7 @@ import { motion, AnimatePresence } from 'framer-motion'
 import { THEMES, FONTS, applyTheme, applyIntensity, applyFont, applyOverlay, applyGlass, getSavedIntensity, getSavedFont, getSavedOverlay, getSavedGlass } from '../themes.js'
 import * as api from '../api.js'
 import { BigPictureSettings } from '../bigpicture/BigPicture.jsx'
+import { keepsUnlocked, setKeepUnlocked } from '../launch.js'
 
 const CRT_THEMES   = THEMES.filter(t => t.group === 'crt')
 const CLEAN_THEMES = THEMES.filter(t => t.group === 'clean')
@@ -179,6 +180,14 @@ function Identity({ user, onRenamed }) {
         placeholder="username"
         style={inputStyle}
       />
+      {keepsUnlocked() && (
+        <button
+          onClick={() => { setKeepUnlocked(false); sessionStorage.removeItem('shelf_authed'); window.location.reload() }}
+          style={{ ...inputStyle, cursor: 'pointer', textAlign: 'left' }}
+        >
+          lock and ask for the PIN again
+        </button>
+      )}
       {saved && <span style={{ fontSize: 9, color: 'var(--s-accent)' }}>name updated everywhere</span>}
     </div>
   )

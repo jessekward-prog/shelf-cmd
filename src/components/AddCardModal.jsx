@@ -1,8 +1,8 @@
 import { useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 
-export default function AddCardModal({ categoryId, subcategories, onAdd, onClose }) {
-  const [url, setUrl] = useState('')
+export default function AddCardModal({ categoryId, categories, onSelectCategory, initialUrl = '', subcategories, onAdd, onClose }) {
+  const [url, setUrl] = useState(initialUrl)
   const [imageUrl, setImageUrl] = useState('')
   const [showImageField, setShowImageField] = useState(false)
   const [subcatId, setSubcatId] = useState('')
@@ -77,6 +77,20 @@ export default function AddCardModal({ categoryId, subcategories, onAdd, onClose
             )}
           </AnimatePresence>
 
+          {categories && (
+            <select
+              aria-label="shelf"
+              value={categoryId ?? ''}
+              onChange={(e) => { setSubcatId(''); onSelectCategory(Number(e.target.value)) }}
+              className="w-full px-3 py-2 rounded-lg text-sm"
+              style={{ background: 'var(--s-bg)', border: '1px solid var(--s-border)', color: 'var(--s-text-1)', outline: 'none' }}
+            >
+              {categories.map((c) => (
+                <option key={c.id} value={c.id}>{c.name}</option>
+              ))}
+            </select>
+          )}
+
           {subcategories.length > 0 && (
             <select
               value={subcatId}
@@ -118,13 +132,13 @@ export default function AddCardModal({ categoryId, subcategories, onAdd, onClose
             </button>
             <motion.button
               type="submit"
-              disabled={!url.trim() || busy}
+              disabled={!url.trim() || !categoryId || busy}
               whileTap={{ scale: 0.96 }}
               className="flex-1 py-2 rounded-lg text-sm font-medium"
               style={{
                 background: 'var(--s-accent)',
                 color: 'var(--s-bg)',
-                opacity: !url.trim() || busy ? 0.4 : 1
+                opacity: !url.trim() || !categoryId || busy ? 0.4 : 1
               }}
             >
               {busy ? 'adding…' : 'add'}

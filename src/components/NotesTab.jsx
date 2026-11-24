@@ -24,9 +24,9 @@ function NoteContent({ content }) {
   )
 }
 
-export default function NotesTab() {
+export default function NotesTab({ initialContent = '' }) {
   const [notes, setNotes] = useState([])
-  const [content, setContent] = useState('')
+  const [content, setContent] = useState(initialContent)
   const [label, setLabel] = useState('')
   const [saving, setSaving] = useState(false)
   const [toast, setToast] = useState(null)
@@ -99,6 +99,7 @@ export default function NotesTab() {
         />
         <textarea
           rows={4}
+          autoFocus={!!initialContent}
           placeholder="Paste text, links, notes… (⌘+Enter to save)"
           value={content}
           onChange={e => setContent(e.target.value)}

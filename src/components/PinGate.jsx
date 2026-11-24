@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { getSavedTheme, applyTheme, getSavedIntensity, applyIntensity, getSavedFont, applyFont, getSavedOverlay, applyOverlay } from '../themes.js'
 import * as api from '../api.js'
+import { inApp, keepsUnlocked, setKeepUnlocked } from '../launch.js'
 
 const AUTH_KEY = 'shelf_authed'
 const PIN_LENGTH = 4
@@ -69,6 +70,7 @@ export default function PinGate({ children }) {
   const [firstPin, setFirstPin] = useState('')
   const [error, setError] = useState('')
   const [me, setMe] = useState(null)
+  const [keep, setKeep] = useState(false)
 
   const askForPin = useCallback(() => {
     fetch('/api/pin')
@@ -81,7 +83,7 @@ export default function PinGate({ children }) {
     if (!api.getToken()) return askForPin()
     api.getMe()
       .then(user => {
-        if (sessionStorage.getItem(AUTH_KEY) === '1') setMe(user)
+        if (sessionStorage.getItem(AUTH_KEY) === '1' || keepsUnlocked()) setMe(user)
         else askForPin()
       })
       .catch(() => { api.clearToken(); askForPin() })
@@ -90,6 +92,7 @@ export default function PinGate({ children }) {
   const finishPin = async ({ token }) => {
     api.setToken(token)
     sessionStorage.setItem(AUTH_KEY, '1')
+    if (keep) setKeepUnlocked(true)
     setMe(await api.getMe())
   }
 
@@ -159,7 +162,7 @@ export default function PinGate({ children }) {
           setDigits('')
         })
     }
-  }, [digits, mode, firstPin])
+  }, [digits, mode, firstPin, keep])
 
   if (me) return children(me)
 
@@ -203,6 +206,14 @@ export default function PinGate({ children }) {
       </div>
 
       <NumPad onDigit={handleDigit} onBack={handleBack} />
+
+      {inApp() && (
+        <label style={{ display: 'flex', alignItems: 'center', gap: 10, minHeight: 44, color: 'var(--s-text-3)', fontSize: 13 }}>
+          <input type="checkbox" checked={keep} onChange={(e) => setKeep(e.target.checked)}
+            style={{ width: 18, height: 18, accentColor: 'var(--s-accent)' }} />
+          stay unlocked on this phone
+        </label>
+      )}
 
       <AnimatePresence>
         {error && (
